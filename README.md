@@ -1,6 +1,6 @@
 # MirrorURL
 
-[![CI](https://github.com/podlipnik/mirror-url/actions/workflows/ci.yml/badge.svg)](https://github.com/podlipnik/mirror-url/actions/workflows/ci.yml)
+[![CI](https://github.com/bpodlipnik/mirror-url/actions/workflows/ci.yml/badge.svg)](https://github.com/bpodlipnik/mirror-url/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.9%E2%80%933.12-blue)](https://www.python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 

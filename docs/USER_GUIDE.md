@@ -96,9 +96,9 @@ Available extras: `fast` (stringzilla + lxml), `progress` (tqdm),
 ### From a Git repository
 
 ```bash
-pip install "git+https://github.com/podlipnik/mirror-url.git@v3.1.13"
+pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.13"
 # private repo over SSH:
-pip install "git+ssh://git@github.com/podlipnik/mirror-url.git@v3.1.13"
+pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.1.13"
 ```
 
 ### From PyPI (if published)
@@ -111,7 +111,7 @@ pip install mirror-url
 
 ```bash
 pipx install /tmp/mirror_url-3.1.13-py3-none-any.whl
-# or:  pipx install "git+https://github.com/podlipnik/mirror-url.git@v3.1.13"
+# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.13"
 ```
 
 ### With Docker

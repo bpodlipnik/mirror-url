@@ -54,9 +54,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/podlipnik/mirror-url"
-Repository = "https://github.com/podlipnik/mirror-url"
-Issues = "https://github.com/podlipnik/mirror-url/issues"
+Homepage = "https://github.com/bpodlipnik/mirror-url"
+Repository = "https://github.com/bpodlipnik/mirror-url"
+Issues = "https://github.com/bpodlipnik/mirror-url/issues"
 
 # Console entry point: the `mirror-url` command runs mirror_url.cli:main.
 [project.scripts]
