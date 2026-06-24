@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>MirrorURL — User Guide</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    span.underline{text-decoration: underline;}
+    div.column{display: inline-block; vertical-align: top; width: 50%;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    ul.task-list{list-style: none;}
+    pre > code.sourceCode { white-space: pre; position: relative; }
+    pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+    pre > code.sourceCode > span:empty { height: 1.2em; }
+    code.sourceCode > span { color: inherit; text-decoration: inherit; }
+    div.sourceCode { margin: 1em 0; }
+    pre.sourceCode { margin: 0; }
+    @media screen {
+    div.sourceCode { overflow: auto; }
+    }
+    @media print {
+    pre > code.sourceCode { white-space: pre-wrap; }
+    pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+    }
+    pre.numberSource code
+      { counter-reset: source-line 0; }
+    pre.numberSource code > span
+      { position: relative; left: -4em; counter-increment: source-line; }
+    pre.numberSource code > span > a:first-child::before
+      { content: counter(source-line);
+        position: relative; left: -1em; text-align: right; vertical-align: baseline;
+        border: none; display: inline-block;
+        -webkit-touch-callout: none; -webkit-user-select: none;
+        -khtml-user-select: none; -moz-user-select: none;
+        -ms-user-select: none; user-select: none;
+        padding: 0 4px; width: 4em;
+        color: #aaaaaa;
+      }
+    pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa;  padding-left: 4px; }
+    div.sourceCode
+      {   }
+    @media screen {
+    pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+    }
+    code span.al { color: #ff0000; font-weight: bold; } /* Alert */
+    code span.an { color: #60a0b0; font-weight: bold; font-style: italic; } /* Annotation */
+    code span.at { color: #7d9029; } /* Attribute */
+    code span.bn { color: #40a070; } /* BaseN */
+    code span.bu { } /* BuiltIn */
+    code span.cf { color: #007020; font-weight: bold; } /* ControlFlow */
+    code span.ch { color: #4070a0; } /* Char */
+    code span.cn { color: #880000; } /* Constant */
+    code span.co { color: #60a0b0; font-style: italic; } /* Comment */
+    code span.cv { color: #60a0b0; font-weight: bold; font-style: italic; } /* CommentVar */
+    code span.do { color: #ba2121; font-style: italic; } /* Documentation */
+    code span.dt { color: #902000; } /* DataType */
+    code span.dv { color: #40a070; } /* DecVal */
+    code span.er { color: #ff0000; font-weight: bold; } /* Error */
+    code span.ex { } /* Extension */
+    code span.fl { color: #40a070; } /* Float */
+    code span.fu { color: #06287e; } /* Function */
+    code span.im { } /* Import */
+    code span.in { color: #60a0b0; font-weight: bold; font-style: italic; } /* Information */
+    code span.kw { color: #007020; font-weight: bold; } /* Keyword */
+    code span.op { color: #666666; } /* Operator */
+    code span.ot { color: #007020; } /* Other */
+    code span.pp { color: #bc7a00; } /* Preprocessor */
+    code span.sc { color: #4070a0; } /* SpecialChar */
+    code span.ss { color: #bb6688; } /* SpecialString */
+    code span.st { color: #4070a0; } /* String */
+    code span.va { color: #19177c; } /* Variable */
+    code span.vs { color: #4070a0; } /* VerbatimString */
+    code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; } /* Warning */
+  </style>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root { --fg:#1f2328; --muted:#656d76; --accent:#0969da; --border:#d0d7de;
+            --code-bg:#f6f8fa; --table-alt:#f6f8fa; }
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+           color: var(--fg); line-height: 1.6; max-width: 900px; margin: 0 auto;
+           padding: 2.5rem 1.25rem 5rem; }
+    h1,h2,h3 { line-height: 1.25; margin-top: 2rem; }
+    h1 { font-size: 2rem; border-bottom: 2px solid var(--border); padding-bottom: .4rem; }
+    h2 { font-size: 1.45rem; border-bottom: 1px solid var(--border); padding-bottom: .3rem; }
+    h3 { font-size: 1.15rem; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    code { background: var(--code-bg); padding: .15em .35em; border-radius: 6px;
+           font-size: .88em; font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; }
+    pre { background: var(--code-bg); padding: 1rem; border-radius: 8px; overflow-x: auto;
+          border: 1px solid var(--border); }
+    pre code { background: none; padding: 0; font-size: .85em; }
+    table { border-collapse: collapse; width: 100%; margin: 1rem 0; display: block; overflow-x: auto; }
+    th, td { border: 1px solid var(--border); padding: .5rem .7rem; text-align: left; vertical-align: top; }
+    th { background: var(--code-bg); }
+    tr:nth-child(even) td { background: var(--table-alt); }
+    blockquote { border-left: 4px solid var(--accent); margin: 1rem 0; padding: .25rem 1rem;
+                 color: var(--muted); background: #f6f8fa55; }
+    #TOC { background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px;
+           padding: 1rem 1.25rem; margin: 1.5rem 0; }
+    #TOC ul { margin: .25rem 0; }
+    hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+    .title { margin-bottom: .25rem; }
+  </style>
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">MirrorURL — User Guide</h1>
+</header>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a href="#mirrorurl-user-guide">MirrorURL — User Guide</a>
+<ul>
+<li><a href="#table-of-contents">Table of contents</a></li>
+<li><a href="#what-it-does">What it does</a></li>
+<li><a href="#requirements">Requirements</a></li>
+<li><a href="#installation">Installation</a></li>
+<li><a href="#quick-start">Quick start</a></li>
+<li><a href="#command-line-usage">Command-line usage</a></li>
+<li><a href="#configuration-files-yamljson">Configuration files (YAML/JSON)</a></li>
+<li><a href="#download-modes">Download modes</a></li>
+<li><a href="#filtering-and-scope-1">Filtering and scope</a></li>
+<li><a href="#caching-and-incremental-sync">Caching and incremental sync</a></li>
+<li><a href="#cleaning-up-obsolete-files">Cleaning up obsolete files</a></li>
+<li><a href="#security">Security</a></li>
+<li><a href="#monitoring-and-metrics">Monitoring and metrics</a></li>
+<li><a href="#using-mirrorurl-from-python">Using MirrorURL from Python</a></li>
+<li><a href="#exit-codes">Exit codes</a></li>
+<li><a href="#troubleshooting">Troubleshooting</a></li>
+<li><a href="#uninstalling">Uninstalling</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1 id="mirrorurl-user-guide">MirrorURL — User Guide</h1>
+<p>MirrorURL is an enterprise-grade command-line tool and Python library for mirroring files behind an HTTP(S) <strong>directory listing</strong> to local disk. It walks the remote directory tree, decides which files are new or changed, and downloads them efficiently — with adaptive concurrency, resumable/parallel downloads, integrity checks, incremental caching, and an SSRF-hardened transport layer.</p>
+<ul>
+<li><strong>Version:</strong> 3.1.13</li>
+<li><strong>Python:</strong> 3.9 – 3.12 (pure Python, any OS/architecture)</li>
+<li><strong>License:</strong> MIT</li>
+</ul>
+<hr />
+<h2 id="table-of-contents">Table of contents</h2>
+<ul>
+<li><a href="#what-it-does">What it does</a></li>
+<li><a href="#requirements">Requirements</a></li>
+<li><a href="#installation">Installation</a></li>
+<li><a href="#quick-start">Quick start</a></li>
+<li><a href="#command-line-usage">Command-line usage</a></li>
+<li><a href="#configuration-files-yamljson">Configuration files (YAML/JSON)</a></li>
+<li><a href="#download-modes">Download modes</a></li>
+<li><a href="#filtering-and-scope">Filtering and scope</a></li>
+<li><a href="#caching-and-incremental-sync">Caching and incremental sync</a></li>
+<li><a href="#cleaning-up-obsolete-files">Cleaning up obsolete files</a></li>
+<li><a href="#security">Security</a></li>
+<li><a href="#monitoring-and-metrics">Monitoring and metrics</a></li>
+<li><a href="#using-mirrorurl-from-python">Using MirrorURL from Python</a></li>
+<li><a href="#exit-codes">Exit codes</a></li>
+<li><a href="#troubleshooting">Troubleshooting</a></li>
+<li><a href="#uninstalling">Uninstalling</a></li>
+</ul>
+<hr />
+<h2 id="what-it-does">What it does</h2>
+<p>Given a base URL that serves an HTML directory index (e.g. an Apache/nginx “Index of /…” page, a data archive, an artifact server), MirrorURL:</p>
+<ol type="1">
+<li><strong>Discovers</strong> the remote tree by recursively parsing directory listings (breadth-first, with depth and exclusion limits, cycle-safe).</li>
+<li><strong>Compares</strong> each remote file against the local copy using size, timestamp, ETag, and optional content hashing — so re-runs only fetch what changed.</li>
+<li><strong>Downloads</strong> the missing/changed files, optionally in parallel (multiple files and/or multiple chunks per file) with resume support.</li>
+<li><strong>Optionally cleans up</strong> local files that no longer exist remotely (preview / move / delete policies).</li>
+</ol>
+<p>Highlights: adaptive async metadata checks, per-domain circuit breakers, bandwidth limiting, integrity verification, a persistent cache for fast incremental runs, and strong SSRF/path-traversal protections.</p>
+<hr />
+<h2 id="requirements">Requirements</h2>
+<ul>
+<li><strong>Python 3.9 or newer.</strong></li>
+<li>Runtime dependencies (installed automatically): <code>httpx</code>, <code>pydantic</code> (v2), <code>PyYAML</code>.</li>
+<li>Optional accelerators (install via extras, see below): <code>stringzilla</code> + <code>lxml</code> (faster parsing), <code>tqdm</code> (progress bars), <code>psutil</code> (memory/disk monitoring).</li>
+</ul>
+<hr />
+<h2 id="installation">Installation</h2>
+<blockquote>
+<p>Always install into a <strong>virtual environment</strong> to keep dependencies isolated.</p>
+</blockquote>
+<h3 id="from-a-built-wheel-recommended-for-servers">From a built wheel (recommended for servers)</h3>
+<p>On a build machine:</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true"></a><span class="ex">pip</span> install build</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true"></a><span class="ex">python</span> -m build          # produces dist/mirror_url-3.1.13-py3-none-any.whl</span></code></pre></div>
+<p>Copy the wheel to the target server and install it:</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true"></a><span class="ex">python3</span> -m venv /opt/mirror-url</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true"></a><span class="ex">/opt/mirror-url/bin/pip</span> install /tmp/mirror_url-3.1.13-py3-none-any.whl</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true"></a><span class="ex">/opt/mirror-url/bin/mirror-url</span> --help</span></code></pre></div>
+<p>To include the optional speed extras:</p>
+<div class="sourceCode" id="cb3"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true"></a><span class="ex">/opt/mirror-url/bin/pip</span> install <span class="st">&quot;/tmp/mirror_url-3.1.13-py3-none-any.whl[fast]&quot;</span></span></code></pre></div>
+<p>Available extras: <code>fast</code> (stringzilla + lxml), <code>progress</code> (tqdm), <code>monitor</code> (psutil), <code>all</code> (everything), <code>dev</code> (test/lint toolchain).</p>
+<h3 id="from-a-git-repository">From a Git repository</h3>
+<div class="sourceCode" id="cb4"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true"></a><span class="ex">pip</span> install <span class="st">&quot;git+https://github.com/podlipnik/mirror-url.git@v3.1.13&quot;</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true"></a><span class="co"># private repo over SSH:</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true"></a><span class="ex">pip</span> install <span class="st">&quot;git+ssh://git@github.com/podlipnik/mirror-url.git@v3.1.13&quot;</span></span></code></pre></div>
+<h3 id="from-pypi-if-published">From PyPI (if published)</h3>
+<div class="sourceCode" id="cb5"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true"></a><span class="ex">pip</span> install mirror-url</span></code></pre></div>
+<h3 id="as-an-isolated-cli-with-pipx">As an isolated CLI with pipx</h3>
+<div class="sourceCode" id="cb6"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true"></a><span class="ex">pipx</span> install /tmp/mirror_url-3.1.13-py3-none-any.whl</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true"></a><span class="co"># or:  pipx install &quot;git+https://github.com/podlipnik/mirror-url.git@v3.1.13&quot;</span></span></code></pre></div>
+<h3 id="with-docker">With Docker</h3>
+<div class="sourceCode" id="cb7"><pre class="sourceCode dockerfile"><code class="sourceCode dockerfile"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true"></a><span class="kw">FROM</span> python:3.12-slim</span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true"></a><span class="kw">COPY</span> dist/mirror_url-3.1.13-py3-none-any.whl /tmp/</span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true"></a><span class="kw">RUN</span> pip install --no-cache-dir <span class="st">&quot;/tmp/mirror_url-3.1.13-py3-none-any.whl[fast]&quot;</span></span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true"></a><span class="kw">ENTRYPOINT</span> [<span class="st">&quot;mirror-url&quot;</span>]</span></code></pre></div>
+<h3 id="verify-the-install">Verify the install</h3>
+<div class="sourceCode" id="cb8"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true"></a><span class="ex">mirror-url</span> --help</span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true"></a><span class="ex">python</span> -c <span class="st">&quot;import mirror_url; print(mirror_url.__version__)&quot;</span></span></code></pre></div>
+<p>The package exposes two equivalent entry points: the <code>mirror-url</code> console command and <code>python -m mirror_url</code>.</p>
+<hr />
+<h2 id="quick-start">Quick start</h2>
+<p>Mirror a remote directory to a local folder:</p>
+<div class="sourceCode" id="cb9"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true"></a><span class="ex">mirror-url</span> <span class="kw">\</span></span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true"></a>  <span class="ex">--url</span> https://example.com/datasets/ <span class="kw">\</span></span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true"></a>  <span class="ex">--dest-path</span> ./mirror <span class="kw">\</span></span>
+<span id="cb9-4"><a href="#cb9-4" aria-hidden="true"></a>  <span class="ex">--log-path</span> ./logs</span></code></pre></div>
+<ul>
+<li><code>--url</code> — the base URL to mirror (must serve an HTML directory listing).</li>
+<li><code>--dest-path</code> — where files are written locally.</li>
+<li><code>--log-path</code> — where run logs and the incremental cache are stored.</li>
+</ul>
+<p>Re-running the same command later performs an <strong>incremental sync</strong>: only new or changed files are downloaded.</p>
+<p>Prefer a config file for anything non-trivial:</p>
+<div class="sourceCode" id="cb10"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true"></a><span class="ex">mirror-url</span> --config mirror.yaml</span></code></pre></div>
+<hr />
+<h2 id="command-line-usage">Command-line usage</h2>
+<p>Either supply <code>--url</code>, <code>--dest-path</code>, and <code>--log-path</code>, <strong>or</strong> point at a config file with <code>--config</code>. Run <code>mirror-url --help</code> for the complete, authoritative list of options. The most commonly used options:</p>
+<h3 id="targets">Targets</h3>
+<table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Option</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>--url URL</code></td>
+<td>Base URL to mirror (required unless <code>--config</code> is used).</td>
+</tr>
+<tr class="even">
+<td><code>--dest-path DIR</code></td>
+<td>Local destination directory.</td>
+</tr>
+<tr class="odd">
+<td><code>--log-path DIR</code></td>
+<td>Directory for logs and the cache file.</td>
+</tr>
+<tr class="even">
+<td><code>--config FILE</code></td>
+<td>YAML or JSON configuration file (see below).</td>
+</tr>
+<tr class="odd">
+<td><code>--dir-suffix S [S ...]</code></td>
+<td>Mirror one or more subpaths under the base URL (e.g. <code>L1/v1 L2/v2</code>).</td>
+</tr>
+</tbody>
+</table>
+<h3 id="download-method">Download method</h3>
+<table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Option</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><em>(default)</em></td>
+<td>Auto-select the best method at runtime.</td>
+</tr>
+<tr class="even">
+<td><code>--sequential-downloads</code></td>
+<td>One file at a time, no parallelism (most conservative).</td>
+</tr>
+<tr class="odd">
+<td><code>--parallel-downloads</code></td>
+<td>Traditional parallel chunks via temp files (safe, resumable).</td>
+</tr>
+<tr class="even">
+<td><code>--streaming-parallel</code></td>
+<td>Parallel chunks written directly into the final file (fastest for huge files).</td>
+</tr>
+<tr class="odd">
+<td><code>--max-concurrent-downloads N</code></td>
+<td>Max files downloaded at once (default 10).</td>
+</tr>
+<tr class="even">
+<td><code>--max-chunks N</code></td>
+<td>Max chunks per file (default 8).</td>
+</tr>
+<tr class="odd">
+<td><code>--min-chunk-size MB</code></td>
+<td>Minimum chunk size in MB (default 10).</td>
+</tr>
+<tr class="even">
+<td><code>--auto-concurrency</code></td>
+<td>Tune parallel concurrency from measured throughput.</td>
+</tr>
+<tr class="odd">
+<td><code>--bandwidth-limit MB/S</code></td>
+<td>Cap total download bandwidth.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="performance-and-networking">Performance and networking</h3>
+<table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Option</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>--workers N</code></td>
+<td>Sync worker threads (default 8).</td>
+</tr>
+<tr class="even">
+<td><code>--async-workers N</code></td>
+<td>Async metadata-check workers (default 50).</td>
+</tr>
+<tr class="odd">
+<td><code>--no-async-metadata</code></td>
+<td>Disable async metadata checks (use on throttled servers).</td>
+</tr>
+<tr class="even">
+<td><code>--timeout SECS</code></td>
+<td>Per-request timeout (default 30).</td>
+</tr>
+<tr class="odd">
+<td><code>--max-retries N</code></td>
+<td>Retries per request (default 3).</td>
+</tr>
+<tr class="even">
+<td><code>--trusted-server</code></td>
+<td>Use faster rate limiting (10 ms vs 50 ms between requests).</td>
+</tr>
+<tr class="odd">
+<td><code>--no-http2</code></td>
+<td>Disable HTTP/2.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="caching">Caching</h3>
+<table>
+<thead>
+<tr class="header">
+<th>Option</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>--no-cache</code></td>
+<td>Disable the on-disk cache (always re-scan).</td>
+</tr>
+<tr class="even">
+<td><code>--refresh-cache</code></td>
+<td>Force a full cache refresh this run.</td>
+</tr>
+<tr class="odd">
+<td><code>--cache-max-age DAYS</code></td>
+<td>Max cache age before auto-refresh (default 7).</td>
+</tr>
+<tr class="even">
+<td><code>--no-etag</code></td>
+<td>Disable ETag-based change detection.</td>
+</tr>
+<tr class="odd">
+<td><code>--quick</code></td>
+<td>Quick mode: refresh the cache timestamp only.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="filtering-and-scope">Filtering and scope</h3>
+<table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Option</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>--filter P [P ...]</code></td>
+<td>Only download matching files. Each pattern is a plain extension (<code>.fits</code>) or a regex (<code>'2024.*\.fits$'</code>).</td>
+</tr>
+<tr class="even">
+<td><code>--exclude-dir D [D ...]</code></td>
+<td>Skip matching directories.</td>
+</tr>
+<tr class="odd">
+<td><code>--max-depth N</code></td>
+<td>Maximum directory recursion depth (default 50).</td>
+</tr>
+</tbody>
+</table>
+<h3 id="cleanup-of-obsolete-local-files">Cleanup of obsolete local files</h3>
+<table>
+<thead>
+<tr class="header">
+<th>Option</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>--cleanup safe</code></td>
+<td><strong>Default.</strong> Never delete anything.</td>
+</tr>
+<tr class="even">
+<td><code>--cleanup preview</code></td>
+<td>Show what <em>would</em> be deleted/moved, but do nothing.</td>
+</tr>
+<tr class="odd">
+<td><code>--cleanup move</code></td>
+<td>Move obsolete files into an <code>_obsolete/</code> folder.</td>
+</tr>
+<tr class="even">
+<td><code>--cleanup delete</code></td>
+<td>Delete obsolete files.</td>
+</tr>
+<tr class="odd">
+<td><code>--confirm-delete</code></td>
+<td>Require interactive confirmation (delete mode).</td>
+</tr>
+<tr class="even">
+<td><code>--dry-run</code></td>
+<td>Simulate the whole run without downloading or deleting.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="output-and-diagnostics">Output and diagnostics</h3>
+<table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Option</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>--progress-bar</code></td>
+<td>Show a tqdm progress bar (needs the <code>progress</code> extra).</td>
+</tr>
+<tr class="even">
+<td><code>--stats</code></td>
+<td>Print detailed statistics at the end.</td>
+</tr>
+<tr class="odd">
+<td><code>--metrics-json FILE</code></td>
+<td>Export run metrics to a JSON file.</td>
+</tr>
+<tr class="even">
+<td><code>--verbose</code> / <code>--debug</code></td>
+<td>More logging.</td>
+</tr>
+<tr class="odd">
+<td><code>--quiet</code></td>
+<td>Warnings and errors only.</td>
+</tr>
+<tr class="even">
+<td><code>--health-check-port N</code></td>
+<td>Port for the health/metrics HTTP server (default 8080).</td>
+</tr>
+<tr class="odd">
+<td><code>--version</code></td>
+<td>Print version and exit.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="examples">Examples</h3>
+<p>Mirror only FITS files, large parallel downloads, export metrics:</p>
+<div class="sourceCode" id="cb11"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true"></a><span class="ex">mirror-url</span> <span class="kw">\</span></span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true"></a>  <span class="ex">--url</span> https://archive.example.org/mission/ <span class="kw">\</span></span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true"></a>  <span class="ex">--dest-path</span> /data/mission <span class="kw">\</span></span>
+<span id="cb11-4"><a href="#cb11-4" aria-hidden="true"></a>  <span class="ex">--log-path</span> /var/log/mirror <span class="kw">\</span></span>
+<span id="cb11-5"><a href="#cb11-5" aria-hidden="true"></a>  <span class="ex">--filter</span> .fits <span class="kw">\</span></span>
+<span id="cb11-6"><a href="#cb11-6" aria-hidden="true"></a>  <span class="ex">--streaming-parallel</span> --max-concurrent-downloads 6 <span class="kw">\</span></span>
+<span id="cb11-7"><a href="#cb11-7" aria-hidden="true"></a>  <span class="ex">--metrics-json</span> /var/log/mirror/run.json</span></code></pre></div>
+<p>Preview what a cleanup would remove, without touching anything:</p>
+<div class="sourceCode" id="cb12"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true"></a><span class="ex">mirror-url</span> --config mirror.yaml --cleanup preview</span></code></pre></div>
+<p>Dry-run to see what a first sync would download:</p>
+<div class="sourceCode" id="cb13"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true"></a><span class="ex">mirror-url</span> --url https://example.com/files/ --dest-path ./m --log-path ./l --dry-run</span></code></pre></div>
+<p>Mirror several versioned subdirectories in one run:</p>
+<div class="sourceCode" id="cb14"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true"></a><span class="ex">mirror-url</span> --url https://example.com/product/ <span class="kw">\</span></span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true"></a>  <span class="ex">--dest-path</span> ./mirror --log-path ./logs <span class="kw">\</span></span>
+<span id="cb14-3"><a href="#cb14-3" aria-hidden="true"></a>  <span class="ex">--dir-suffix</span> L1/v2 L2/v1</span></code></pre></div>
+<p>Conservative settings for a slow/throttled server:</p>
+<div class="sourceCode" id="cb15"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true"></a><span class="ex">mirror-url</span> --config mirror.yaml <span class="kw">\</span></span>
+<span id="cb15-2"><a href="#cb15-2" aria-hidden="true"></a>  <span class="ex">--sequential-downloads</span> --no-async-metadata --workers 2 --request-delay 0.2</span></code></pre></div>
+<hr />
+<h2 id="configuration-files-yamljson">Configuration files (YAML/JSON)</h2>
+<p>For repeatable jobs, put settings in a YAML (or JSON) file and run <code>mirror-url --config mirror.yaml</code>. CLI flags still work and take precedence where applicable. Only <code>base_url</code>, <code>dest_path</code>, and <code>log_path</code> are required.</p>
+<div class="sourceCode" id="cb16"><pre class="sourceCode yaml"><code class="sourceCode yaml"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true"></a><span class="co"># mirror.yaml</span></span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true"></a><span class="fu">base_url</span><span class="kw">:</span><span class="at"> https://archive.example.org/mission/</span></span>
+<span id="cb16-3"><a href="#cb16-3" aria-hidden="true"></a><span class="fu">dest_path</span><span class="kw">:</span><span class="at"> /data/mission</span></span>
+<span id="cb16-4"><a href="#cb16-4" aria-hidden="true"></a><span class="fu">log_path</span><span class="kw">:</span><span class="at"> /var/log/mirror</span></span>
+<span id="cb16-5"><a href="#cb16-5" aria-hidden="true"></a></span>
+<span id="cb16-6"><a href="#cb16-6" aria-hidden="true"></a><span class="co"># Performance</span></span>
+<span id="cb16-7"><a href="#cb16-7" aria-hidden="true"></a><span class="fu">workers</span><span class="kw">:</span><span class="at"> </span><span class="dv">8</span></span>
+<span id="cb16-8"><a href="#cb16-8" aria-hidden="true"></a><span class="fu">async_metadata</span><span class="kw">:</span><span class="at"> </span><span class="ch">true</span></span>
+<span id="cb16-9"><a href="#cb16-9" aria-hidden="true"></a><span class="fu">async_workers</span><span class="kw">:</span><span class="at"> </span><span class="dv">50</span></span>
+<span id="cb16-10"><a href="#cb16-10" aria-hidden="true"></a><span class="fu">timeout</span><span class="kw">:</span><span class="at"> </span><span class="dv">30</span></span>
+<span id="cb16-11"><a href="#cb16-11" aria-hidden="true"></a><span class="fu">max_retries</span><span class="kw">:</span><span class="at"> </span><span class="dv">3</span></span>
+<span id="cb16-12"><a href="#cb16-12" aria-hidden="true"></a><span class="fu">trusted_server</span><span class="kw">:</span><span class="at"> </span><span class="ch">false</span></span>
+<span id="cb16-13"><a href="#cb16-13" aria-hidden="true"></a></span>
+<span id="cb16-14"><a href="#cb16-14" aria-hidden="true"></a><span class="co"># Download method (pick at most one; omit for auto-select)</span></span>
+<span id="cb16-15"><a href="#cb16-15" aria-hidden="true"></a><span class="fu">parallel_downloads</span><span class="kw">:</span><span class="at"> </span><span class="ch">false</span></span>
+<span id="cb16-16"><a href="#cb16-16" aria-hidden="true"></a><span class="fu">streaming_parallel</span><span class="kw">:</span><span class="at"> </span><span class="ch">false</span></span>
+<span id="cb16-17"><a href="#cb16-17" aria-hidden="true"></a><span class="fu">sequential_downloads</span><span class="kw">:</span><span class="at"> </span><span class="ch">false</span></span>
+<span id="cb16-18"><a href="#cb16-18" aria-hidden="true"></a><span class="fu">max_concurrent_downloads</span><span class="kw">:</span><span class="at"> </span><span class="dv">10</span></span>
+<span id="cb16-19"><a href="#cb16-19" aria-hidden="true"></a><span class="fu">max_chunks_per_file</span><span class="kw">:</span><span class="at"> </span><span class="dv">8</span></span>
+<span id="cb16-20"><a href="#cb16-20" aria-hidden="true"></a><span class="fu">min_chunk_size_mb</span><span class="kw">:</span><span class="at"> </span><span class="dv">10</span></span>
+<span id="cb16-21"><a href="#cb16-21" aria-hidden="true"></a><span class="fu">bandwidth_limit</span><span class="kw">:</span><span class="at"> </span><span class="ch">null</span><span class="co">          # e.g. 50  (MB/s)</span></span>
+<span id="cb16-22"><a href="#cb16-22" aria-hidden="true"></a></span>
+<span id="cb16-23"><a href="#cb16-23" aria-hidden="true"></a><span class="co"># Filtering</span></span>
+<span id="cb16-24"><a href="#cb16-24" aria-hidden="true"></a><span class="fu">file_filters</span><span class="kw">:</span><span class="at"> </span><span class="kw">[</span><span class="st">&quot;.fits&quot;</span><span class="kw">,</span><span class="at"> </span><span class="st">&quot;.txt&quot;</span><span class="kw">]</span></span>
+<span id="cb16-25"><a href="#cb16-25" aria-hidden="true"></a><span class="fu">exclude_dirs</span><span class="kw">:</span><span class="at"> </span><span class="kw">[</span><span class="st">&quot;thumbnails&quot;</span><span class="kw">,</span><span class="at"> </span><span class="st">&quot;old&quot;</span><span class="kw">]</span></span>
+<span id="cb16-26"><a href="#cb16-26" aria-hidden="true"></a><span class="fu">max_depth</span><span class="kw">:</span><span class="at"> </span><span class="dv">50</span></span>
+<span id="cb16-27"><a href="#cb16-27" aria-hidden="true"></a></span>
+<span id="cb16-28"><a href="#cb16-28" aria-hidden="true"></a><span class="co"># Caching</span></span>
+<span id="cb16-29"><a href="#cb16-29" aria-hidden="true"></a><span class="fu">no_cache</span><span class="kw">:</span><span class="at"> </span><span class="ch">false</span></span>
+<span id="cb16-30"><a href="#cb16-30" aria-hidden="true"></a><span class="fu">refresh_cache</span><span class="kw">:</span><span class="at"> </span><span class="ch">false</span></span>
+<span id="cb16-31"><a href="#cb16-31" aria-hidden="true"></a><span class="fu">cache_max_age</span><span class="kw">:</span><span class="at"> </span><span class="dv">7</span><span class="co">               # days</span></span>
+<span id="cb16-32"><a href="#cb16-32" aria-hidden="true"></a><span class="fu">cache_html</span><span class="kw">:</span><span class="at"> </span><span class="ch">true</span></span>
+<span id="cb16-33"><a href="#cb16-33" aria-hidden="true"></a><span class="fu">html_cache_max_age</span><span class="kw">:</span><span class="at"> </span><span class="dv">24</span><span class="co">         # hours</span></span>
+<span id="cb16-34"><a href="#cb16-34" aria-hidden="true"></a><span class="fu">no_etag</span><span class="kw">:</span><span class="at"> </span><span class="ch">false</span></span>
+<span id="cb16-35"><a href="#cb16-35" aria-hidden="true"></a></span>
+<span id="cb16-36"><a href="#cb16-36" aria-hidden="true"></a><span class="co"># Cleanup of obsolete local files: safe | preview | move | delete</span></span>
+<span id="cb16-37"><a href="#cb16-37" aria-hidden="true"></a><span class="fu">cleanup_policy</span><span class="kw">:</span><span class="at"> safe</span></span>
+<span id="cb16-38"><a href="#cb16-38" aria-hidden="true"></a><span class="fu">confirm_delete</span><span class="kw">:</span><span class="at"> </span><span class="ch">false</span></span>
+<span id="cb16-39"><a href="#cb16-39" aria-hidden="true"></a></span>
+<span id="cb16-40"><a href="#cb16-40" aria-hidden="true"></a><span class="co"># Integrity / security</span></span>
+<span id="cb16-41"><a href="#cb16-41" aria-hidden="true"></a><span class="fu">hash_algorithm</span><span class="kw">:</span><span class="at"> md5</span><span class="co">            # md5 | sha256 | blake2b</span></span>
+<span id="cb16-42"><a href="#cb16-42" aria-hidden="true"></a><span class="fu">security_validation</span><span class="kw">:</span><span class="at"> </span><span class="ch">true</span></span>
+<span id="cb16-43"><a href="#cb16-43" aria-hidden="true"></a><span class="fu">circuit_breaker_enabled</span><span class="kw">:</span><span class="at"> </span><span class="ch">true</span></span>
+<span id="cb16-44"><a href="#cb16-44" aria-hidden="true"></a></span>
+<span id="cb16-45"><a href="#cb16-45" aria-hidden="true"></a><span class="co"># Output</span></span>
+<span id="cb16-46"><a href="#cb16-46" aria-hidden="true"></a><span class="fu">progress_bar</span><span class="kw">:</span><span class="at"> </span><span class="ch">false</span></span>
+<span id="cb16-47"><a href="#cb16-47" aria-hidden="true"></a><span class="fu">stats</span><span class="kw">:</span><span class="at"> </span><span class="ch">false</span></span>
+<span id="cb16-48"><a href="#cb16-48" aria-hidden="true"></a><span class="fu">metrics_json</span><span class="kw">:</span><span class="at"> </span><span class="ch">null</span><span class="co">             # e.g. /var/log/mirror/metrics.json</span></span>
+<span id="cb16-49"><a href="#cb16-49" aria-hidden="true"></a><span class="fu">health_check_port</span><span class="kw">:</span><span class="at"> </span><span class="dv">8080</span></span></code></pre></div>
+<h3 id="environment-variables-in-config">Environment variables in config</h3>
+<p>String values may contain <code>${VAR}</code> placeholders, expanded from the environment at load time:</p>
+<div class="sourceCode" id="cb17"><pre class="sourceCode yaml"><code class="sourceCode yaml"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true"></a><span class="fu">base_url</span><span class="kw">:</span><span class="at"> ${ARCHIVE_BASE}/mission/</span></span>
+<span id="cb17-2"><a href="#cb17-2" aria-hidden="true"></a><span class="fu">dest_path</span><span class="kw">:</span><span class="at"> /srv/${SERVICE_USER}/mirror</span></span></code></pre></div>
+<h3 id="validate-a-config-without-running">Validate a config without running</h3>
+<div class="sourceCode" id="cb18"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true"></a><span class="ex">python</span> -c <span class="st">&quot;from mirror_url.config import validate_config_file; \</span></span>
+<span id="cb18-2"><a href="#cb18-2" aria-hidden="true"></a><span class="st">from pathlib import Path; print(validate_config_file(Path(&#39;mirror.yaml&#39;)))&quot;</span></span>
+<span id="cb18-3"><a href="#cb18-3" aria-hidden="true"></a><span class="co"># -&gt; (True, None)  on success, or (False, &#39;&lt;error message&gt;&#39;)</span></span></code></pre></div>
+<hr />
+<h2 id="download-modes">Download modes</h2>
+<p>MirrorURL supports four strategies. If you specify none, it <strong>auto-selects</strong> based on file count, average size, disk type, network speed, and server Range support.</p>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Mode</th>
+<th>Flag</th>
+<th>Best for</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>Sequential</strong></td>
+<td><code>--sequential-downloads</code></td>
+<td>Small jobs, fragile/throttled servers, debugging.</td>
+</tr>
+<tr class="even">
+<td><strong>Traditional parallel</strong></td>
+<td><code>--parallel-downloads</code></td>
+<td>Many files; chunks written to temp files then assembled (safe, resumable, needs ~2× disk headroom per in-flight file).</td>
+</tr>
+<tr class="odd">
+<td><strong>Streaming parallel</strong></td>
+<td><code>--streaming-parallel</code></td>
+<td>A few very large files; chunks written directly into the pre-allocated final file (fastest, ~1× disk).</td>
+</tr>
+<tr class="even">
+<td><strong>Auto</strong></td>
+<td><em>(default)</em></td>
+<td>Let MirrorURL choose; good general default.</td>
+</tr>
+</tbody>
+</table>
+<p>Parallel chunking requires the server to support HTTP <strong>Range</strong> requests; if it doesn’t, MirrorURL falls back to whole-file downloads automatically. Interrupted downloads can resume from a partial file on the next run (<code>enable_resume</code>, on by default).</p>
+<hr />
+<h2 id="filtering-and-scope-1">Filtering and scope</h2>
+<ul>
+<li><p><strong><code>--filter</code></strong> accepts one or more patterns. A pattern that looks like a bare extension (<code>.fits</code>) matches by suffix; anything else is treated as a regular expression matched against the filename. Examples:</p>
+<div class="sourceCode" id="cb19"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true"></a><span class="ex">--filter</span> .fits .txt                 # any .fits or .txt</span>
+<span id="cb19-2"><a href="#cb19-2" aria-hidden="true"></a><span class="ex">--filter</span> <span class="st">&#39;.*\.fits$&#39;</span>                # regex: files ending in .fits</span>
+<span id="cb19-3"><a href="#cb19-3" aria-hidden="true"></a><span class="ex">--filter</span> <span class="st">&#39;2024.*\.fits&#39;</span> .png        # mixed regex + extension</span></code></pre></div></li>
+<li><p><strong><code>--exclude-dir</code></strong> skips directories by name/path suffix (simple <code>*</code> globs supported).</p></li>
+<li><p><strong><code>--dir-suffix</code></strong> restricts mirroring to one or more subpaths under the base URL and mirrors each in turn.</p></li>
+<li><p><strong><code>--max-depth</code></strong> bounds recursion. The crawler also enforces URL-scope checks so it never wanders outside the configured base host/path.</p></li>
+</ul>
+<hr />
+<h2 id="caching-and-incremental-sync">Caching and incremental sync</h2>
+<p>MirrorURL keeps a JSON cache (in <code>--log-path</code>) describing the last run, plus an in-memory/disk HTML-listing cache. On subsequent runs it uses this — together with ETags, sizes, and timestamps — to skip unchanged files and avoid re-fetching directory listings.</p>
+<ul>
+<li><code>--cache-max-age DAYS</code> — after this age the cache auto-refreshes.</li>
+<li><code>--refresh-cache</code> — force a full refresh now.</li>
+<li><code>--no-cache</code> — ignore the cache entirely (always full scan).</li>
+<li><code>--no-etag</code> — don’t use ETags for change detection (size/time only).</li>
+<li><code>--quick</code> — only bump the cache timestamp (no scanning/downloading).</li>
+</ul>
+<p>For very large trees, <code>--use-disk-backed-sets</code> keeps the file-set on disk to bound memory use.</p>
+<hr />
+<h2 id="cleaning-up-obsolete-files">Cleaning up obsolete files</h2>
+<p>By default MirrorURL <strong>never deletes</strong> anything (<code>--cleanup safe</code>). To mirror deletions from the remote side, choose a stronger policy:</p>
+<div class="sourceCode" id="cb20"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true"></a><span class="co"># See what would be removed — safe to run anytime</span></span>
+<span id="cb20-2"><a href="#cb20-2" aria-hidden="true"></a><span class="ex">mirror-url</span> --config mirror.yaml --cleanup preview</span>
+<span id="cb20-3"><a href="#cb20-3" aria-hidden="true"></a></span>
+<span id="cb20-4"><a href="#cb20-4" aria-hidden="true"></a><span class="co"># Move obsolete files into &lt;dest&gt;/_obsolete/ instead of deleting</span></span>
+<span id="cb20-5"><a href="#cb20-5" aria-hidden="true"></a><span class="ex">mirror-url</span> --config mirror.yaml --cleanup move</span>
+<span id="cb20-6"><a href="#cb20-6" aria-hidden="true"></a></span>
+<span id="cb20-7"><a href="#cb20-7" aria-hidden="true"></a><span class="co"># Actually delete, with a confirmation prompt</span></span>
+<span id="cb20-8"><a href="#cb20-8" aria-hidden="true"></a><span class="ex">mirror-url</span> --config mirror.yaml --cleanup delete --confirm-delete</span></code></pre></div>
+<p>Combine any of these with <code>--dry-run</code> to simulate the entire run (scan + download + cleanup) without making changes.</p>
+<hr />
+<h2 id="security">Security</h2>
+<p>MirrorURL ships with security protections <strong>enabled by default</strong>:</p>
+<ul>
+<li><strong>SSRF / private-network protection.</strong> The HTTP transport resolves and validates target IPs and <strong>refuses to connect to loopback or private addresses</strong> (<code>127.0.0.1</code>, <code>localhost</code>, RFC-1918 ranges, link-local, etc.), blocks direct-IP URLs, dangerous ports, and IDN/homograph and URL-smuggling tricks.</li>
+<li><strong>URL-scope enforcement</strong> keeps the crawler within the configured base host/path and blocks path-traversal (including encoded/double-encoded forms).</li>
+<li><strong>Filesystem safety</strong> — filename sanitization, path-traversal rejection, Windows reserved-name handling, and symlink-loop/bomb defenses.</li>
+</ul>
+<blockquote>
+<p>Because of the SSRF guard, MirrorURL <strong>cannot mirror a server on <code>localhost</code>/<code>127.0.0.1</code></strong> unless you explicitly disable validation with <code>--no-security-validation</code> (or <code>security_validation: false</code>). Disabling this removes SSRF protection — only do so for trusted, local targets.</p>
+</blockquote>
+<p>Symlink handling is off by default; enable with <code>--handle-symlinks</code> (with <code>--symlink-mode</code>, depth, per-directory, and bomb-threshold limits).</p>
+<hr />
+<h2 id="monitoring-and-metrics">Monitoring and metrics</h2>
+<ul>
+<li><strong><code>--stats</code></strong> prints a detailed summary (files downloaded/skipped/failed, bytes, speed, cache hit rates, ETag stats, etc.) at the end of a run.</li>
+<li><strong><code>--metrics-json FILE</code></strong> writes the full metrics summary to JSON (skipped in <code>--dry-run</code>).</li>
+<li><strong><code>--progress-bar</code></strong> shows a live tqdm bar (requires the <code>progress</code> extra).</li>
+<li><strong>Health/metrics HTTP endpoints.</strong> During a (non-dry-run) sync, a small HTTP server listens on <code>--health-check-port</code> (default 8080) and serves:
+<ul>
+<li><code>GET /health</code> → JSON health status (rate-limited).</li>
+<li><code>GET /metrics</code> → JSON counters (files downloaded/failed/skipped, bytes, elapsed).</li>
+</ul>
+<div class="sourceCode" id="cb21"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true"></a><span class="ex">curl</span> http://localhost:8080/health</span>
+<span id="cb21-2"><a href="#cb21-2" aria-hidden="true"></a><span class="ex">curl</span> http://localhost:8080/metrics</span></code></pre></div></li>
+<li><strong>Logging.</strong> Each run writes a timestamped log under <code>--log-path</code>. Use <code>--verbose</code>/<code>--debug</code> for more detail, <code>--quiet</code> for less, and <code>--print-logs</code> to also echo to the console.</li>
+</ul>
+<hr />
+<h2 id="using-mirrorurl-from-python">Using MirrorURL from Python</h2>
+<p>MirrorURL is a library as well as a CLI. The public API:</p>
+<div class="sourceCode" id="cb22"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true"></a><span class="im">from</span> pathlib <span class="im">import</span> Path</span>
+<span id="cb22-2"><a href="#cb22-2" aria-hidden="true"></a><span class="im">from</span> mirror_url <span class="im">import</span> MirrorURL, MirrorConfig</span>
+<span id="cb22-3"><a href="#cb22-3" aria-hidden="true"></a></span>
+<span id="cb22-4"><a href="#cb22-4" aria-hidden="true"></a>config <span class="op">=</span> MirrorConfig(</span>
+<span id="cb22-5"><a href="#cb22-5" aria-hidden="true"></a>    base_url<span class="op">=</span><span class="st">&quot;https://archive.example.org/mission/&quot;</span>,</span>
+<span id="cb22-6"><a href="#cb22-6" aria-hidden="true"></a>    dest_path<span class="op">=</span>Path(<span class="st">&quot;/data/mission&quot;</span>),</span>
+<span id="cb22-7"><a href="#cb22-7" aria-hidden="true"></a>    log_path<span class="op">=</span>Path(<span class="st">&quot;/var/log/mirror&quot;</span>),</span>
+<span id="cb22-8"><a href="#cb22-8" aria-hidden="true"></a>    file_filters<span class="op">=</span>[<span class="st">&quot;.fits&quot;</span>],</span>
+<span id="cb22-9"><a href="#cb22-9" aria-hidden="true"></a>    parallel_downloads<span class="op">=</span><span class="va">True</span>,</span>
+<span id="cb22-10"><a href="#cb22-10" aria-hidden="true"></a>    cache_max_age<span class="op">=</span><span class="dv">7</span>,</span>
+<span id="cb22-11"><a href="#cb22-11" aria-hidden="true"></a>)</span>
+<span id="cb22-12"><a href="#cb22-12" aria-hidden="true"></a></span>
+<span id="cb22-13"><a href="#cb22-13" aria-hidden="true"></a><span class="cf">with</span> MirrorURL(config) <span class="im">as</span> mirror:</span>
+<span id="cb22-14"><a href="#cb22-14" aria-hidden="true"></a>    ok <span class="op">=</span> mirror.sync()      <span class="co"># returns True on success, False on failure</span></span>
+<span id="cb22-15"><a href="#cb22-15" aria-hidden="true"></a></span>
+<span id="cb22-16"><a href="#cb22-16" aria-hidden="true"></a><span class="bu">print</span>(<span class="st">&quot;sync succeeded&quot;</span> <span class="cf">if</span> ok <span class="cf">else</span> <span class="st">&quot;sync failed&quot;</span>)</span></code></pre></div>
+<p>Using the context manager (<code>with</code>) ensures background threads, connection pools, and the health server are cleaned up. Always run inside one.</p>
+<p>Load configuration from a YAML/JSON file:</p>
+<div class="sourceCode" id="cb23"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true"></a><span class="im">from</span> pathlib <span class="im">import</span> Path</span>
+<span id="cb23-2"><a href="#cb23-2" aria-hidden="true"></a><span class="im">from</span> mirror_url <span class="im">import</span> MirrorConfig, MirrorURL</span>
+<span id="cb23-3"><a href="#cb23-3" aria-hidden="true"></a></span>
+<span id="cb23-4"><a href="#cb23-4" aria-hidden="true"></a>config <span class="op">=</span> MirrorConfig.from_yaml(Path(<span class="st">&quot;mirror.yaml&quot;</span>))</span>
+<span id="cb23-5"><a href="#cb23-5" aria-hidden="true"></a><span class="cf">with</span> MirrorURL(config) <span class="im">as</span> mirror:</span>
+<span id="cb23-6"><a href="#cb23-6" aria-hidden="true"></a>    mirror.sync()</span></code></pre></div>
+<p>Handle configuration errors:</p>
+<div class="sourceCode" id="cb24"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true"></a><span class="im">from</span> mirror_url <span class="im">import</span> MirrorConfig</span>
+<span id="cb24-2"><a href="#cb24-2" aria-hidden="true"></a><span class="im">from</span> mirror_url.exceptions <span class="im">import</span> ConfigError</span>
+<span id="cb24-3"><a href="#cb24-3" aria-hidden="true"></a></span>
+<span id="cb24-4"><a href="#cb24-4" aria-hidden="true"></a><span class="cf">try</span>:</span>
+<span id="cb24-5"><a href="#cb24-5" aria-hidden="true"></a>    cfg <span class="op">=</span> MirrorConfig(base_url<span class="op">=</span><span class="st">&quot;ftp://nope&quot;</span>, dest_path<span class="op">=</span>Path(<span class="st">&quot;d&quot;</span>), log_path<span class="op">=</span>Path(<span class="st">&quot;l&quot;</span>))</span>
+<span id="cb24-6"><a href="#cb24-6" aria-hidden="true"></a><span class="cf">except</span> ConfigError <span class="im">as</span> e:</span>
+<span id="cb24-7"><a href="#cb24-7" aria-hidden="true"></a>    <span class="bu">print</span>(<span class="st">&quot;bad config:&quot;</span>, e)</span></code></pre></div>
+<p>Useful exported names: <code>MirrorURL</code>, <code>MirrorConfig</code>, <code>load_config_from_args</code>, <code>main</code>, and the exception types (<code>MirrorError</code>, <code>ConfigError</code>, <code>MirrorConnectionError</code>, <code>SecurityError</code>, <code>DownloadError</code>, <code>PathTraversalError</code>, <code>URLScopeError</code>).</p>
+<hr />
+<h2 id="exit-codes">Exit codes</h2>
+<table>
+<thead>
+<tr class="header">
+<th>Code</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>0</code></td>
+<td>Success — all requested suffixes synced without fatal errors.</td>
+</tr>
+<tr class="even">
+<td><code>1</code></td>
+<td>One or more suffixes failed (connection failure, fatal error).</td>
+</tr>
+</tbody>
+</table>
+<p>This makes MirrorURL easy to drive from cron, systemd timers, or CI:</p>
+<div class="sourceCode" id="cb25"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb25-1"><a href="#cb25-1" aria-hidden="true"></a><span class="ex">mirror-url</span> --config mirror.yaml <span class="kw">&amp;&amp;</span> <span class="bu">echo</span> <span class="st">&quot;OK&quot;</span> <span class="kw">||</span> <span class="bu">echo</span> <span class="st">&quot;FAILED (</span><span class="va">$?</span><span class="st">)&quot;</span></span></code></pre></div>
+<hr />
+<h2 id="troubleshooting">Troubleshooting</h2>
+<p><strong>“Hostname resolves to private IP” / connection refused to localhost.</strong> The SSRF guard is blocking a private/loopback target. For a trusted local server, add <code>--no-security-validation</code> (or <code>security_validation: false</code>).</p>
+<p><strong>Server returns 403/429 or downloads are slow/failing.</strong> The remote may be throttling you. Try <code>--trusted-server</code> off, increase <code>--request-delay</code>, reduce <code>--workers</code>/<code>--max-concurrent-downloads</code>, add <code>--no-async-metadata</code>, or switch to <code>--sequential-downloads</code>.</p>
+<p><strong>Nothing is downloaded / “0 directories”.</strong> Confirm <code>--url</code> actually serves an HTML directory listing (not a single file or a JS-rendered page). Check your <code>--filter</code> isn’t excluding everything, and try <code>--debug</code> to see the parsed links and scope decisions.</p>
+<p><strong>Parallel mode isn’t kicking in.</strong> The server must support HTTP Range requests and files must exceed <code>--min-chunk-size</code>. Otherwise MirrorURL downloads whole files. Use <code>--debug</code> to see the auto-select decision.</p>
+<p><strong>Progress bar / memory stats missing.</strong> Install the optional extras: <code>pip install "mirror-url[progress,monitor]"</code> (tqdm / psutil).</p>
+<p><strong>Re-runs re-download everything.</strong> Make sure <code>--log-path</code> is stable between runs (that’s where the cache lives) and you’re not passing <code>--no-cache</code> / <code>--refresh-cache</code>.</p>
+<hr />
+<h2 id="uninstalling">Uninstalling</h2>
+<div class="sourceCode" id="cb26"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb26-1"><a href="#cb26-1" aria-hidden="true"></a><span class="ex">pip</span> uninstall mirror-url</span>
+<span id="cb26-2"><a href="#cb26-2" aria-hidden="true"></a><span class="co"># or, if installed with pipx:</span></span>
+<span id="cb26-3"><a href="#cb26-3" aria-hidden="true"></a><span class="ex">pipx</span> uninstall mirror-url</span></code></pre></div>
+<p>Generated logs, cache files (in your <code>--log-path</code>), and mirrored data (in your <code>--dest-path</code>) are left in place — remove them manually if desired.</p>
+</body>
+</html>

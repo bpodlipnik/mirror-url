@@ -1,0 +1,143 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mirror-url"
+version = "3.1.13"
+description = "Enterprise-grade remote directory mirroring tool with adaptive concurrency, integrity checks, and SSRF-hardened transport."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { file = "LICENSE" }
+authors = [{ name = "BP" }]
+keywords = ["mirror", "download", "http", "scraper", "directory", "async", "httpx"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Internet :: WWW/HTTP",
+    "Topic :: System :: Archiving :: Mirroring",
+]
+
+# Core runtime dependencies (imported unconditionally by the package).
+dependencies = [
+    "httpx>=0.24",
+    "pydantic>=2.0",
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+# Optional accelerators / niceties — guarded by try/except in the code.
+fast = ["stringzilla>=3.0", "lxml>=4.9"]
+progress = ["tqdm>=4.65"]
+monitor = ["psutil>=5.9"]
+all = ["stringzilla>=3.0", "lxml>=4.9", "tqdm>=4.65", "psutil>=5.9"]
+
+# Development / CI toolchain.
+dev = [
+    "pytest>=7.4",
+    "pytest-asyncio>=0.21",
+    "pytest-cov>=4.1",
+    "ruff>=0.4",
+    "black>=24.0",
+    "mypy>=1.8",
+    "types-PyYAML>=6.0",  # type stubs for the yaml import (silences import-untyped)
+    "pre-commit>=3.5",
+]
+
+[project.urls]
+Homepage = "https://github.com/podlipnik/mirror-url"
+Repository = "https://github.com/podlipnik/mirror-url"
+Issues = "https://github.com/podlipnik/mirror-url/issues"
+
+# Console entry point: the `mirror-url` command runs mirror_url.cli:main.
+[project.scripts]
+mirror-url = "mirror_url.cli:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# ---------------------------------------------------------------------------
+# Tooling configuration
+# ---------------------------------------------------------------------------
+[tool.black]
+line-length = 100
+target-version = ["py39", "py310", "py311", "py312"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+src = ["src", "tests"]
+# The legacy monolith is a frozen reference (and read-only in some checkouts):
+# exclude it from BOTH linting and formatting. `per-file-ignores` below only
+# affects lint, so this top-level exclude is what keeps `ruff format` from
+# trying to rewrite it.
+extend-exclude = ["mirror_url.py"]
+
+[tool.ruff.lint]
+# Correctness-focused rule set. UP (pyupgrade) and SIM are intentionally
+# omitted: this package is a verbatim port of working code that supports
+# Python 3.9 with classic typing (Dict/Optional), and we don't want to churn
+# ~350 lines of audited logic to modernize syntax or rewrite control flow.
+# Bump requires-python to >=3.10 and re-enable UP if/when 3.9 is dropped.
+select = ["E", "F", "W", "I", "B", "C4"]
+ignore = [
+    "E501",  # line length is handled by the formatter
+    "B008",  # function call in argument defaults (intentional in a few places)
+    # The following bugbear rules fire only on code carried over verbatim from
+    # the original single-file script; they are deliberately preserved here so
+    # the port stays behavior-identical. Revisit during the optional core/
+    # mixin refactor (see REFACTORING_PLAN.md §4.1).
+    "B904",  # raise ... from err — only affects traceback chaining, not control flow
+    "B007",  # unused loop control variable
+    "B019",  # lru_cache on a method (MirrorURL._parse_url_cached): a real latent
+             # leak inherited from the monolith — preserved, not silently rewritten
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B"]
+# The legacy monolith is excluded from lint (frozen reference, pending deletion).
+"mirror_url.py" = ["ALL"]
+
+[tool.mypy]
+# Advisory, lenient type-checking. This package is a verbatim port of working,
+# largely-untyped code, so mypy is run as a signal (CI uses continue-on-error),
+# not a gate. The settings below surface genuine type mismatches without
+# demanding annotations on every function or descending into untyped bodies.
+# Tightening (disallow_untyped_defs, check_untyped_defs, strict) is a good
+# incremental follow-up, ideally alongside the core/ mixin refactor.
+python_version = "3.9"
+files = ["src/mirror_url"]
+ignore_missing_imports = true   # optional deps (stringzilla, lxml, tqdm, psutil) have no stubs
+follow_imports = "silent"
+disallow_untyped_defs = false
+check_untyped_defs = false
+# The original code predates strict implicit-Optional enforcement and relies on
+# `param: T = None` in a few signatures. Restore the permissive behavior rather
+# than churn the verbatim port; tighten alongside a dedicated typing pass.
+no_implicit_optional = false
+warn_unused_ignores = false
+warn_redundant_casts = true
+warn_unreachable = false
+# The legacy monolith is not part of the package and is not type-checked.
+exclude = ["mirror_url\\.py$", "tests/"]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-ra --strict-markers"
+markers = [
+    "integration: end-to-end tests that exercise real I/O (deselect with -m 'not integration')",
+]
