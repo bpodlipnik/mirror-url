@@ -8,6 +8,7 @@ Methods extracted verbatim from the original ``MirrorURL`` class
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import os
 import shlex
@@ -246,13 +247,14 @@ class _MirrorBase:
         # ============================================================================
         # 13. CACHE FILE - Safe initialization
         # ============================================================================
+        url_hash = hashlib.sha256(str(config.base_url).encode()).hexdigest()[:16]
         try:
             if suffix:
                 safe_suffix = suffix.replace("/", "_")
-                cache_name = f"mirror_url_{safe_suffix}.json"
+                cache_name = f"mirror_url_{safe_suffix}_{url_hash}.json"
             else:
                 folder_name = self._get_last_path_component(self.base_url)
-                cache_name = f"mirror_url_{folder_name}.json"
+                cache_name = f"mirror_url_{folder_name}_{url_hash}.json"
 
             self.cache_file = self.log_path / cache_name
         except Exception as e:
