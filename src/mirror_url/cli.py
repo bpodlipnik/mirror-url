@@ -292,13 +292,13 @@ def setup_shared_logging(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
-    """Main entry point with v3.1.13 true parallel file downloads"""
+    """Main entry point with v3.1.14 true parallel file downloads"""
     parser = argparse.ArgumentParser(
-        description="MirrorURL v3.1.13 - Enterprise-Grade Remote Directory Mirroring Tool with True Parallel Downloads",
+        description="MirrorURL v3.1.14 - Enterprise-Grade Remote Directory Mirroring Tool with True Parallel Downloads",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 ╔══════════════════════════════════════════════════════════════════════════════════════╗
-║                                  MIRRORURL v3.1.13                                   ║
+║                                  MIRRORURL v3.1.14                                   ║
 ║                                USAGE GUIDE                                           ║
 ╚══════════════════════════════════════════════════════════════════════════════════════╝
 

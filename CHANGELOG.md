@@ -4,7 +4,19 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.1.14] - 2026-06-25
+
+### Fixed
+- **Cache filename regression**: restored the base-URL hash suffix in the on-disk
+  cache filename. v3.1.6 wrote `mirror_url_<suffix>_<hash>.json`, where `<hash>`
+  is the first 16 hex chars of `sha256(base_url)`. A change in 3.1.13 dropped the
+  hash, producing `mirror_url_<suffix>.json` — which collapses distinct base URLs
+  that happen to share a directory suffix onto the same cache file. Filenames now
+  match v3.1.6 again (e.g. `mirror_url_generic_kernels_112368ef5f2e84e4.json`).
+  Existing hash-less caches are not auto-migrated; the first run after upgrading
+  recreates the hash-named file and re-scans once.
+
+## [3.1.13] - 2026-06-24
 
 ### Changed
 - **Repackaged the single-file `mirror_url.py` (~15k lines) into a modular
