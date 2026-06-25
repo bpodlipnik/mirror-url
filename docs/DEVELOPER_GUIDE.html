@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>MirrorURL — Developer Guide</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    span.underline{text-decoration: underline;}
+    div.column{display: inline-block; vertical-align: top; width: 50%;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    ul.task-list{list-style: none;}
+    pre > code.sourceCode { white-space: pre; position: relative; }
+    pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+    pre > code.sourceCode > span:empty { height: 1.2em; }
+    code.sourceCode > span { color: inherit; text-decoration: inherit; }
+    div.sourceCode { margin: 1em 0; }
+    pre.sourceCode { margin: 0; }
+    @media screen {
+    div.sourceCode { overflow: auto; }
+    }
+    @media print {
+    pre > code.sourceCode { white-space: pre-wrap; }
+    pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+    }
+    pre.numberSource code
+      { counter-reset: source-line 0; }
+    pre.numberSource code > span
+      { position: relative; left: -4em; counter-increment: source-line; }
+    pre.numberSource code > span > a:first-child::before
+      { content: counter(source-line);
+        position: relative; left: -1em; text-align: right; vertical-align: baseline;
+        border: none; display: inline-block;
+        -webkit-touch-callout: none; -webkit-user-select: none;
+        -khtml-user-select: none; -moz-user-select: none;
+        -ms-user-select: none; user-select: none;
+        padding: 0 4px; width: 4em;
+        color: #aaaaaa;
+      }
+    pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa;  padding-left: 4px; }
+    div.sourceCode
+      {   }
+    @media screen {
+    pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+    }
+    code span.al { color: #ff0000; font-weight: bold; } /* Alert */
+    code span.an { color: #60a0b0; font-weight: bold; font-style: italic; } /* Annotation */
+    code span.at { color: #7d9029; } /* Attribute */
+    code span.bn { color: #40a070; } /* BaseN */
+    code span.bu { } /* BuiltIn */
+    code span.cf { color: #007020; font-weight: bold; } /* ControlFlow */
+    code span.ch { color: #4070a0; } /* Char */
+    code span.cn { color: #880000; } /* Constant */
+    code span.co { color: #60a0b0; font-style: italic; } /* Comment */
+    code span.cv { color: #60a0b0; font-weight: bold; font-style: italic; } /* CommentVar */
+    code span.do { color: #ba2121; font-style: italic; } /* Documentation */
+    code span.dt { color: #902000; } /* DataType */
+    code span.dv { color: #40a070; } /* DecVal */
+    code span.er { color: #ff0000; font-weight: bold; } /* Error */
+    code span.ex { } /* Extension */
+    code span.fl { color: #40a070; } /* Float */
+    code span.fu { color: #06287e; } /* Function */
+    code span.im { } /* Import */
+    code span.in { color: #60a0b0; font-weight: bold; font-style: italic; } /* Information */
+    code span.kw { color: #007020; font-weight: bold; } /* Keyword */
+    code span.op { color: #666666; } /* Operator */
+    code span.ot { color: #007020; } /* Other */
+    code span.pp { color: #bc7a00; } /* Preprocessor */
+    code span.sc { color: #4070a0; } /* SpecialChar */
+    code span.ss { color: #bb6688; } /* SpecialString */
+    code span.st { color: #4070a0; } /* String */
+    code span.va { color: #19177c; } /* Variable */
+    code span.vs { color: #4070a0; } /* VerbatimString */
+    code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; } /* Warning */
+  </style>
+  <style>
+      :root { --fg:#1f2328; --muted:#656d76; --accent:#0969da; --border:#d0d7de;
+              --code-bg:#f6f8fa; --table-alt:#f6f8fa; }
+      * { box-sizing: border-box; }
+      body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+             color: var(--fg); line-height: 1.6; max-width: 900px; margin: 0 auto;
+             padding: 2.5rem 1.25rem 5rem; }
+      h1,h2,h3 { line-height: 1.25; margin-top: 2rem; }
+      h1 { font-size: 2rem; border-bottom: 2px solid var(--border); padding-bottom: .4rem; }
+      h2 { font-size: 1.45rem; border-bottom: 1px solid var(--border); padding-bottom: .3rem; }
+      h3 { font-size: 1.15rem; }
+      a { color: var(--accent); text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      code { background: var(--code-bg); padding: .15em .35em; border-radius: 6px;
+             font-size: .88em; font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; }
+      pre { background: var(--code-bg); padding: 1rem; border-radius: 8px; overflow-x: auto;
+            border: 1px solid var(--border); }
+      pre code { background: none; padding: 0; font-size: .85em; }
+      table { border-collapse: collapse; width: 100%; margin: 1rem 0; display: block; overflow-x: auto; }
+      th, td { border: 1px solid var(--border); padding: .5rem .7rem; text-align: left; vertical-align: top; }
+      th { background: var(--code-bg); }
+      tr:nth-child(even) td { background: var(--table-alt); }
+      blockquote { border-left: 4px solid var(--accent); margin: 1rem 0; padding: .25rem 1rem;
+                   color: var(--muted); background: #f6f8fa55; }
+      #TOC { background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px;
+             padding: 1rem 1.25rem; margin: 1.5rem 0; }
+      #TOC ul { margin: .25rem 0; }
+      hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+      .title { margin-bottom: .25rem; }
+  </style>
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">MirrorURL — Developer Guide</h1>
+</header>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a href="#mirrorurl--developer-guide">MirrorURL — Developer Guide</a>
+<ul>
+<li><a href="#table-of-contents">Table of contents</a></li>
+<li><a href="#background-the-monolith-and-the-refactor">Background: the monolith and the refactor</a></li>
+<li><a href="#design-principles">Design principles</a></li>
+<li><a href="#repository-layout">Repository layout</a></li>
+<li><a href="#the-dependency-layer-architecture">The dependency-layer architecture</a></li>
+<li><a href="#module-reference-by-layer">Module reference (by layer)</a></li>
+<li><a href="#the-mirrorurl-orchestrator-and-its-mixins">The MirrorURL orchestrator and its mixins</a></li>
+<li><a href="#runtime-data-flow-anatomy-of-a-sync">Runtime data flow: anatomy of a sync()</a></li>
+<li><a href="#the-configuration-system">The configuration system</a></li>
+<li><a href="#subsystem-deep-dives">Subsystem deep-dives</a></li>
+<li><a href="#extension-recipes">Extension recipes</a></li>
+<li><a href="#coding-conventions">Coding conventions</a></li>
+<li><a href="#testing">Testing</a></li>
+<li><a href="#build-lint-and-type-check">Build, lint, and type-check</a></li>
+<li><a href="#release-process">Release process</a></li>
+<li><a href="#known-hazards-and-gotchas">Known hazards and gotchas</a></li>
+<li><a href="#quick-where-do-i-find-map">Quick "where do I find…" map</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1 id="mirrorurl--developer-guide">MirrorURL — Developer Guide</h1>
+<p>This guide is for <strong>contributors</strong> working on the MirrorURL codebase itself. It is a self-contained architecture deep-dive: how the package is structured, why it is layered the way it is, how the <code>MirrorURL</code> orchestrator is composed, how data flows through a run, and how to extend the system without breaking its invariants.</p>
+<p>If you only want to <em>use</em> MirrorURL (install, CLI, config, Python API), read <a href="./USER_GUIDE.md"><code>USER_GUIDE.md</code></a> instead. For day-to-day contribution mechanics (branching, PR etiquette) see <a href="../CONTRIBUTING.md"><code>CONTRIBUTING.md</code></a>; this guide repeats the essentials so you can work from it alone.</p>
+<ul>
+<li><strong>Package:</strong> <code>mirror_url</code> (src-layout under <code>src/</code>)</li>
+<li><strong>Version:</strong> 3.1.14</li>
+<li><strong>Python:</strong> 3.9 – 3.12</li>
+<li><strong>Runtime deps:</strong> <code>httpx</code>, <code>pydantic</code> v2, <code>PyYAML</code> (optional: <code>stringzilla</code>, <code>lxml</code>, <code>tqdm</code>, <code>psutil</code>)</li>
+</ul>
+<hr />
+<h2 id="table-of-contents">Table of contents</h2>
+<ul>
+<li><a href="#background-the-monolith-and-the-refactor">Background: the monolith and the refactor</a></li>
+<li><a href="#design-principles">Design principles</a></li>
+<li><a href="#repository-layout">Repository layout</a></li>
+<li><a href="#the-dependency-layer-architecture">The dependency-layer architecture</a></li>
+<li><a href="#module-reference-by-layer">Module reference (by layer)</a></li>
+<li><a href="#the-mirrorurl-orchestrator-and-its-mixins">The MirrorURL orchestrator and its mixins</a></li>
+<li><a href="#runtime-data-flow-anatomy-of-a-sync">Runtime data flow: anatomy of a sync()</a></li>
+<li><a href="#the-configuration-system">The configuration system</a></li>
+<li><a href="#subsystem-deep-dives">Subsystem deep-dives</a></li>
+<li><a href="#extension-recipes">Extension recipes</a></li>
+<li><a href="#coding-conventions">Coding conventions</a></li>
+<li><a href="#testing">Testing</a></li>
+<li><a href="#build-lint-and-type-check">Build, lint, and type-check</a></li>
+<li><a href="#release-process">Release process</a></li>
+<li><a href="#known-hazards-and-gotchas">Known hazards and gotchas</a></li>
+<li><a href="#quick-where-do-i-find-map">Quick "where do I find…" map</a></li>
+</ul>
+<hr />
+<h2 id="background-the-monolith-and-the-refactor">Background: the monolith and the refactor</h2>
+<p>MirrorURL began as a single <code>mirror_url.py</code> of ~15,000 lines containing ~70 classes and ~25 module-level functions. It was split into the modular <code>src/mirror_url/</code> package (30 modules across 7 dependency layers) by a <strong>behavior-preserving</strong> migration: code was relocated verbatim and class/function method sets were verified identical to the original via AST comparison. Logic changes were kept out of the migration and made only in separate, reviewable commits.</p>
+<p>Two consequences shape how you should work in this codebase:</p>
+<ol>
+<li><strong>Verbatim heritage.</strong> Much of the code is a faithful port of working, audited, sometimes idiosyncratic logic (including hard-won bug fixes recorded in the changelog). When touching migrated code, prefer surgical changes over "cleanups" — the original behavior is the contract.</li>
+<li><strong>Python 3.9 baseline.</strong> The package still supports 3.9, so it uses classic typing (<code>Dict</code>, <code>Optional</code>, <code>List</code>) and <code>from __future__ import annotations</code> rather than 3.10+ syntax. Lint rules that would modernize syntax (pyupgrade, most of SIM) are intentionally disabled — see <a href="#coding-conventions">Coding conventions</a>.</li>
+</ol>
+<p>The legacy <code>mirror_url.py</code> is retained as a frozen reference and is excluded from lint, type-checking, and packaging. It will be deleted once downstreams have migrated.</p>
+<hr />
+<h2 id="design-principles">Design principles</h2>
+<p>The package is built on four rules. Internalize them before making structural changes — most review feedback traces back to one of these.</p>
+<ol>
+<li><strong>Behavior-preserving by default.</strong> Relocation and refactoring must not change runtime behavior. Functional fixes are separate commits with their own tests and changelog entries.</li>
+<li><strong>One concern per module.</strong> Each module is independently readable and testable. If a change makes a module "about two things," that is a signal to split it.</li>
+<li><strong>Acyclic dependency layering.</strong> A module may import only from <em>strictly lower</em> layers (plus stdlib / third-party). No sideways cycles, no upward imports. This is the property that keeps the package importable and testable in isolation. See <a href="#the-dependency-layer-architecture">the layer architecture</a>.</li>
+<li><strong>Small, verifiable steps.</strong> Keep the fast test lane green after every change.</li>
+</ol>
+<hr />
+<h2 id="repository-layout">Repository layout</h2>
+<pre><code>mirror-url/
+├── src/mirror_url/          # the package (30 modules, dependency-layered)
+│   ├── __init__.py          # public API re-exports
+│   ├── __main__.py          # `python -m mirror_url`
+│   ├── _version.py          # __version__, __author__  (one of two version sources)
+│   ├── cli.py               # argument parsing, shared logging, main()
+│   ├── core.py              # MirrorURL — composed from the _core mixins
+│   ├── _core/               # the MirrorURL class, split into mixins (private)
+│   │   ├── _base.py         # __init__, shared state, lifecycle, logging
+│   │   ├── urls.py          # URL scheme/scope validation, path helpers
+│   │   ├── scan.py          # remote discovery (BFS), filtering
+│   │   ├── compare.py       # is-up-to-date checks (sync + async)
+│   │   ├── downloads.py     # per-file download orchestration
+│   │   ├── cleanup.py       # obsolete-file cleanup policies
+│   │   └── report.py        # sync() entry, summaries, benchmark
+│   ├── config.py            # ConfigSchema, MirrorConfig, load_config_from_args
+│   ├── … (subsystem modules, see the module reference)
+├── tests/                   # pytest suite (smoke, utils, security, subsystems, integration)
+├── docs/                    # USER_GUIDE, DEVELOPER_GUIDE (this file), HTML renders
+├── mirror_url.py            # legacy monolith (frozen reference, pending removal)
+├── pyproject.toml           # packaging, deps, tool config  (the other version source)
+├── REFACTORING_PLAN.md      # the migration plan + module/line map
+├── CHANGELOG.md             # Keep a Changelog format
+└── .github/workflows/       # ci.yml (lint+test matrix), release.yml (tag → build → PyPI)
+</code></pre>
+<hr />
+<h2 id="the-dependency-layer-architecture">The dependency-layer architecture</h2>
+<p>Every module is assigned to a layer. <strong>Imports only point downward.</strong> This is the single most important structural invariant in the project.</p>
+<pre><code>Layer 0  _version · compat · constants · exceptions · enums
+Layer 1  models · decorators · utils
+Layer 2  primitives · parsing · security
+Layer 3  transport · storage · circuit_breaker · rate_limiter · queue
+Layer 4  metrics · progress · monitoring · connection · async_connection · concurrency · cache
+Layer 5  download · scanner · health · config · tuner
+Layer 6  core   (MirrorURL — the only place that wires many subsystems together)
+Layer 7  cli  →  __main__ / console entry point
+</code></pre>
+<p><strong>The rule:</strong> a module in layer <em>N</em> may import from layers <em>0…N-1</em>, from the standard library, and from third-party deps — never from layer <em>N</em> in a cycle, and never from a higher layer. <code>core.py</code> (layer 6) is the only module permitted to compose many layer-4/5 subsystems at once; that is its job.</p>
+<p><strong>Why it matters for you:</strong></p>
+<ul>
+<li>It keeps the package importable at every step and lets you unit-test low layers with zero setup (no network, no config).</li>
+<li>If you find yourself wanting to import "upward" (e.g. a layer-3 module needing something from <code>core</code>), that is almost always a design smell — the dependency belongs lower, or should be injected as a parameter/callback.</li>
+<li>The one historical exception is documented: the monolith did <code>from mirror_url import MirrorURL</code> inside <code>ConnectionManager</code>'s scope check. After packaging this became an intra-package import of <code>.core</code>. Avoid reintroducing this pattern; prefer dependency injection.</li>
+</ul>
+<p>To sanity-check the graph after a change, you can compile every module and import the package; a broken layer shows up as an <code>ImportError</code> or a circular-import failure immediately.</p>
+<hr />
+<h2 id="module-reference-by-layer">Module reference (by layer)</h2>
+<p><strong>Layer 0 — foundations (no intra-package imports).</strong></p>
+<ul>
+<li><code>_version.py</code> — <code>__version__</code>, <code>__author__</code>. One of the two places the version lives (the other is <code>pyproject.toml</code>); they must stay in sync (a test enforces it). <code>__version__</code> also flows into the cache file's <code>version_code</code> and the <code>--version</code> output.</li>
+<li><code>compat.py</code> — optional-dependency flags (<code>STRINGZILLA_AVAILABLE</code>, <code>TQDM_AVAILABLE</code>, <code>LXML_AVAILABLE</code>, <code>PSUTIL_AVAILABLE</code>) and the StringZilla <code>Str</code> fallback. <strong>Import the flag, not the try/except</strong> — these are centralized here precisely so the rest of the code never re-implements the probe.</li>
+<li><code>constants.py</code> — all tuning constants and static tables (<code>DEFAULT_*</code>, cache/ scan/async/safety limits, <code>KNOWN_THROTTLED_DOMAINS</code>, <code>WINDOWS_RESERVED_NAMES</code>).</li>
+<li><code>exceptions.py</code> — the <code>MirrorError</code> hierarchy (~19 classes). New error types go here, subclassing the closest existing base.</li>
+<li><code>enums.py</code> — <code>LogLevel</code>, <code>ScanMode</code>, <code>CleanupPolicy</code>, <code>DownloadPriority</code>, <code>CircuitBreakerState</code>, <code>MemoryPressure</code>, <code>ConcurrencyType</code>, <code>DownloadMethod</code>.</li>
+</ul>
+<p><strong>Layer 1 — pure helpers.</strong></p>
+<ul>
+<li><code>models.py</code> — dataclasses: <code>DownloadTask</code>, <code>ServerProfile</code>, <code>HealthStatus</code>, <code>ChunkInfo</code>, <code>ParallelFileDownload</code>.</li>
+<li><code>decorators.py</code> — <code>retry_with_backoff</code>, <code>log_performance</code>.</li>
+<li><code>utils.py</code> — formatting (<code>format_bytes</code>, <code>format_duration</code>), URL helpers (<code>normalize_url_path</code>, <code>sanitize_url_for_log</code>, <code>safe_url_encode</code>, <code>normalize_etag</code>), hashing (<code>compute_file_hash</code>), cache validation (<code>_validate_and_sanitize_cache</code>), and process-level log bookkeeping.</li>
+</ul>
+<p><strong>Layer 2 — stateless/low-state building blocks.</strong></p>
+<ul>
+<li><code>primitives.py</code> — <code>LRUCache</code>, <code>AtomicCounter</code>, <code>AtomicSize</code> (thread-safe).</li>
+<li><code>parsing.py</code> — <code>extract_links_fast</code>, <code>should_use_fast_parser</code>, <code>AdaptiveBatchProcessor</code> (HTML directory-listing parsing, lxml/stringzilla accelerated when available).</li>
+<li><code>security.py</code> — <code>SymlinkTracker</code>, <code>SecurityValidator</code>, <code>PathSafety</code>, <code>FastURLValidator</code> (path-traversal, symlink-bomb, and filename defenses).</li>
+</ul>
+<p><strong>Layer 3 — transport &amp; resilience primitives.</strong></p>
+<ul>
+<li><code>transport.py</code> — <code>SecureTransport</code>, <code>SecureAsyncTransport</code>: httpx transports that block loopback/private IPs (SSRF hardening). Both honor a <code>test_mode</code> flag used to relax the guard in tests.</li>
+<li><code>storage.py</code> — <code>FileSystemCache</code>, <code>DiskBackedSet</code> (memory-bounded set that spills to disk).</li>
+<li><code>circuit_breaker.py</code> — <code>CircuitBreaker</code>, <code>AsyncCircuitBreaker</code>, <code>ChunkCircuitBreaker</code>, <code>CircuitBreakerManager</code> (per-domain). Keep each base and its subclasses in this one module.</li>
+<li><code>rate_limiter.py</code> — <code>BandwidthLimiter</code>, <code>RateLimiter</code>, <code>PerIPRateLimiter</code>, <code>ChunkAwareRateLimiter</code>.</li>
+<li><code>queue.py</code> — <code>DownloadQueue</code>.</li>
+</ul>
+<p><strong>Layer 4 — managers &amp; observability.</strong></p>
+<ul>
+<li><code>metrics.py</code> — <code>MetricsCollector</code> (thread-safe counters/aggregates; emits the metrics JSON).</li>
+<li><code>progress.py</code> — <code>ProgressTracker</code>, <code>MultiLevelProgress</code>.</li>
+<li><code>monitoring.py</code> — <code>MemoryMonitor</code>, <code>DiskSpaceManager</code>, <code>PerformanceMonitor</code>.</li>
+<li><code>connection.py</code> — <code>ConnectionPool</code>, <code>ConnectionManager</code> (synchronous request path, retries, redirects-preserving-headers).</li>
+<li><code>async_connection.py</code> — <code>AsyncConnectionManager</code>, <code>AdaptiveAsyncManager</code> (self-tuning concurrency), <code>AsyncTaskManager</code> (async metadata checks).</li>
+<li><code>concurrency.py</code> — <code>UnifiedConcurrencyManager</code> (single global cap across sync/ async/parallel thread pools).</li>
+<li><code>cache.py</code> — <code>CacheManager</code> (the on-disk JSON cache: load/validate/save, schema-version checks, corrupted-file backup).</li>
+</ul>
+<p><strong>Layer 5 — feature engines &amp; config.</strong></p>
+<ul>
+<li><code>download.py</code> — <code>ParallelDownloadManager</code> (chunked/streaming/parallel download engine, including <code>auto_select_method</code>) and <code>PartialDownloadManager</code> (resume).</li>
+<li><code>scanner.py</code> — <code>DirectoryScanner</code>.</li>
+<li><code>health.py</code> — <code>HealthCheckHandler</code>, <code>HealthCheckServer</code>, <code>HealthChecker</code> (optional HTTP health endpoint).</li>
+<li><code>config.py</code> — <code>ConfigSchema</code> (file-facing pydantic schema), <code>MirrorConfig</code> (the runtime config object), <code>validate_config_file</code>, <code>expand_env_vars</code>, <code>load_config_from_args</code>.</li>
+<li><code>tuner.py</code> — <code>AutoConcurrencyTuner</code>.</li>
+</ul>
+<p><strong>Layer 6 — orchestration.</strong></p>
+<ul>
+<li><code>core.py</code> + <code>_core/</code> — the <code>MirrorURL</code> class. See the next section.</li>
+</ul>
+<p><strong>Layer 7 — entry point.</strong></p>
+<ul>
+<li><code>cli.py</code> — <code>add_parallel_arguments</code>, <code>setup_shared_logging</code>, <code>main</code>.</li>
+<li><code>__main__.py</code> — thin wrapper so <code>python -m mirror_url</code> calls <code>cli.main</code>.</li>
+</ul>
+<hr />
+<h2 id="the-mirrorurl-orchestrator-and-its-mixins">The MirrorURL orchestrator and its mixins</h2>
+<p><code>MirrorURL</code> was ~3,600 lines as a single class. It is now composed from focused <strong>mixins</strong> under the private <code>_core/</code> subpackage. <code>core.py</code> is a thin composer:</p>
+<div class="sourceCode" id="cb3"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true"></a><span class="kw">class</span> MirrorURL(</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true"></a>    UrlMixin,        <span class="co"># _core/urls.py</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true"></a>    ScanMixin,       <span class="co"># _core/scan.py</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true"></a>    CompareMixin,    <span class="co"># _core/compare.py</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true"></a>    DownloadMixin,   <span class="co"># _core/downloads.py</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true"></a>    CleanupMixin,    <span class="co"># _core/cleanup.py</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true"></a>    ReportMixin,     <span class="co"># _core/report.py</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true"></a>    _MirrorBase,     <span class="co"># _core/_base.py — __init__ + shared state, listed LAST</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true"></a>):</span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true"></a>    ...</span></code></pre></div>
+<p><strong>Why this is safe and unambiguous:</strong> every method is defined in exactly one mixin, so the MRO never has to disambiguate. <code>_MirrorBase</code> is listed <strong>last</strong> so that it sits at the base of the MRO and owns <code>__init__</code> plus all shared instance state; the feature mixins are "above" it and call into the state it sets up. Behavior is identical to the pre-split class — <code>from mirror_url.core import MirrorURL</code> is unchanged for callers.</p>
+<p><strong>Responsibilities and key methods per mixin:</strong></p>
+<table>
+<thead>
+<tr class="header">
+<th>Mixin (<code>_core/…</code>)</th>
+<th>Responsibility</th>
+<th>Representative methods</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>_MirrorBase</code> (<code>_base.py</code>)</td>
+<td>Construction, shared state, lifecycle, logging, connection bring-up, the on-disk caches, disk-space checks</td>
+<td><code>__init__</code>, <code>__enter__</code>/<code>__exit__</code>, <code>cleanup</code>, <code>setup_logging</code>, <code>test_connection</code>, <code>_warm_up_connections</code>, <code>get_html_cache</code>/<code>set_html_cache</code>, <code>get_file_metadata</code>/<code>save_file_metadata</code>, <code>handle_memory_pressure</code>, <code>_get_cached_filename</code>, <code>check_disk_space</code></td>
+</tr>
+<tr class="even">
+<td><code>UrlMixin</code> (<code>urls.py</code>)</td>
+<td>URL scheme/scope validation, path extraction</td>
+<td><code>_validate_url_scheme*</code>, <code>_is_url_within_scope</code>, <code>_is_within_target_scope</code>, <code>_is_dir_excluded</code>, <code>_get_target_base_url</code>, <code>_parse_url_cached</code>, <code>_get_url_path_fast</code>, <code>_get_filename_fast</code></td>
+</tr>
+<tr class="odd">
+<td><code>ScanMixin</code> (<code>scan.py</code>)</td>
+<td>Remote discovery, filtering, symlink tracking</td>
+<td><code>get_remote_files</code>, <code>_discover_directories_bfs</code>, <code>matches_filter</code>, <code>get_directory_signature</code>, <code>is_symlink</code>/<code>record_symlink</code>, <code>_get_local_path_from_url</code></td>
+</tr>
+<tr class="even">
+<td><code>CompareMixin</code> (<code>compare.py</code>)</td>
+<td>"Is the local copy up to date?" — size/timestamp/ETag/hash, sync and async</td>
+<td><code>file_exists_and_up_to_date</code>, <code>_check_files_sync</code>, <code>_check_files_async</code>, <code>check_file</code>, <code>check_one</code>, <code>get_remote_timestamp</code>, <code>get_directory_size</code></td>
+</tr>
+<tr class="odd">
+<td><code>DownloadMixin</code> (<code>downloads.py</code>)</td>
+<td>Per-file download orchestration (delegates to the <code>download.py</code> engines)</td>
+<td><code>download_file_with_resume</code>, <code>_download_file_single</code></td>
+</tr>
+<tr class="even">
+<td><code>CleanupMixin</code> (<code>cleanup.py</code>)</td>
+<td>Removing/moving local files no longer present remotely</td>
+<td><code>clean_obsolete</code>, <code>_count_obsolete_files</code></td>
+</tr>
+<tr class="odd">
+<td><code>ReportMixin</code> (<code>report.py</code>)</td>
+<td>The top-level <code>sync()</code> driver, summaries, benchmarking</td>
+<td><code>sync</code>, <code>async_warm_up_worker</code>, <code>_print_early_exit_summary</code>, <code>benchmark</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Working rule:</strong> when you add a method to <code>MirrorURL</code>, put it in the mixin whose responsibility it matches, and keep shared attributes initialized in <code>_MirrorBase.__init__</code>. Don't add a second <code>__init__</code> to a feature mixin.</p>
+<hr />
+<h2 id="runtime-data-flow-anatomy-of-a-sync">Runtime data flow: anatomy of a sync()</h2>
+<p>A full mirror run is driven by <code>ReportMixin.sync()</code>. The high-level path:</p>
+<ol>
+<li><strong>Construction (<code>_MirrorBase.__init__</code>).</strong> Parse the base URL, compute the destination/target paths, build the cache file path (<code>mirror_url_&lt;suffix&gt;_&lt;hash&gt;.json</code>, where the hash is the first 16 hex chars of <code>sha256(base_url)</code> — this disambiguates different base URLs that share a directory suffix), set up logging, and instantiate the subsystem managers (connection, async, concurrency, metrics, circuit breakers, rate limiter, caches).</li>
+<li><strong>Connect (<code>test_connection</code>, <code>_warm_up_connections</code>).</strong> Validate reachability and resolve the target scope. Until the target is resolved, scope checks fall back to the base URL (so the scanner doesn't drop every subdirectory).</li>
+<li><strong>Scan (<code>ScanMixin.get_remote_files</code>).</strong> Breadth-first discovery of the remote tree, honoring <code>max_depth</code>, <code>exclude_dirs</code>, scope enforcement, and a visited set (cycle-safe). Directory listings are parsed by <code>parsing.py</code>. Results feed the HTML cache.</li>
+<li><strong>Compare (<code>CompareMixin</code>).</strong> For each remote file, decide whether the local copy is current using size, timestamp, ETag, and (for small files) content hashing. When <code>async_metadata</code> is enabled, HEAD checks run through the async manager for throughput; otherwise the sync path is used.</li>
+<li><strong>Download (<code>DownloadMixin</code> → <code>download.py</code>).</strong> Missing/changed files are fetched. <code>ParallelDownloadManager.auto_select_method</code> (or an explicit <code>DownloadMethod</code>) picks sequential vs. streaming-parallel vs. traditional-parallel chunking; <code>PartialDownloadManager</code> provides resume. The <code>UnifiedConcurrencyManager</code> enforces a single global thread cap; per-domain <code>CircuitBreakerManager</code> and the rate limiter throttle on errors/bandwidth.</li>
+<li><strong>Cleanup (<code>CleanupMixin.clean_obsolete</code>).</strong> Optionally preview/move/delete local files no longer present remotely, per <code>CleanupPolicy</code>.</li>
+<li><strong>Report (<code>ReportMixin</code>).</strong> Render the summary, persist the cache (<code>CacheManager.save</code>), and optionally emit metrics JSON.</li>
+</ol>
+<p><code>MirrorURL</code> is a context manager — use <code>with MirrorURL(cfg) as mirror:</code> so <code>__exit__</code>/<code>cleanup</code> tears down pools, async loops, and the health server.</p>
+<hr />
+<h2 id="the-configuration-system">The configuration system</h2>
+<p>There are <strong>two</strong> config objects; know which is which:</p>
+<ul>
+<li><strong><code>ConfigSchema</code></strong> (pydantic <code>BaseModel</code>) — the <em>file-facing</em> schema. It mirrors what a user may put in a YAML/JSON config file and applies validation bounds (<code>ge</code>/<code>le</code>) on values like <code>workers</code>, <code>timeout</code>, <code>cache_max_age</code>.</li>
+<li><strong><code>MirrorConfig</code></strong> (pydantic <code>BaseModel</code>) — the <em>runtime</em> config consumed by <code>MirrorURL</code> and every subsystem. It is richer than <code>ConfigSchema</code>: it carries resolved <code>Path</code> objects, enum-typed fields (<code>cleanup_policy: CleanupPolicy</code>, <code>scan_mode: ScanMode</code>), and many runtime-only flags (<code>dry_run</code>, <code>quiet</code>, <code>async_metadata</code>, <code>adaptive_async</code>, <code>circuit_breaker_enabled</code>, …).</li>
+</ul>
+<p>The assembly path:</p>
+<pre><code>CLI args ──┐
+           ├─► load_config_from_args() ─► MirrorConfig  ─► MirrorURL(cfg)
+config file┘   (expand_env_vars, validate_config_file)
+</code></pre>
+<ul>
+<li><code>expand_env_vars</code> resolves <code>${VAR}</code> placeholders in the file before validation.</li>
+<li><code>validate_config_file</code> loads YAML/JSON and checks it against <code>ConfigSchema</code>.</li>
+<li><code>load_config_from_args</code> merges CLI flags with any file values and produces the final <code>MirrorConfig</code>.</li>
+</ul>
+<p><strong>When you add a setting</strong>, you usually touch all three: a field on the config model(s), a CLI flag in <code>cli.py</code>, and the code that reads it. See the <a href="#extension-recipes">extension recipes</a>.</p>
+<hr />
+<h2 id="subsystem-deep-dives">Subsystem deep-dives</h2>
+<p><strong>SSRF-hardened transport (<code>transport.py</code>).</strong> <code>SecureTransport</code> / <code>SecureAsyncTransport</code> wrap httpx and reject requests whose resolved address is loopback or private. This is a security boundary: do not weaken it for convenience. Both accept a <code>test_mode</code> flag that relaxes the guard; this is how integration tests hit a local server (see <a href="#testing">Testing</a>). Note the flag is not currently wired from <code>MirrorConfig</code> — that wiring is the documented prerequisite for the end-to-end test.</p>
+<p><strong>Circuit breakers (<code>circuit_breaker.py</code>).</strong> <code>CircuitBreakerManager</code> keeps one breaker per domain, created lazily via <code>get_breaker(domain)</code>. State transitions are <code>CLOSED → OPEN → HALF_OPEN → CLOSED</code>. A historical bug (fixed in 3.1.13) was that the manager's <code>record_*</code>/<code>can_execute</code> methods didn't lazily create the breaker, so production domains never tripped — when changing this code, keep the lazy-creation path intact and covered by tests.</p>
+<p><strong>Concurrency (<code>concurrency.py</code>).</strong> <code>UnifiedConcurrencyManager</code> enforces a single global thread budget shared across sync, async, and parallel-chunk work, so the process can't oversubscribe. Acquire/release are explicit; always release in a <code>finally</code>.</p>
+<p><strong>Async path (<code>async_connection.py</code>).</strong> <code>AdaptiveAsyncManager</code> tunes its concurrency from measured RTT, throughput, and error rate; <code>AsyncTaskManager</code> runs the metadata HEAD checks. The non-adaptive <code>AsyncConnectionManager</code> shares the client/semaphore plumbing — historically several "phantom attribute" bugs came from methods that assumed adaptive-only state, so keep the two classes' responsibilities distinct.</p>
+<p><strong>Cache (<code>cache.py</code>).</strong> <code>CacheManager</code> owns the JSON cache lifecycle: load + validate (<code>_validate_and_sanitize_cache</code>), schema-version gating (<code>CACHE_SCHEMA_VERSION</code>), atomic save via a temp file, and corrupted-file backup. The cache <em>filename</em> is built in <code>_MirrorBase.__init__</code>, not here.</p>
+<hr />
+<h2 id="extension-recipes">Extension recipes</h2>
+<p>These are the common changes and the exact touch-points.</p>
+<h3 id="add-a-configuration-option">Add a configuration option</h3>
+<ol>
+<li>Add the field to <code>MirrorConfig</code> in <code>config.py</code> (and to <code>ConfigSchema</code> too if it should be settable from a config file), with a sensible default and any pydantic validation bounds.</li>
+<li>If it should be settable from the CLI, add a flag in <code>cli.py</code> and map it in <code>load_config_from_args</code>.</li>
+<li>Read <code>self.config.&lt;field&gt;</code> where the behavior lives (a mixin or a subsystem).</li>
+<li>Add a test (a config round-trip test for the field; a behavior test for the effect). Document it in <code>USER_GUIDE.md</code> if user-facing.</li>
+</ol>
+<h3 id="add-a-cli-flag">Add a CLI flag</h3>
+<p>Flags are defined in <code>cli.py</code> (download-related ones via <code>add_parallel_arguments</code>). Add the <code>argparse</code> argument, then ensure <code>load_config_from_args</code> translates it onto <code>MirrorConfig</code>. Keep <code>--help</code> text consistent with the User Guide's option tables.</p>
+<h3 id="add-a-download-mode">Add a download mode</h3>
+<ol>
+<li>Add a value to <code>DownloadMethod</code> in <code>enums.py</code>.</li>
+<li>Implement the mechanism in <code>download.py</code> (<code>ParallelDownloadManager</code>), and make <code>auto_select_method</code> able to return it when appropriate.</li>
+<li>Handle the new method where methods are dispatched in <code>_core/report.py</code>/<code>_core/downloads.py</code> (the <code>if method == DownloadMethod.…</code> branches).</li>
+<li>Expose a CLI flag (see above) if users should be able to force it.</li>
+<li>Add tests covering selection and the download path.</li>
+</ol>
+<h3 id="add-a-new-exception-type">Add a new exception type</h3>
+<p>Add it to <code>exceptions.py</code>, subclassing the nearest existing base in the <code>MirrorError</code> hierarchy. If it is part of the public surface, re-export it from <code>__init__.py</code> and add it to <code>__all__</code>.</p>
+<h3 id="add-a-method-to-mirrorurl">Add a method to MirrorURL</h3>
+<p>Pick the mixin matching the method's responsibility (scan/compare/download/ cleanup/report/urls) and add it there. Use shared state initialized in <code>_MirrorBase.__init__</code>; don't introduce a second <code>__init__</code>. If the method is public API, consider whether it belongs on the documented surface.</p>
+<h3 id="add-a-new-subsystem-module">Add a new subsystem module</h3>
+<p>Place it in the correct layer (it may import only downward). Wire it into <code>MirrorURL</code> from <code>_MirrorBase.__init__</code> (layer 6 is where composition happens). Add unit tests at its own layer with no higher-layer setup.</p>
+<hr />
+<h2 id="coding-conventions">Coding conventions</h2>
+<ul>
+<li><strong><code>from __future__ import annotations</code></strong> at the top of every module. Annotations are lazy strings, which lets us reference types without import cycles and use modern annotation forms while still running on 3.9.</li>
+<li><strong>Classic typing</strong> (<code>Dict</code>, <code>List</code>, <code>Optional</code>, <code>Union</code> from <code>typing</code>) — the package targets 3.9. Do not "modernize" to <code>dict[...]</code>/<code>X | None</code> in runtime positions; the lint config deliberately omits pyupgrade (<code>UP</code>) and most <code>SIM</code> rules for this reason.</li>
+<li><strong><code>TYPE_CHECKING</code> guards</strong> for imports needed only for annotations, to keep the import graph acyclic.</li>
+<li><strong>Lint rule set:</strong> ruff with <code>E, F, W, I, B, C4</code>. A few bugbear rules (<code>B904</code>, <code>B007</code>, <code>B019</code>) and <code>E501</code>/<code>B008</code> are ignored — see the rationale comments in <code>pyproject.toml</code>. <code>B019</code> in particular marks a real latent <code>lru_cache</code>-on-method issue inherited verbatim; it's preserved, not silently rewritten.</li>
+<li><strong>Formatting:</strong> <code>black</code> (line length 100) or <code>ruff format</code>. The legacy <code>mirror_url.py</code> is excluded from both.</li>
+<li><strong>Type-checking:</strong> <code>mypy</code> runs as an advisory signal (CI <code>continue-on-error</code>), not a gate. It is lenient by design (<code>no_implicit_optional = false</code>, untyped-defs allowed) because the port is largely untyped. Tightening it is a welcome dedicated follow-up, not something to do piecemeal mid-feature.</li>
+<li><strong>The layering rule</strong> (<a href="#the-dependency-layer-architecture">above</a>) is a hard convention: never import upward or create an import cycle.</li>
+</ul>
+<hr />
+<h2 id="testing">Testing</h2>
+<p>The suite lives in <code>tests/</code> and runs under <code>pytest</code>. Two lanes:</p>
+<ul>
+<li><strong>Fast lane</strong> (<code>pytest -m "not integration"</code>) — smoke, utilities, security, and subsystem-integration tests that exercise real in-process I/O (thread-safe primitives under concurrent load, circuit-breaker timing, <code>DiskBackedSet</code> spill-to-disk, pydantic/YAML config round-trips). No network. This is what CI gates on across Python 3.9–3.12.</li>
+<li><strong>Integration lane</strong> (<code>pytest -m integration</code>) — end-to-end runs against the local <code>static_http_server</code> fixture in <code>conftest.py</code>.</li>
+</ul>
+<p><strong>The SSRF caveat for end-to-end tests:</strong> the secure transport refuses loopback/private targets, so a real local-server run requires the transport's <code>test_mode</code> bypass. That wiring from <code>MirrorConfig</code> is not yet in place, so the full end-to-end test is currently skipped and documents the requirement (see <code>tests/test_integration.py</code>). If you implement <code>test_mode</code> plumbing, you can enable it.</p>
+<p><strong>Where to add tests:</strong></p>
+<ul>
+<li>Pure-logic, low-layer code (<code>utils</code>, <code>security</code>, <code>primitives</code>, <code>circuit_breaker</code>, <code>rate_limiter</code>, <code>parsing</code>) → fast unit tests; this is where the bulk of coverage should live.</li>
+<li>Managers → component tests injecting a fake/test httpx transport.</li>
+<li>Whole-run behavior → integration tests against the fixture server.</li>
+</ul>
+<p>Markers are declared in <code>pyproject.toml</code> under <code>[tool.pytest.ini_options]</code> (<code>--strict-markers</code> is on, so register new markers there).</p>
+<hr />
+<h2 id="build-lint-and-type-check">Build, lint, and type-check</h2>
+<div class="sourceCode" id="cb5"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true"></a><span class="co"># editable install with the dev toolchain</span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true"></a><span class="ex">pip</span> install -e <span class="st">&quot;.[dev]&quot;</span></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true"></a><span class="ex">pre-commit</span> install        # optional but recommended</span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true"></a></span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true"></a><span class="ex">ruff</span> check .              # lint</span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true"></a><span class="ex">ruff</span> format --check .     # or: black --check .</span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true"></a><span class="ex">mypy</span>                      # advisory type-check of src/mirror_url</span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true"></a><span class="ex">pytest</span> -m <span class="st">&quot;not integration&quot;</span>   # fast lane</span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true"></a><span class="ex">pytest</span>                        # full suite (includes integration)</span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true"></a></span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true"></a><span class="co"># build distributions</span></span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true"></a><span class="ex">pip</span> install build</span>
+<span id="cb5-13"><a href="#cb5-13" aria-hidden="true"></a><span class="ex">python</span> -m build           # wheel + sdist into dist/</span></code></pre></div>
+<p>CI (<code>.github/workflows/ci.yml</code>) runs lint + tests across 3.9–3.12. The HTML docs are produced from the Markdown with pandoc (embedded CSS + TOC) — regenerate <code>docs/*.html</code> after editing the corresponding <code>.md</code>.</p>
+<hr />
+<h2 id="release-process">Release process</h2>
+<ol>
+<li><strong>Bump the version in both sources</strong> (a test asserts they match):
+<ul>
+<li><code>pyproject.toml</code> → <code>version = "X.Y.Z"</code></li>
+<li><code>src/mirror_url/_version.py</code> → <code>__version__ = "X.Y.Z"</code></li>
+<li>Also update the user-facing version strings in <code>cli.py</code> (banner/description) and the version references in <code>docs/USER_GUIDE.{md,html}</code>.</li>
+</ul></li>
+<li><strong>Update <code>CHANGELOG.md</code></strong> — add a new section at the top following Keep a Changelog (<code>### Added/Changed/Fixed</code>).</li>
+<li><strong>Commit everything</strong> (<code>git add -A</code> — don't forget docs/changelog/cli), push.</li>
+<li><strong>Tag and push the tag:</strong>
+<div class="sourceCode" id="cb6"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true"></a><span class="fu">git</span> tag -a vX.Y.Z -m <span class="st">&quot;mirror-url X.Y.Z&quot;</span></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true"></a><span class="fu">git</span> push origin vX.Y.Z</span></code></pre></div></li>
+<li>The tag triggers <code>.github/workflows/release.yml</code>, which builds the wheel/sdist, creates a GitHub Release, and (when configured) publishes to PyPI via <strong>Trusted Publishing</strong> (OIDC — no API token). The PyPI step requires a one-time setup: a pending publisher on PyPI (<code>owner</code> = repo owner, workflow <code>release.yml</code>, environment <code>pypi</code>) and a matching <code>pypi</code> Environment in the repo settings. Until that exists, the tag still builds the wheel and creates the GitHub Release; only the PyPI upload is skipped/red.</li>
+</ol>
+<p>If you push a tag pointing at an incomplete commit, move it with <code>git tag -f -a vX.Y.Z … &amp;&amp; git push origin vX.Y.Z --force</code> to re-trigger the release from the corrected commit.</p>
+<hr />
+<h2 id="known-hazards-and-gotchas">Known hazards and gotchas</h2>
+<p>These bit the project before; the migration plan calls them out explicitly.</p>
+<ul>
+<li><strong>Don't reintroduce the self-import.</strong> <code>ConnectionManager</code>'s scope check imports <code>MirrorURL</code> from <code>.core</code>; the monolith's <code>from mirror_url import MirrorURL</code> was a packaging hazard. Prefer dependency injection over reaching up to <code>core</code>.</li>
+<li><strong>Keep subclass families in one module.</strong> <code>PerIPRateLimiter</code>/ <code>ChunkAwareRateLimiter</code> subclass <code>RateLimiter</code>; <code>ChunkCircuitBreaker</code> subclasses <code>CircuitBreaker</code>. Splitting a base from its subclasses across modules invites import cycles.</li>
+<li><strong>Centralize optional-dep probes in <code>compat.py</code>.</strong> Import the <code>*_AVAILABLE</code> flag; never re-do the <code>try/except import</code> elsewhere.</li>
+<li><strong>Shared module globals</strong> (e.g. log bookkeeping used by <code>setup_shared_logging</code>/ <code>cleanup_log_files</code>) must live in one module and be imported, not re-declared, or you get divergent copies.</li>
+<li><strong>Preserve verbatim bug fixes.</strong> The changelog documents subtle attribute/phantom-method fixes (async HEAD, async transport <code>test_mode</code>, circuit-breaker lazy creation, redirect header preservation, MOVE-mode cleanup). Don't "tidy" these away while refactoring nearby code.</li>
+<li><strong>One real latent issue is preserved on purpose:</strong> mypy flags <code>ConnectionManager._is_url_within_scope</code> reading <code>self.target_parsed</code> in a branch <code>__init__</code> never sets (the branch is never taken today). Fix it deliberately, with a test, during a typing pass — not as a drive-by.</li>
+</ul>
+<hr />
+<h2 id="quick-where-do-i-find-map">Quick "where do I find…" map</h2>
+<table>
+<thead>
+<tr class="header">
+<th>I want to change…</th>
+<th>Go to</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>A tuning default or limit</td>
+<td><code>constants.py</code></td>
+</tr>
+<tr class="even">
+<td>An error type</td>
+<td><code>exceptions.py</code> (+ <code>__init__.py</code> if public)</td>
+</tr>
+<tr class="odd">
+<td>A run-mode / state enum</td>
+<td><code>enums.py</code></td>
+</tr>
+<tr class="even">
+<td>A config field</td>
+<td><code>config.py</code> (<code>MirrorConfig</code>/<code>ConfigSchema</code>) + <code>cli.py</code></td>
+</tr>
+<tr class="odd">
+<td>URL scope/validation logic</td>
+<td><code>_core/urls.py</code></td>
+</tr>
+<tr class="even">
+<td>How the remote tree is discovered</td>
+<td><code>_core/scan.py</code> (+ <code>parsing.py</code>)</td>
+</tr>
+<tr class="odd">
+<td>"Is the file up to date?" logic</td>
+<td><code>_core/compare.py</code></td>
+</tr>
+<tr class="even">
+<td>How a file is actually downloaded</td>
+<td><code>_core/downloads.py</code> → <code>download.py</code></td>
+</tr>
+<tr class="odd">
+<td>Obsolete-file cleanup behavior</td>
+<td><code>_core/cleanup.py</code></td>
+</tr>
+<tr class="even">
+<td>The top-level run / summary</td>
+<td><code>_core/report.py</code> (<code>sync()</code>)</td>
+</tr>
+<tr class="odd">
+<td>Construction / shared state / logging</td>
+<td><code>_core/_base.py</code></td>
+</tr>
+<tr class="even">
+<td>The on-disk cache format/lifecycle</td>
+<td><code>cache.py</code> (filename in <code>_core/_base.py</code>)</td>
+</tr>
+<tr class="odd">
+<td>SSRF / network security boundary</td>
+<td><code>transport.py</code>, <code>security.py</code></td>
+</tr>
+<tr class="even">
+<td>Throttling / retries / breakers</td>
+<td><code>rate_limiter.py</code>, <code>connection.py</code>, <code>circuit_breaker.py</code></td>
+</tr>
+<tr class="odd">
+<td>CLI flags / entry point</td>
+<td><code>cli.py</code>, <code>__main__.py</code></td>
+</tr>
+<tr class="even">
+<td>The version number</td>
+<td><code>_version.py</code> <strong>and</strong> <code>pyproject.toml</code></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<p><em>This guide describes the architecture as of version 3.1.14. When you change the structure, update this document in the same PR.</em></p>
+</body>
+</html>

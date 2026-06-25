@@ -4,6 +4,12 @@ Thanks for your interest in improving MirrorURL. This guide covers the
 development setup, the checks we run, and the conventions specific to this
 codebase.
 
+> **New to the codebase?** Read the [Developer Guide](./docs/DEVELOPER_GUIDE.md)
+> ([HTML](./docs/DEVELOPER_GUIDE.html)) first — it's a self-contained
+> architecture deep-dive (dependency layers, the `MirrorURL` mixin design, data
+> flow, and step-by-step extension recipes). This file covers the day-to-day
+> contribution mechanics.
+
 ## Development setup
 
 ```bash
@@ -42,7 +48,8 @@ mirror_url.py          # legacy single-file version (frozen reference, pending r
 The package is organized into strict dependency layers (constants/exceptions →
 utils → security → transport/limiters → managers → `core` → `cli`). **Imports
 only ever point "downward"** — a module may import from lower layers, never from
-a higher one. When in doubt, see the layering table in `REFACTORING_PLAN.md` §3.
+a higher one. When in doubt, see the layering table in `REFACTORING_PLAN.md` §3,
+or the fuller treatment in the [Developer Guide](./docs/DEVELOPER_GUIDE.md).
 Cross-layer type-only references use `if TYPE_CHECKING:` to avoid import cycles.
 
 ## Conventions

@@ -58,6 +58,11 @@ Configuration can also be supplied via a YAML file (see `MirrorConfig` /
 reference, config-file format, download modes, security notes, the Python API,
 and troubleshooting.
 
+🛠 **Contributing to the code?** The [Developer Guide](./docs/DEVELOPER_GUIDE.md)
+([HTML version](./docs/DEVELOPER_GUIDE.html)) is an architecture deep-dive:
+dependency layers, the `MirrorURL` mixin design, runtime data flow, and
+step-by-step extension recipes.
+
 ## Development
 
 ```bash
