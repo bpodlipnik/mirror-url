@@ -74,6 +74,10 @@ where = ["src"]
 [tool.black]
 line-length = 100
 target-version = ["py39", "py310", "py311", "py312"]
+# The canonical formatter is `ruff format` (see CI). Black is kept available for
+# contributors who prefer it; exclude the frozen monolith so `black .` never
+# rewrites it (mirrors the ruff `extend-exclude` below).
+force-exclude = "mirror_url\\.py"
 
 [tool.ruff]
 line-length = 100
