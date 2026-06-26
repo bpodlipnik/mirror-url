@@ -6,7 +6,7 @@ name: Release
 #
 # Setup (one-time, on PyPI): register the project "mirror-url", then add this
 # repository as a Trusted Publisher (Project → Settings → Publishing):
-#   Owner: podlipnik   Repo: mirror-url   Workflow: release.yml   Environment: pypi
+#   Owner: bpodlipnik   Repo: mirror-url   Workflow: release.yml   Environment: pypi
 
 on:
   push:
@@ -20,8 +20,8 @@ jobs:
     name: Build distributions
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - run: python -m pip install --upgrade pip build
