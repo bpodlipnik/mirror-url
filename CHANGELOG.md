@@ -4,6 +4,25 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.16] - 2026-07-03
+
+### Fixed
+- **`--dry-run` silently created the target directory**: `PathSafety.safe_join()`
+  unconditionally called `base.mkdir()` whenever the base directory didn't
+  exist, with no way for a caller to opt out. Both
+  `ScanMixin._get_local_path_from_url()` and `CleanupMixin`'s expected-files
+  builders call `safe_join(self.target_dir, ...)` once per remote file, so
+  during a dry run the very first file checked silently created the (empty)
+  target directory on disk — even though the dry-run log had already
+  reported it as "not created". Nothing was downloaded into it, but
+  `--dry-run` was no longer side-effect-free. `safe_join()` now takes a
+  `create_base: bool = True` flag; both call sites pass
+  `create_base=not self.config.dry_run`.
+
+### Added
+- `tests/test_dry_run_no_side_effects.py` and three new cases in
+  `tests/test_security.py` covering the `create_base` flag directly.
+
 ## [3.1.15] - 2026-07-03
 
 ### Fixed
