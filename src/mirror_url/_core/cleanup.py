@@ -90,6 +90,7 @@ class CleanupMixin:
                         *rel.split("/"),
                         max_depth=self.config.max_depth,
                         max_filename_len=self.config.max_filename_len,
+                        create_base=not self.config.dry_run,
                     )
                     if local and PathSafety.is_subpath(self.target_dir, local):
                         expected.add(local)
@@ -337,6 +338,7 @@ class CleanupMixin:
                         *rel.split("/"),
                         max_depth=self.config.max_depth,
                         max_filename_len=self.config.max_filename_len,
+                        create_base=not self.config.dry_run,
                     )
 
                     if local and PathSafety.is_subpath(self.target_dir, local):

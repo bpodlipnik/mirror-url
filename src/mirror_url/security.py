@@ -370,6 +370,7 @@ class PathSafety:
         *parts: str,
         max_depth: int = MAX_DIRECTORY_DEPTH,
         max_filename_len: int = MAX_FILENAME_LENGTH,
+        create_base: bool = True,
     ) -> Optional[Path]:
         """
         Safely join path components with security checks.
@@ -379,6 +380,12 @@ class PathSafety:
             *parts: Path parts to join
             max_depth: Maximum directory depth
             max_filename_len: Maximum filename length
+            create_base: If True (default), create ``base`` on disk when it
+                doesn't exist yet, as a side effect of resolving/validating
+                the path. Callers that must not touch the filesystem --
+                e.g. dry-run path resolution -- should pass False; the path
+                is still safely resolved and validated via
+                ``resolve(strict=False)``, just without creating anything.
 
         Returns:
             Safe joined path or None if unsafe
@@ -389,7 +396,7 @@ class PathSafety:
             if base.is_symlink():
                 logging.warning(f"Base path is a symlink, blocking: {base}")
                 return None
-            if not base.exists():
+            if not base.exists() and create_base:
                 base.mkdir(parents=True, exist_ok=True)
             try:
                 base_resolved = base.resolve(strict=False)

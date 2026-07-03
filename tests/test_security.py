@@ -84,6 +84,45 @@ def test_safe_join_in_scope(tmp_path: Path):
     assert str(result).startswith(str(tmp_path.resolve()))
 
 
+def test_safe_join_creates_missing_base_by_default(tmp_path: Path):
+    missing_base = tmp_path / "not_there_yet"
+    assert not missing_base.exists()
+    result = PathSafety.safe_join(missing_base, "file.txt")
+    assert result is not None
+    assert missing_base.exists()  # default behavior: created as a side effect
+
+
+def test_safe_join_create_base_false_does_not_touch_disk(tmp_path: Path):
+    """Regression test: dry-run path resolution must not create directories.
+
+    Previously safe_join() unconditionally called base.mkdir() when the
+    base didn't exist, with no way for a caller to opt out. That made a
+    single dry-run file-existence check (which resolves a local path for
+    every remote file via safe_join) silently create the target directory
+    on disk -- defeating the point of --dry-run, which should leave the
+    filesystem untouched. The directory got created, then nothing was
+    downloaded into it: the log said "dry-run, not created" while an empty
+    folder was left behind.
+    """
+    missing_base = tmp_path / "not_there_yet"
+    assert not missing_base.exists()
+
+    result = PathSafety.safe_join(missing_base, "sub", "file.txt", create_base=False)
+
+    # Path is still safely resolved and validated...
+    assert result is not None
+    assert str(result).startswith(str(missing_base.resolve()))
+    # ...but nothing was created on disk.
+    assert not missing_base.exists()
+
+
+def test_safe_join_create_base_false_still_blocks_traversal(tmp_path: Path):
+    """The security checks must still apply when create_base=False."""
+    missing_base = tmp_path / "not_there_yet"
+    assert PathSafety.safe_join(missing_base, "..", "etc", "passwd", create_base=False) is None
+    assert not missing_base.exists()
+
+
 def test_is_subpath(tmp_path: Path):
     child = tmp_path / "a" / "b"
     assert PathSafety.is_subpath(tmp_path, child) is True
