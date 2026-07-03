@@ -137,6 +137,13 @@ class _MirrorBase:
         self.start_time = time.time()
         self.job_start_time = datetime.now()
         self.connection_ok = True
+        # FIX (partial-scan guard): set to True if any directory failed to
+        # list during remote discovery (see ScanMixin._discover_directories_bfs
+        # and ScanMixin.get_remote_files). clean_obsolete() refuses to run
+        # while this is True, since an incomplete listing would misreport
+        # still-remote files as obsolete. Reset at the start of each
+        # get_remote_files() call.
+        self.scan_incomplete = False
         self._speed_samples: deque = deque(maxlen=20)  # Keep last 20 samples
 
         # ============================================================================

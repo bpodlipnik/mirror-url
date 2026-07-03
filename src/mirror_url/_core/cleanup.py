@@ -26,6 +26,23 @@ class CleanupMixin:
             logging.debug("Cleanup skipped: SAFE_NO_DELETE mode")
             return
 
+        # FIX (partial-scan guard): if any directory failed to list during
+        # this run's remote discovery, remote_files is an incomplete
+        # snapshot -- files under the failed subtree would be misreported as
+        # obsolete even though they still exist remotely. Refuse to delete
+        # or move anything until a clean, complete scan succeeds. This also
+        # covers PREVIEW, since a preview built on an incomplete listing is
+        # misleading in the same way.
+        if getattr(self, "scan_incomplete", False):
+            logging.warning(
+                "⚠️ Cleanup skipped: remote scan was incomplete (one or more "
+                "directories failed to list this run). Obsolete-file "
+                "detection would be based on a partial listing and could "
+                "delete or move files that still exist on the remote. "
+                "Re-run once the scan completes without errors."
+            )
+            return
+
         is_preview = self.config.cleanup_policy == CleanupPolicy.PREVIEW or self.config.dry_run
 
         # Check target_dir

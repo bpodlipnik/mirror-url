@@ -140,6 +140,9 @@ class ScanMixin:
     def get_remote_files(self) -> Optional[List[str]]:
         """Get remote files list through directory discovery."""
         prefix = self._get_prefix()
+        # FIX (partial-scan guard): fresh state for this run -- see
+        # _discover_directories_bfs and CleanupMixin.clean_obsolete.
+        self.scan_incomplete = False
 
         try:
             # NOTE: Both the dir_suffix/target case AND the root-level case go
@@ -266,7 +269,16 @@ class ScanMixin:
             try:
                 files, subdirs = self.scanner.scan_directory_sequential(url)
             except Exception as e:
-                logging.debug(f"Error scanning {url}: {e}")
+                # FIX (partial-scan guard): this directory's files/subdirs are
+                # unknown, not empty -- treating them as [] previously made
+                # get_remote_files() return a silently-incomplete listing
+                # that clean_obsolete() couldn't distinguish from a complete
+                # one. Flag the run as incomplete so cleanup is skipped.
+                logging.warning(
+                    f"Error scanning {url}: {e} -- directory listing incomplete, "
+                    f"cleanup will be skipped this run"
+                )
+                self.scan_incomplete = True
                 _files, subdirs = [], []
 
             yield url
