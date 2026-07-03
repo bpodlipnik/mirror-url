@@ -35,6 +35,12 @@ jobs:
   publish-pypi:
     name: Publish to PyPI
     needs: build
+    # Opt-in: this job is skipped (not failed) until you set the repository
+    # variable PUBLISH_TO_PYPI=true (Settings → Secrets and variables → Actions
+    # → Variables). Enable it only after registering the PyPI Trusted Publisher
+    # (see the header comment). Until then, releases still build the wheel and
+    # attach it to the GitHub Release.
+    if: vars.PUBLISH_TO_PYPI == 'true'
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
