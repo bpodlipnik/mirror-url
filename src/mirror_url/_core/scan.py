@@ -337,6 +337,7 @@ class ScanMixin:
                 *rel_path.split("/"),
                 max_depth=self.config.max_depth,
                 max_filename_len=self.config.max_filename_len,
+                create_base=not self.config.dry_run,
             )
 
             if local_path is None:
