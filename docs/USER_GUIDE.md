@@ -101,7 +101,7 @@ pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.16"
 pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.1.16"
 ```
 
-### From PyPI (if published)
+### From PyPI
 
 ```bash
 pip install mirror-url
