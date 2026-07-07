@@ -67,6 +67,12 @@ incremental runs, and strong SSRF/path-traversal protections.
 
 > Always install into a **virtual environment** to keep dependencies isolated.
 
+### From PyPI
+
+```bash
+pip install mirror-url
+```
+
 ### From a built wheel (recommended for servers)
 
 On a build machine:
@@ -99,12 +105,6 @@ Available extras: `fast` (stringzilla + lxml), `progress` (tqdm),
 pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.16"
 # private repo over SSH:
 pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.1.16"
-```
-
-### From PyPI
-
-```bash
-pip install mirror-url
 ```
 
 ### As an isolated CLI with pipx
