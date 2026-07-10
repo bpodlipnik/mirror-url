@@ -6,6 +6,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [3.1.16] - 2026-07-03
 
+
+### Fixed
+- **'--help' showing stale v3.1.14 and removed outdated benchmarks section.
+
 ### Fixed
 - **`--dry-run` silently created the target directory**: `PathSafety.safe_join()`
   unconditionally called `base.mkdir()` whenever the base directory didn't
