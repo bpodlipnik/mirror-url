@@ -298,8 +298,8 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=f"""
 ╔══════════════════════════════════════════════════════════════════════════════════════╗
-║                                  MIRRORURL v{__version__}                                   ║
-║                                USAGE GUIDE                                           ║
+║{f"MIRRORURL v{__version__}".center(88 - 2)}║
+║{"USAGE GUIDE".center(88 - 2)}║
 ╚══════════════════════════════════════════════════════════════════════════════════════╝
 """
         + """
@@ -331,21 +331,21 @@ The --filter option supports both simple extensions and powerful regex patterns:
     --filter .fts               # Match single extension (case-insensitive)
 
   REGEX PATTERNS (full power):
-    --filter '2024.*\\.fits$'                    # .fits files from 2024
-    --filter 'L1.*\\.(fits|txt)$'                # L1 files with .fits or .txt
-    --filter 'IMG_[0-9]{4}\\.jpg'                 # Images with 4-digit numbers
-    --filter '^(?!temp_).*\\.dat$'                # All .dat files except temp_
-    --filter 'L[0-9]{2}/v[0-9]/.*\\.fits'        # Deep path patterns
+    --filter '2024.*\\.fits$'              # .fits files from 2024
+    --filter 'L1.*\\.(fits|txt)$'          # L1 files with .fits or .txt
+    --filter 'IMG_[0-9]{4}\\.jpg'          # Images with 4-digit numbers
+    --filter '^(?!temp_).*\\.dat$'         # All .dat files except temp_
+    --filter 'L[0-9]{2}/v[0-9]/.*\\.fits'  # Deep path patterns
 
 ────────────────────────────────────────────────────────────────────────────────────────
 PARALLEL DOWNLOAD OPTIONS:
 ────────────────────────────────────────────────────────────────────────────────────────
-  --max-chunks N              Maximum chunks per file (default: 8)
-  --min-chunk-size MB         Minimum chunk size in MB (default: 10MB)
-  --max-parallel-chunks N     Maximum total parallel chunks (default: 50)
+  --max-chunks N                Maximum chunks per file (default: 8)
+  --min-chunk-size MB           Minimum chunk size in MB (default: 10MB)
+  --max-parallel-chunks N       Maximum total parallel chunks (default: 50)
   --max-concurrent-downloads N  Maximum files to download simultaneously (default: 10)
-  --auto-concurrency          Automatically tune parallel download concurrency based on
-                              measured throughput (finds optimal setting for each server)
+  --auto-concurrency            Automatically tune parallel download concurrency based on
+                                measured throughput (finds optimal setting for each server)
 
   Examples:
   # Traditional parallel (temp files) - SAFE default for parallel
