@@ -292,16 +292,17 @@ def setup_shared_logging(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
-    """Main entry point with v3.1.14 true parallel file downloads"""
+    """Main entry point with true parallel file downloads"""
     parser = argparse.ArgumentParser(
-        description="MirrorURL v3.1.14 - Enterprise-Grade Remote Directory Mirroring Tool with True Parallel Downloads",
+        description=f"MirrorURL v{__version__} - Enterprise-Grade Remote Directory Mirroring Tool with True Parallel Downloads",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
+        epilog=f"""
 ╔══════════════════════════════════════════════════════════════════════════════════════╗
-║                                  MIRRORURL v3.1.14                                   ║
+║                                  MIRRORURL v{__version__}                                   ║
 ║                                USAGE GUIDE                                           ║
 ╚══════════════════════════════════════════════════════════════════════════════════════╝
-
+"""
+        + """
 REQUIRED ARGUMENTS (ONE of these two options):
 ────────────────────────────────────────────────────────────────────────────────────────
 Option 1: Use configuration file
@@ -368,14 +369,6 @@ PARALLEL DOWNLOAD OPTIONS:
   ✅ Resume capability works per chunk
   ✅ Graceful fallback if server doesn't support Range
   ✅ Files download in parallel for maximum throughput
-
-────────────────────────────────────────────────────────────────────────────────────────
-PERFORMANCE BENCHMARKS:
-────────────────────────────────────────────────────────────────────────────────────────
-  📊 4 files (343MB total):
-      v2.0.2: 3.7s  (92 MB/s)
-      v3.0.0: 2.7s  (128 MB/s)  +40%%
-      v3.0.2: 0.8s  (428 MB/s)  +365%% 🚀
 
 ────────────────────────────────────────────────────────────────────────────────────────
 EXAMPLES:
