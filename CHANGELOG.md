@@ -3,6 +3,19 @@
 All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [3.1.20] - 2026-07-11
+
+### Removed
+- The frozen legacy `mirror_url.py` monolith (15,145 lines), retained
+  since the refactor as a historical reference. Deletion condition from
+  `REFACTORING_PLAN.md` was met: full test suite passes with real
+  runtime dependencies installed. Also fixes a real bug: `import
+  mirror_url` / `python -m mirror_url` run from inside a clone of this
+  repo used to silently resolve against this file instead of the
+  installed package, returning its frozen version number (3.1.13)
+  instead of the real one.
+
 ## [3.1.19] - 2026-07-11
 
 ### Fixed
