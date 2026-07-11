@@ -157,6 +157,13 @@ class ParallelDownloadManager:
         self.active_downloads: OrderedDict[Path, ParallelFileDownload] = OrderedDict()
         self.max_active_downloads = 100  # Prevent unbounded growth
 
+        # Interruptible wait for the periodic cleanup loop: lets shutdown()
+        # wake it immediately instead of waiting out the rest of a
+        # time.sleep(30) interval (see _periodic_cleanup / shutdown). Created
+        # before the thread starts, since the thread reads it on its very
+        # first loop iteration.
+        self._shutdown_event = threading.Event()
+
         # Start periodic cleanup thread
         self._cleanup_thread = threading.Thread(
             target=self._periodic_cleanup, daemon=True, name=f"pdm_cleanup_{id(self)}"
@@ -247,7 +254,11 @@ class ParallelDownloadManager:
         """
         while not getattr(self, "_shutdown", False):
             try:
-                time.sleep(30)  # Check every 30 seconds
+                # wait() returns True immediately if shutdown() sets the
+                # event, instead of blocking for the full 30s like
+                # time.sleep() did.
+                if self._shutdown_event.wait(timeout=30):
+                    break
                 self._cleanup_idle_resources()
             except Exception as e:
                 # Don't let cleanup errors crash the thread
@@ -1284,6 +1295,12 @@ class ParallelDownloadManager:
         """Shutdown manager with proper cleanup of all resources."""
         # Set shutdown flag first to stop background threads
         self._shutdown = True
+        # Wake the cleanup loop immediately instead of leaving it to finish
+        # its current 30s wait -- otherwise the 5s join() below times out
+        # (and warns) whenever shutdown happens more than 5s before the
+        # loop's next scheduled wake-up.
+        if getattr(self, "_shutdown_event", None) is not None:
+            self._shutdown_event.set()
 
         # Stop the periodic cleanup thread
         if hasattr(self, "_cleanup_thread") and self._cleanup_thread is not None:

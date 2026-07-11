@@ -82,6 +82,10 @@ class UnifiedConcurrencyManager:
         self.monitor_running = False
         self.monitor_thread: Optional[threading.Thread] = None
         self._shutdown = False
+        # Interruptible wait for the monitor loop: lets shutdown() wake it
+        # immediately instead of waiting out the rest of a sleep() interval
+        # (see _monitor_loop / shutdown).
+        self._shutdown_event = threading.Event()
 
     def start(self) -> None:
         """Start the concurrency manager and monitoring."""
@@ -106,6 +110,11 @@ class UnifiedConcurrencyManager:
         # Set shutdown flags
         self._shutdown = True
         self.monitor_running = False
+        # Wake the monitor loop immediately instead of leaving it to finish
+        # its current sleep(MONITOR_INTERVAL_SECONDS) -- otherwise the
+        # 5s join() below times out (and warns) whenever shutdown happens
+        # more than 5s before the loop's next scheduled wake-up.
+        self._shutdown_event.set()
 
         # Stop the monitor thread first
         if self.monitor_thread and self.monitor_thread.is_alive():
@@ -260,7 +269,10 @@ class UnifiedConcurrencyManager:
     def _monitor_loop(self) -> None:
         """Monitor loop for concurrency statistics."""
         while self.monitor_running and not self._shutdown:
-            time.sleep(MONITOR_INTERVAL_SECONDS)
+            # wait() returns True immediately if shutdown() sets the event,
+            # instead of blocking for the full interval like time.sleep() did.
+            if self._shutdown_event.wait(timeout=MONITOR_INTERVAL_SECONDS):
+                break
 
             with self.thread_lock:
                 active = self.active_threads
