@@ -11,6 +11,7 @@ They run in the normal (fast) test lane.
 
 from __future__ import annotations
 
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -165,6 +166,32 @@ def test_concurrency_manager_enforces_thread_cap():
         mgr.shutdown()
 
 
+def test_concurrency_manager_shutdown_is_immediate():
+    """Regression test: shutdown() used to block for up to the 5s join()
+    timeout (and log a false "Monitor thread did not stop within timeout"
+    warning) because _monitor_loop used an uninterruptible
+    time.sleep(MONITOR_INTERVAL_SECONDS) (10s). shutdown() now sets a
+    threading.Event the loop waits on, so the thread wakes immediately
+    regardless of where it is in its wait interval.
+    """
+    from mirror_url.concurrency import UnifiedConcurrencyManager
+
+    mgr = UnifiedConcurrencyManager(max_total_threads=4)
+    mgr.start()
+    assert mgr.monitor_thread.is_alive()
+    time.sleep(0.2)  # let the monitor thread enter its 10s wait
+
+    start = time.perf_counter()
+    mgr.shutdown()
+    elapsed = time.perf_counter() - start
+
+    assert not mgr.monitor_thread.is_alive()
+    assert elapsed < 1.0, (
+        f"shutdown() took {elapsed:.2f}s -- the monitor thread should wake "
+        f"immediately via _shutdown_event, not wait out MONITOR_INTERVAL_SECONDS"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Config: real pydantic + yaml round-trip and validation
 # ---------------------------------------------------------------------------
@@ -297,6 +324,22 @@ def test_parallel_download_manager_lifecycle(tmp_path: Path):
         assert pdm._cleanup_thread.is_alive()
         # chunk-count math is pure and safe to exercise
         assert pdm.get_chunk_count(0) == 1
+        # Let the cleanup thread enter its 30s wait before we shut down, so
+        # a regression back to time.sleep(30) (uninterruptible) would show
+        # up as shutdown() blocking for the full 5s join() timeout below.
+        time.sleep(0.2)
     finally:
+        start = time.perf_counter()
         pdm.shutdown()
+        elapsed = time.perf_counter() - start
     assert pdm._shutdown is True
+    assert not pdm._cleanup_thread.is_alive()
+    # Regression test: shutdown() used to block for up to the 5s join()
+    # timeout (and log a false "Cleanup thread did not stop within
+    # timeout" warning) because _periodic_cleanup used an uninterruptible
+    # time.sleep(30). shutdown() now sets a threading.Event the loop waits
+    # on, so the thread wakes immediately.
+    assert elapsed < 1.0, (
+        f"shutdown() took {elapsed:.2f}s -- the cleanup thread should wake "
+        f"immediately via _shutdown_event, not wait out its sleep interval"
+    )
