@@ -3,6 +3,18 @@
 All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [3.1.19] - 2026-07-11
+
+### Fixed
+- Spurious "Cleanup thread did not stop within timeout" and "Monitor
+  thread did not stop within timeout" warnings on every shutdown. Both
+  background threads used an uninterruptible `time.sleep(N)` (10s / 30s)
+  in their loops, while `shutdown()` only waited 5s before warning — so
+  a thread that had just started sleeping wouldn't notice the shutdown
+  signal until its full interval elapsed, firing the warning on most
+  runs (not a rare race) despite the thread being completely healthy.
+  Both loops now wait on a `threading.Event` that `shutdown()` sets,
+  waking them immediately instead of waiting out the sleep interval.
 
 ## [3.1.18] - 2026-07-10
 
