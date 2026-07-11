@@ -6,8 +6,7 @@
 #
 # What it touches (exact-string replacement of the current version only,
 # so it never rewrites unrelated historical version mentions like
-# "fixed in 3.1.13" in DEVELOPER_GUIDE.md, or the frozen legacy
-# mirror_url.py, which intentionally stays pinned to its own last version):
+# "fixed in 3.1.13" in DEVELOPER_GUIDE.md):
 #   - pyproject.toml            (version = "...")
 #   - src/mirror_url/_version.py (__version__ = "...")
 #   - docs/USER_GUIDE.md        ("**Version:**" line + install examples)
@@ -16,8 +15,6 @@
 #   - docs/DEVELOPER_GUIDE.html (same, HTML-escaped)
 #
 # What it does NOT touch (on purpose):
-#   - mirror_url.py              -- frozen legacy reference, stays at its
-#                                    own historical version
 #   - CHANGELOG.md                -- needs a human-written entry describing
 #                                    *what* changed, not just a version bump;
 #                                    this script only reminds you
@@ -109,7 +106,6 @@ fi
 
 echo
 echo "NOT touched (on purpose):"
-echo "  mirror_url.py   -- frozen legacy script, stays at its own historical version"
 echo "  CHANGELOG.md    -- add a ## [$NEW_VERSION] - $(date +%Y-%m-%d) entry by hand,"
 echo "                     describing what actually changed in this release"
 echo

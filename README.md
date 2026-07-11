@@ -9,12 +9,12 @@ discovers files behind an HTTP(S) directory listing and mirrors them locally
 with adaptive concurrency, resumable/partial downloads, integrity verification,
 and an SSRF-hardened transport layer.
 
-> **Status:** Refactor complete. The full implementation now lives in the
+> **Status:** Refactor complete. The full implementation lives in the
 > [`src/mirror_url/`](./src/mirror_url) package (30 modules), migrated verbatim
 > from the original single-file script per [`REFACTORING_PLAN.md`](./REFACTORING_PLAN.md).
-> The legacy [`mirror_url.py`](./mirror_url.py) is retained only as a frozen
-> reference and can be deleted once you've run the test suite against the package
-> in an environment with the runtime dependencies installed (see Development).
+> The legacy single-file script was retained as a frozen reference until the
+> test suite passed against the package with real runtime dependencies
+> installed, then removed (v3.1.20).
 
 ## Features
 
@@ -84,7 +84,6 @@ Continuous integration runs lint + tests across Python 3.9–3.12 (see
 ```
 src/mirror_url/          # the package (30 modules, dependency-layered)
 tests/                   # pytest suite
-mirror_url.py            # legacy monolith (frozen reference, pending removal)
 REFACTORING_PLAN.md      # module breakdown + migration roadmap
 CHANGELOG.md             # notable changes (Keep a Changelog format)
 CONTRIBUTING.md          # dev setup, checks, conventions
