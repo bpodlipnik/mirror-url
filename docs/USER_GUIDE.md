@@ -130,8 +130,18 @@ mirror-url --help
 python -c "import mirror_url; print(mirror_url.__version__)"
 ```
 
+> **Run these from outside your local clone of this repository.** The repo
+> root contains a frozen, legacy `mirror_url.py` script (kept only as a
+> historical reference). If your current directory is the clone itself,
+> Python resolves `import mirror_url` and `python -m mirror_url` against
+> that local file instead of the installed package — you'll silently get
+> its old, frozen version number instead of the one you just installed.
+> The `mirror-url` console command is unaffected either way, since it's a
+> proper entry-point script, not a same-directory import.
+
 The package exposes two equivalent entry points: the `mirror-url` console
-command and `python -m mirror_url`.
+command and `python -m mirror_url` (subject to the same-directory caveat
+above).
 
 ---
 

@@ -212,7 +212,10 @@
 <h3 id="verify-the-install">Verify the install</h3>
 <div class="sourceCode" id="cb8"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true"></a><span class="ex">mirror-url</span> --help</span>
 <span id="cb8-2"><a href="#cb8-2" aria-hidden="true"></a><span class="ex">python</span> -c <span class="st">&quot;import mirror_url; print(mirror_url.__version__)&quot;</span></span></code></pre></div>
-<p>The package exposes two equivalent entry points: the <code>mirror-url</code> console command and <code>python -m mirror_url</code>.</p>
+<blockquote>
+<p><strong>Run these from outside your local clone of this repository.</strong> The repo root contains a frozen, legacy <code>mirror_url.py</code> script (kept only as a historical reference). If your current directory is the clone itself, Python resolves <code>import mirror_url</code> and <code>python -m mirror_url</code> against that local file instead of the installed package — you'll silently get its old, frozen version number instead of the one you just installed. The <code>mirror-url</code> console command is unaffected either way, since it's a proper entry-point script, not a same-directory import.</p>
+</blockquote>
+<p>The package exposes two equivalent entry points: the <code>mirror-url</code> console command and <code>python -m mirror_url</code> (subject to the same-directory caveat above).</p>
 <hr />
 <h2 id="quick-start">Quick start</h2>
 <p>Mirror a remote directory to a local folder:</p>
