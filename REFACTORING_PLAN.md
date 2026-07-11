@@ -194,7 +194,10 @@ Suggested commit sequence (by layer):
 7. `download`, `scanner`, `health`, `config`, `tuner`
 8. `core` (then optional `core/` mixin split, §4.1)
 9. `cli` + `__main__`; fix the self-import; wire the `mirror-url` entry point
-10. Delete `mirror_url.py` shims; restore `test_integration.py` cases.
+10. Delete `mirror_url.py` shims (done, v3.1.20). `test_integration.py`
+    restoration is a separate, still-open item -- needs the SSRF-guard
+    `test_mode` bypass wired through from config (see that file's module
+    docstring for the exact gap); not blocked by this deletion.
 
 Final acceptance: `pip install -e .`, `mirror-url --help` works,
 `python -m mirror_url --help` works, full `pytest` green, `ruff`/`black`/`mypy`
@@ -225,8 +228,10 @@ clean on `src/`.
 - [x] `import mirror_url` exposes the documented public API
       (`MirrorURL`, `MirrorConfig`, `load_config_from_args`, `main`, exceptions).
 - [x] `mirror-url` and `python -m mirror_url` both run (`--help` verified).
-- [ ] `mirror_url.py` removed (retained as frozen reference — delete after the
-      test suite passes with real runtime deps installed).
+- [x] `mirror_url.py` removed (was retained as a frozen reference until the
+      test suite passed with real runtime deps installed -- confirmed: 60
+      passed, 1 skipped as of v3.1.19, and the 1 skip is the unrelated
+      SSRF-guard test_mode wiring gap below, not a migration gap).
 - [x] `MirrorURL` split into mixins (§4.1). Implemented as a private `_core/`
       subpackage (`_base`, `urls`, `scan`, `compare`, `downloads`, `cleanup`,
       `report`) composed by a thin `core.py`. Verified: all 45 methods present on

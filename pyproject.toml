@@ -83,11 +83,6 @@ force-exclude = "mirror_url\\.py"
 line-length = 100
 target-version = "py39"
 src = ["src", "tests"]
-# The legacy monolith is a frozen reference (and read-only in some checkouts):
-# exclude it from BOTH linting and formatting. `per-file-ignores` below only
-# affects lint, so this top-level exclude is what keeps `ruff format` from
-# trying to rewrite it.
-extend-exclude = ["mirror_url.py"]
 
 [tool.ruff.lint]
 # Correctness-focused rule set. UP (pyupgrade) and SIM are intentionally
@@ -111,8 +106,6 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["B"]
-# The legacy monolith is excluded from lint (frozen reference, pending deletion).
-"mirror_url.py" = ["ALL"]
 
 [tool.mypy]
 # Advisory, lenient type-checking. This package is a verbatim port of working,

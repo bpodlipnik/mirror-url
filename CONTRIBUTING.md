@@ -42,7 +42,6 @@ diffs, and `pytest` passes.
 src/mirror_url/        # the package (30 modules, dependency-layered)
 tests/                 # pytest suite
 REFACTORING_PLAN.md    # module map, dependency layering, and roadmap
-mirror_url.py          # legacy single-file version (frozen reference, pending removal)
 ```
 
 The package is organized into strict dependency layers (constants/exceptions →

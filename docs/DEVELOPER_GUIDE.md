@@ -60,9 +60,9 @@ Two consequences shape how you should work in this codebase:
    rather than 3.10+ syntax. Lint rules that would modernize syntax (pyupgrade,
    most of SIM) are intentionally disabled — see [Coding conventions](#coding-conventions).
 
-The legacy `mirror_url.py` is retained as a frozen reference and is excluded from
-lint, type-checking, and packaging. It will be deleted once downstreams have
-migrated.
+The legacy `mirror_url.py` was retained as a frozen reference, excluded from
+lint and packaging, until the package's test suite passed with real runtime
+dependencies installed -- then deleted (v3.1.20).
 
 ---
 
@@ -107,7 +107,6 @@ mirror-url/
 │   ├── … (subsystem modules, see the module reference)
 ├── tests/                   # pytest suite (smoke, utils, security, subsystems, integration)
 ├── docs/                    # USER_GUIDE, DEVELOPER_GUIDE (this file), HTML renders
-├── mirror_url.py            # legacy monolith (frozen reference, pending removal)
 ├── pyproject.toml           # packaging, deps, tool config  (the other version source)
 ├── REFACTORING_PLAN.md      # the migration plan + module/line map
 ├── CHANGELOG.md             # Keep a Changelog format
@@ -465,8 +464,7 @@ Add unit tests at its own layer with no higher-layer setup.
   comments in `pyproject.toml`. `B019` in particular marks a real latent
   `lru_cache`-on-method issue inherited verbatim; it's preserved, not silently
   rewritten.
-- **Formatting:** `black` (line length 100) or `ruff format`. The legacy
-  `mirror_url.py` is excluded from both.
+- **Formatting:** `black` (line length 100) or `ruff format`.
 - **Type-checking:** `mypy` runs as an advisory signal (CI `continue-on-error`),
   not a gate. It is lenient by design (`no_implicit_optional = false`,
   untyped-defs allowed) because the port is largely untyped. Tightening it is a

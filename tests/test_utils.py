@@ -1,19 +1,8 @@
-"""Unit tests for stateless helpers in ``mirror_url.utils``.
-
-Currently skipped because ``utils`` is a placeholder. Remove the skip marker
-once the helper functions are migrated out of ``mirror_url.py``.
-"""
+"""Unit tests for stateless helpers in ``mirror_url.utils``."""
 
 from __future__ import annotations
 
-import pytest
-
-utils = pytest.importorskip("mirror_url.utils")
-
-pytestmark = pytest.mark.skipif(
-    not hasattr(utils, "format_bytes"),
-    reason="utils not yet migrated from mirror_url.py",
-)
+from mirror_url import utils
 
 
 def test_format_bytes_human_readable():

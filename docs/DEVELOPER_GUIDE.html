@@ -171,7 +171,7 @@
 <li><strong>Verbatim heritage.</strong> Much of the code is a faithful port of working, audited, sometimes idiosyncratic logic (including hard-won bug fixes recorded in the changelog). When touching migrated code, prefer surgical changes over "cleanups" — the original behavior is the contract.</li>
 <li><strong>Python 3.9 baseline.</strong> The package still supports 3.9, so it uses classic typing (<code>Dict</code>, <code>Optional</code>, <code>List</code>) and <code>from __future__ import annotations</code> rather than 3.10+ syntax. Lint rules that would modernize syntax (pyupgrade, most of SIM) are intentionally disabled — see <a href="#coding-conventions">Coding conventions</a>.</li>
 </ol>
-<p>The legacy <code>mirror_url.py</code> is retained as a frozen reference and is excluded from lint, type-checking, and packaging. It will be deleted once downstreams have migrated.</p>
+<p>The legacy <code>mirror_url.py</code> was retained as a frozen reference, excluded from lint and packaging, until the package's test suite passed with real runtime dependencies installed -- then deleted (v3.1.20).</p>
 <hr />
 <h2 id="design-principles">Design principles</h2>
 <p>The package is built on four rules. Internalize them before making structural changes — most review feedback traces back to one of these.</p>
@@ -202,7 +202,6 @@
 │   ├── … (subsystem modules, see the module reference)
 ├── tests/                   # pytest suite (smoke, utils, security, subsystems, integration)
 ├── docs/                    # USER_GUIDE, DEVELOPER_GUIDE (this file), HTML renders
-├── mirror_url.py            # legacy monolith (frozen reference, pending removal)
 ├── pyproject.toml           # packaging, deps, tool config  (the other version source)
 ├── REFACTORING_PLAN.md      # the migration plan + module/line map
 ├── CHANGELOG.md             # Keep a Changelog format
@@ -418,7 +417,7 @@ config file┘   (expand_env_vars, validate_config_file)
 <li><strong>Classic typing</strong> (<code>Dict</code>, <code>List</code>, <code>Optional</code>, <code>Union</code> from <code>typing</code>) — the package targets 3.9. Do not "modernize" to <code>dict[...]</code>/<code>X | None</code> in runtime positions; the lint config deliberately omits pyupgrade (<code>UP</code>) and most <code>SIM</code> rules for this reason.</li>
 <li><strong><code>TYPE_CHECKING</code> guards</strong> for imports needed only for annotations, to keep the import graph acyclic.</li>
 <li><strong>Lint rule set:</strong> ruff with <code>E, F, W, I, B, C4</code>. A few bugbear rules (<code>B904</code>, <code>B007</code>, <code>B019</code>) and <code>E501</code>/<code>B008</code> are ignored — see the rationale comments in <code>pyproject.toml</code>. <code>B019</code> in particular marks a real latent <code>lru_cache</code>-on-method issue inherited verbatim; it's preserved, not silently rewritten.</li>
-<li><strong>Formatting:</strong> <code>black</code> (line length 100) or <code>ruff format</code>. The legacy <code>mirror_url.py</code> is excluded from both.</li>
+<li><strong>Formatting:</strong> <code>black</code> (line length 100) or <code>ruff format</code>.</li>
 <li><strong>Type-checking:</strong> <code>mypy</code> runs as an advisory signal (CI <code>continue-on-error</code>), not a gate. It is lenient by design (<code>no_implicit_optional = false</code>, untyped-defs allowed) because the port is largely untyped. Tightening it is a welcome dedicated follow-up, not something to do piecemeal mid-feature.</li>
 <li><strong>The layering rule</strong> (<a href="#the-dependency-layer-architecture">above</a>) is a hard convention: never import upward or create an import cycle.</li>
 </ul>
