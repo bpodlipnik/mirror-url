@@ -215,6 +215,14 @@ class ScanMixin:
                                 f"Emergency cache clear: freed {freed_parse + freed_html + freed_cache} items"
                             )
 
+            # Retain this run's freshly computed signatures (not just the
+            # ones we're about to save to disk for *next* run) so the
+            # compare step can tell whether a directory actually changed
+            # since the cache was last written, instead of just trusting
+            # any previously-cached entry unconditionally regardless of
+            # whether its value is still current.
+            self.scanner.fresh_dir_signatures = dir_signatures
+
             if not self.config.no_cache and dir_signatures and not self.config.dry_run:
                 try:
                     self.cache_manager.save(dir_signatures, len(all_files))
