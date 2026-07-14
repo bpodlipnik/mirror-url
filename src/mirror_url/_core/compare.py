@@ -95,10 +95,22 @@ class CompareMixin:
         if use_cache and hasattr(self.scanner, "cached_signatures"):
             dir_url = trim_url(remote_url.rsplit("/", 1)[0] + "/")
             if dir_url in self.scanner.cached_signatures:
-                self.metrics.increment("cache_hits")
-                self.metrics.increment("cache_head_requests_saved")
-                self.performance_monitor.record("file_check", time.time() - start_time, True)
-                return True
+                old_sig = self.scanner.cached_signatures[dir_url]
+                new_sig = getattr(self.scanner, "fresh_dir_signatures", {}).get(dir_url)
+                # Only trust the shortcut when we have this run's actual
+                # signature for the directory AND it matches what was
+                # cached. The url:...:timestamp fallback form (used when a
+                # server gives no ETag/Last-Modified) changes every run by
+                # construction and carries no real change signal, so it
+                # can never legitimately match here — which is correct:
+                # a directory we can't fingerprint should always be
+                # re-verified, not trusted indefinitely.
+                if new_sig and new_sig == old_sig and not new_sig.startswith("url:"):
+                    self.metrics.increment("cache_hits")
+                    self.metrics.increment("cache_head_requests_saved")
+                    self.performance_monitor.record("file_check", time.time() - start_time, True)
+                    return True
+                self.metrics.increment("dir_signature_changed_forced_recheck")
 
         try:
             local_ts = local_path.stat().st_mtime
@@ -422,11 +434,17 @@ class CompareMixin:
             if hasattr(self.scanner, "cached_signatures"):
                 dir_url = trim_url(remote_url.rsplit("/", 1)[0] + "/")
                 if dir_url in self.scanner.cached_signatures:
-                    self.metrics.increment("cache_hits")
-                    self.metrics.increment("cache_head_requests_saved")
-                    test_checked += 1
-                    files_processed_in_test += 1
-                    return True
+                    old_sig = self.scanner.cached_signatures[dir_url]
+                    new_sig = getattr(self.scanner, "fresh_dir_signatures", {}).get(dir_url)
+                    # See file_exists_and_up_to_date for why this compares
+                    # fresh vs. cached rather than trusting mere presence.
+                    if new_sig and new_sig == old_sig and not new_sig.startswith("url:"):
+                        self.metrics.increment("cache_hits")
+                        self.metrics.increment("cache_head_requests_saved")
+                        test_checked += 1
+                        files_processed_in_test += 1
+                        return True
+                    self.metrics.increment("dir_signature_changed_forced_recheck")
 
             # If file doesn't exist locally, needs download
             if not local_path.exists():
