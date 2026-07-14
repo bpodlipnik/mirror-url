@@ -269,9 +269,16 @@ class CompareMixin:
                 if progress:
                     progress.update(1)
 
-                # Log progress every 100 files
-                if (i + 1) % 100 == 0:
-                    logging.info(f"Checked {i + 1}/{total} files, {len(to_download)} need download")
+                # Note: no per-N-files logging.info() here by design.
+                # progress.update(1) above already drives ProgressTracker's
+                # own percentage-milestone logging (25/50/75/90/100% for
+                # large jobs — see progress.py PROGRESS_PCT_MILESTONES) and
+                # any --progress-bar tqdm display. Keeping a second, separate
+                # "Checked N/total" log line here duplicated that reporting
+                # with a fixed, dataset-size-independent interval (every 100
+                # files), which produced 700+ near-simultaneous log lines on
+                # large cron-driven cache-hit runs. The final need-download
+                # count is still reported once, below, when the check completes.
 
         logging.info(f"Sync check complete: {len(to_download)}/{total} files need download")
         return to_download
