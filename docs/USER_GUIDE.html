@@ -138,7 +138,7 @@
 <h1 id="mirrorurl-user-guide">MirrorURL — User Guide</h1>
 <p>MirrorURL is an enterprise-grade command-line tool and Python library for mirroring files behind an HTTP(S) <strong>directory listing</strong> to local disk. It walks the remote directory tree, decides which files are new or changed, and downloads them efficiently — with adaptive concurrency, resumable/parallel downloads, integrity checks, incremental caching, and an SSRF-hardened transport layer.</p>
 <ul>
-<li><strong>Version:</strong> 3.1.21</li>
+<li><strong>Version:</strong> 3.1.22</li>
 <li><strong>Python:</strong> 3.9 – 3.12 (pure Python, any OS/architecture)</li>
 <li><strong>License:</strong> MIT</li>
 </ul>
@@ -189,25 +189,25 @@
 <h3 id="from-a-built-wheel-recommended-for-servers">From a built wheel (recommended for servers)</h3>
 <p>On a build machine:</p>
 <div class="sourceCode" id="cb1"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true"></a><span class="ex">pip</span> install build</span>
-<span id="cb1-2"><a href="#cb1-2" aria-hidden="true"></a><span class="ex">python</span> -m build          # produces dist/mirror_url-3.1.21-py3-none-any.whl</span></code></pre></div>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true"></a><span class="ex">python</span> -m build          # produces dist/mirror_url-3.1.22-py3-none-any.whl</span></code></pre></div>
 <p>Copy the wheel to the target server and install it:</p>
 <div class="sourceCode" id="cb2"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true"></a><span class="ex">python3</span> -m venv /opt/mirror-url</span>
-<span id="cb2-2"><a href="#cb2-2" aria-hidden="true"></a><span class="ex">/opt/mirror-url/bin/pip</span> install /tmp/mirror_url-3.1.21-py3-none-any.whl</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true"></a><span class="ex">/opt/mirror-url/bin/pip</span> install /tmp/mirror_url-3.1.22-py3-none-any.whl</span>
 <span id="cb2-3"><a href="#cb2-3" aria-hidden="true"></a><span class="ex">/opt/mirror-url/bin/mirror-url</span> --help</span></code></pre></div>
 <p>To include the optional speed extras:</p>
-<div class="sourceCode" id="cb3"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true"></a><span class="ex">/opt/mirror-url/bin/pip</span> install <span class="st">&quot;/tmp/mirror_url-3.1.21-py3-none-any.whl[fast]&quot;</span></span></code></pre></div>
+<div class="sourceCode" id="cb3"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true"></a><span class="ex">/opt/mirror-url/bin/pip</span> install <span class="st">&quot;/tmp/mirror_url-3.1.22-py3-none-any.whl[fast]&quot;</span></span></code></pre></div>
 <p>Available extras: <code>fast</code> (stringzilla + lxml), <code>progress</code> (tqdm), <code>monitor</code> (psutil), <code>all</code> (everything), <code>dev</code> (test/lint toolchain).</p>
 <h3 id="from-a-git-repository">From a Git repository</h3>
-<div class="sourceCode" id="cb4"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true"></a><span class="ex">pip</span> install <span class="st">&quot;git+https://github.com/bpodlipnik/mirror-url.git@v3.1.21&quot;</span></span>
+<div class="sourceCode" id="cb4"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true"></a><span class="ex">pip</span> install <span class="st">&quot;git+https://github.com/bpodlipnik/mirror-url.git@v3.1.22&quot;</span></span>
 <span id="cb4-2"><a href="#cb4-2" aria-hidden="true"></a><span class="co"># private repo over SSH:</span></span>
-<span id="cb4-3"><a href="#cb4-3" aria-hidden="true"></a><span class="ex">pip</span> install <span class="st">&quot;git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.1.21&quot;</span></span></code></pre></div>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true"></a><span class="ex">pip</span> install <span class="st">&quot;git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.1.22&quot;</span></span></code></pre></div>
 <h3 id="as-an-isolated-cli-with-pipx">As an isolated CLI with pipx</h3>
-<div class="sourceCode" id="cb6"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true"></a><span class="ex">pipx</span> install /tmp/mirror_url-3.1.21-py3-none-any.whl</span>
-<span id="cb6-2"><a href="#cb6-2" aria-hidden="true"></a><span class="co"># or:  pipx install &quot;git+https://github.com/bpodlipnik/mirror-url.git@v3.1.21&quot;</span></span></code></pre></div>
+<div class="sourceCode" id="cb6"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true"></a><span class="ex">pipx</span> install /tmp/mirror_url-3.1.22-py3-none-any.whl</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true"></a><span class="co"># or:  pipx install &quot;git+https://github.com/bpodlipnik/mirror-url.git@v3.1.22&quot;</span></span></code></pre></div>
 <h3 id="with-docker">With Docker</h3>
 <div class="sourceCode" id="cb7"><pre class="sourceCode dockerfile"><code class="sourceCode dockerfile"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true"></a><span class="kw">FROM</span> python:3.12-slim</span>
-<span id="cb7-2"><a href="#cb7-2" aria-hidden="true"></a><span class="kw">COPY</span> dist/mirror_url-3.1.21-py3-none-any.whl /tmp/</span>
-<span id="cb7-3"><a href="#cb7-3" aria-hidden="true"></a><span class="kw">RUN</span> pip install --no-cache-dir <span class="st">&quot;/tmp/mirror_url-3.1.21-py3-none-any.whl[fast]&quot;</span></span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true"></a><span class="kw">COPY</span> dist/mirror_url-3.1.22-py3-none-any.whl /tmp/</span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true"></a><span class="kw">RUN</span> pip install --no-cache-dir <span class="st">&quot;/tmp/mirror_url-3.1.22-py3-none-any.whl[fast]&quot;</span></span>
 <span id="cb7-4"><a href="#cb7-4" aria-hidden="true"></a><span class="kw">ENTRYPOINT</span> [<span class="st">&quot;mirror-url&quot;</span>]</span></code></pre></div>
 <h3 id="verify-the-install">Verify the install</h3>
 <div class="sourceCode" id="cb8"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true"></a><span class="ex">mirror-url</span> --help</span>
