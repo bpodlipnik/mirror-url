@@ -4,6 +4,25 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.22] - 2026-07-14
+
+### Fixed
+- Directory-signature cache-hit shortcut in `file_exists_and_up_to_date()`
+  (`_core/compare.py`) now verifies a directory's current signature
+  against what was cached, instead of trusting any cached signature
+  unconditionally just because the directory URL was present. Previously,
+  once a directory was cached, in-place file changes on the server (same
+  filename, different content) went undetected indefinitely — every file
+  under that directory short-circuited to "up to date" with no HEAD
+  request at all. A signature mismatch (or a missing fresh signature) now
+  falls through to the existing real per-file HEAD/ETag check. The
+  non-deterministic `url:<url>:<timestamp>` fallback signature (used when
+  a server provides no ETag/Last-Modified) is never trusted, even when
+  byte-identical across runs, since it carries no real change signal.
+  Added `dir_signature_changed_forced_recheck` metric for observability.
+  3 new regression tests (`test_dir_signature_verification.py`), verified
+  to fail against the pre-fix code.
+
 ## [3.1.21] - 2026-07-14
 
 ### Changed

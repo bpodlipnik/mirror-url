@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mirror-url"
-version = "3.1.21"
+version = "3.1.22"
 description = "Enterprise-grade remote directory mirroring tool with adaptive concurrency, integrity checks, and SSRF-hardened transport."
 readme = "README.md"
 requires-python = ">=3.9"
