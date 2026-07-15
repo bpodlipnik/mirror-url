@@ -4,6 +4,24 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.23] - 2026-07-15
+
+### Fixed
+- `--filter` crashed with `TypeError: 'in <string>' requires string as
+  left operand, not stringzilla.Str` on any filter pattern that wasn't
+  a file extension (leading `.`) or a regex (containing `*?+[]{}()|\^$`)
+  — e.g. `--filter _fe_` — whenever the real `stringzilla` package is
+  installed. Root cause: `_get_url_path_fast()` explicitly converts its
+  StringZilla result back to a plain `str` before returning, so
+  `matches_filter()`'s substring-match branch was comparing a real
+  `stringzilla.Str` pattern against a plain `str` filename. Invisible
+  under the pure-Python fallback `Str` (a `str` subclass), which is why
+  it went unnoticed until a live run against `p3sc.oma.be` hit it.
+  Fixed by reusing the already-computed plain-`str` filename for the
+  substring check instead. Added `tests/test_filter_stringzilla_typemix.py`
+  (6 tests), verified to reproduce the exact reported crash against the
+  pre-fix code.
+
 ## [3.1.22] - 2026-07-14
 
 ### Fixed
