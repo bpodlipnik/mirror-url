@@ -20,7 +20,6 @@ from urllib.parse import unquote, urlparse
 
 import httpx
 
-from ..compat import Str
 from ..decorators import log_performance
 from ..enums import MemoryPressure
 from ..security import PathSafety
