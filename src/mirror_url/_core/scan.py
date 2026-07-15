@@ -20,7 +20,6 @@ from urllib.parse import unquote, urlparse
 
 import httpx
 
-from ..compat import Str
 from ..decorators import log_performance
 from ..enums import MemoryPressure
 from ..security import PathSafety
@@ -60,9 +59,24 @@ class ScanMixin:
                     except re_error:
                         pass
                 else:
-                    # Simple substring - use StringZilla for SIMD acceleration
-                    pattern_sz = Str(pattern_lower)
-                    if pattern_sz in filename_sz:
+                    # Simple substring match. NOTE: this deliberately uses
+                    # the plain-str `filename` (computed above), not a
+                    # StringZilla Str-vs-Str comparison. _get_filename_fast()
+                    # is typed as returning a StringZilla Str, but
+                    # _get_url_path_fast() (urls.py) explicitly converts
+                    # back to a plain str before returning it, so filename_sz
+                    # is actually a plain str here despite its name and type
+                    # hint. Comparing a real stringzilla.Str pattern against
+                    # a plain str with `in` raises TypeError: "'in <string>'
+                    # requires string as left operand, not stringzilla.Str"
+                    # -- reproducible for any non-extension, non-regex
+                    # --filter pattern (e.g. --filter _fe_) whenever the
+                    # real stringzilla package is installed (the pure-Python
+                    # compat.py fallback Str subclasses str, so it never hit
+                    # this). Plain str `in` is correct and simple here; a
+                    # few extra bytes of filename comparison is not where
+                    # StringZilla's SIMD advantage would matter anyway.
+                    if pattern_lower in filename:
                         return True
 
         return False
