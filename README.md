@@ -97,6 +97,10 @@ setup, the checks CI runs, and the project conventions (dependency layering,
 lint policy, behavior-preserving refactors). Notable changes are tracked in
 [CHANGELOG.md](./CHANGELOG.md).
 
+## Authors
+
+Borut Podlipnik, Max-Planck-Institute for Solar System Research, podlipnik@mps.mpg.de
+
 ## License
 
 [MIT](./LICENSE) © BP
