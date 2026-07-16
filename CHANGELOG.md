@@ -4,6 +4,22 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.25] - 2026-07-16
+
+### Fixed
+- Three `print()` error/warning fallbacks in the CLI (`ConfigError`,
+  generic config-creation errors, and the lxml-availability warning)
+  defaulted to stdout instead of stderr. Without `--print-logs`,
+  mirror-url's informational logging only ever goes to the file at
+  `--log-path`, never to stdout/stderr — so a stderr-only redirect
+  (`2>> errors.log`, deliberately not touching stdout, to avoid
+  duplicating the main per-run log) is an effective way to catch
+  crashes without noise. An unhandled Python exception always goes to
+  stderr and was already caught this way, but these three specific
+  error/warning paths were not, since bare `print()` defaults to
+  stdout. Now consistently directed to stderr, matching the existing
+  convention elsewhere in the codebase.
+
 ## [3.1.24] - 2026-07-16
 
 ### Fixed
