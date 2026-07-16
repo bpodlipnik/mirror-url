@@ -424,25 +424,26 @@ class ReportMixin:
                     )
 
                     # FIX: Actually apply the selected method by configuring config flags
+                    # NOTE: auto_select_method() (download.py) already logs its own,
+                    # more detailed "Auto-selected: ..." message explaining *why* it
+                    # picked this method, at the moment it makes the decision -- logging
+                    # a second, less-detailed confirmation here duplicated that.
                     if method == DownloadMethod.SEQUENTIAL:
                         self.config.sequential_downloads = True
                         if self.parallel_manager:
                             self.parallel_manager.enabled = False
-                        logging.info(f"{prefix}📊 Auto-selected: SEQUENTIAL downloads")
 
                     elif method == DownloadMethod.STREAMING_PARALLEL:
                         self.config.streaming_parallel = True
                         if self.parallel_manager:
                             self.parallel_manager.enabled = True
                             self.parallel_manager.use_streaming = True
-                        logging.info(f"{prefix}📊 Auto-selected: STREAMING PARALLEL downloads")
 
                     elif method == DownloadMethod.TRADITIONAL_PARALLEL:
                         self.config.parallel_downloads = True
                         if self.parallel_manager:
                             self.parallel_manager.enabled = True
                             self.parallel_manager.use_streaming = False
-                        logging.info(f"{prefix}📊 Auto-selected: TRADITIONAL PARALLEL downloads")
 
                 # ========== FIX 3: CHECK DISK SPACE ==========
                 if not self.check_disk_space(total_size):

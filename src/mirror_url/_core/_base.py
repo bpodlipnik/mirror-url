@@ -1036,82 +1036,11 @@ class _MirrorBase:
         logging.info(
             f"{prefix}Workers: {self.config.workers}, Max Retries: {self.config.max_retries}"
         )
-        logging.info(f"{prefix}Cache max age: {self.config.cache_max_age} days")
-
-        if LXML_AVAILABLE:
-            logging.info(f"{prefix}Parser: lxml.html + fast fallback")
-        else:
-            logging.info(f"{prefix}Parser: fast regex only (lxml not available)")
-
-        logging.info(f"{prefix}HTTP/2: {'ENABLED' if self.config.http2 else 'DISABLED'}")
-        logging.info(f"{prefix}ETag support: ENABLED")
-        logging.info(f"{prefix}🔒 URL sanitization enabled")
-        logging.info(
-            f"{prefix}🛡️ Path safety: max_depth={self.config.max_depth}, max_filename_len={self.config.max_filename_len}"
-        )
-
-        if self.config.progress_bar and TQDM_AVAILABLE:
-            logging.info(f"{prefix}📈 Progress bar enabled")
-
-        if self.config.adaptive_async and self.config.async_metadata:
-            logging.info(
-                f"{prefix}🔄 Adaptive async: {self.config.adaptive_start_concurrency}-{ADAPTIVE_MAX_CONCURRENCY} workers"
-            )
-
-        if self.config.content_hash_small_files:
-            logging.info(f"{prefix}🔐 Content hash: files <{CONTENT_HASH_THRESHOLD / 1024:.0f}KB")
-
-        delay_ms = self.config.request_delay * 1000
-        logging.info(
-            f"{prefix}Rate limiting: {delay_ms:.1f}ms delay{' (trusted server)' if self.config.trusted_server else ''}"
-        )
-
-        if self.config.cache_html:
-            logging.info(f"{prefix}📦 HTML caching enabled ({self.config.html_cache_max_age}h)")
-
-        if self.config.enable_resume:
-            logging.info(f"{prefix}↩️ Resume capability enabled")
-
-        if self.config.adaptive_batch_processing:
-            logging.info(
-                f"{prefix}📈 Adaptive batch processing: initial={self.config.initial_batch_size}"
-            )
-
-        if self.config.fast_parsing_fallback:
-            logging.info(f"{prefix}⚡ Fast parsing fallback enabled")
-
-        if self.config.connection_pool_prewarm:
-            logging.info(f"{prefix}🔥 Connection pool pre-warming enabled")
-
-        if PSUTIL_AVAILABLE:
-            logging.info(f"{prefix}📊 Memory monitoring: ENABLED")
-        if self.config.security_validation:
-            logging.info(f"{prefix}🔒 Per-IP rate limiting: ENABLED")
-
-        # NEW v3.0.0: Log parallel download settings
-        if self.config.parallel_downloads:
-            logging.info(
-                f"{prefix}🚀 Parallel chunk downloads: ENABLED (max {self.config.max_chunks_per_file} chunks, "
-                f"min {self.config.min_chunk_size_mb}MB)"
-            )
-
-        self._log_cleanup_policy()
-
-        # Note: Target directory will be logged after connection test in __init__
-
-        logging.info(f"{prefix}Cache file: {self.cache_file}")
-        logging.info(f"{prefix}Scan mode: {self.config.scan_mode.value}")
-
-        if self.config.async_metadata:
-            logging.info(f"{prefix}⚡ Async directory scanning: ENABLED")
-
-        if self.config.handle_symlinks:
-            logging.info(f"{prefix}🔗 Symlink handling: ENABLED (mode: {self.config.symlink_mode})")
-
-        if self.config.metrics_json:
-            logging.info(
-                f"{prefix}🏥 Health check API: http://localhost:{self.config.health_check_port}/health"
-            )
+        # NOTE: the full config summary (cache settings, rate limiting, HTML
+        # caching, adaptive async, resume, memory monitoring, etc.) is
+        # logged once, by the "24. LOG INITIAL CONFIGURATION" block in
+        # __init__ -- not here. It used to be logged here too, producing
+        # every one of those lines twice on every run.
 
     def test_connection(self) -> Union[bool, int]:
         """Test connection to target URL."""
