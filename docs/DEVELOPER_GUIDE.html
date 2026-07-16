@@ -139,7 +139,7 @@
 <p>If you only want to <em>use</em> MirrorURL (install, CLI, config, Python API), read <a href="./USER_GUIDE.md"><code>USER_GUIDE.md</code></a> instead. For day-to-day contribution mechanics (branching, PR etiquette) see <a href="../CONTRIBUTING.md"><code>CONTRIBUTING.md</code></a>; this guide repeats the essentials so you can work from it alone.</p>
 <ul>
 <li><strong>Package:</strong> <code>mirror_url</code> (src-layout under <code>src/</code>)</li>
-<li><strong>Version:</strong> 3.1.24</li>
+<li><strong>Version:</strong> 3.1.25</li>
 <li><strong>Python:</strong> 3.9 – 3.12</li>
 <li><strong>Runtime deps:</strong> <code>httpx</code>, <code>pydantic</code> v2, <code>PyYAML</code> (optional: <code>stringzilla</code>, <code>lxml</code>, <code>tqdm</code>, <code>psutil</code>)</li>
 </ul>
@@ -171,7 +171,7 @@
 <li><strong>Verbatim heritage.</strong> Much of the code is a faithful port of working, audited, sometimes idiosyncratic logic (including hard-won bug fixes recorded in the changelog). When touching migrated code, prefer surgical changes over "cleanups" — the original behavior is the contract.</li>
 <li><strong>Python 3.9 baseline.</strong> The package still supports 3.9, so it uses classic typing (<code>Dict</code>, <code>Optional</code>, <code>List</code>) and <code>from __future__ import annotations</code> rather than 3.10+ syntax. Lint rules that would modernize syntax (pyupgrade, most of SIM) are intentionally disabled — see <a href="#coding-conventions">Coding conventions</a>.</li>
 </ol>
-<p>The legacy <code>mirror_url.py</code> was retained as a frozen reference, excluded from lint and packaging, until the package's test suite passed with real runtime dependencies installed -- then deleted (v3.1.24).</p>
+<p>The legacy <code>mirror_url.py</code> was retained as a frozen reference, excluded from lint and packaging, until the package's test suite passed with real runtime dependencies installed -- then deleted (v3.1.25).</p>
 <hr />
 <h2 id="design-principles">Design principles</h2>
 <p>The package is built on four rules. Internalize them before making structural changes — most review feedback traces back to one of these.</p>
@@ -557,6 +557,6 @@ config file┘   (expand_env_vars, validate_config_file)
 </tbody>
 </table>
 <hr />
-<p><em>This guide describes the architecture as of version 3.1.24. When you change the structure, update this document in the same PR.</em></p>
+<p><em>This guide describes the architecture as of version 3.1.25. When you change the structure, update this document in the same PR.</em></p>
 </body>
 </html>
