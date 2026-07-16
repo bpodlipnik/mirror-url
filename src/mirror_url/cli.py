@@ -960,7 +960,7 @@ EXAMPLES:
 
     # Check lxml availability
     if not LXML_AVAILABLE and not args.fast_parsing_fallback:
-        print("WARNING: lxml not available, falling back to fast parser")
+        print("WARNING: lxml not available, falling back to fast parser", file=sys.stderr)
         args.fast_parsing_fallback = True
 
     # Setup shared logging if requested
@@ -1569,14 +1569,14 @@ EXAMPLES:
             if args.print_logs and args.log_file:
                 logging.critical(f"Configuration error for {suf or 'ROOT'}: {e}")
             else:
-                print(f"Configuration error for {suf or 'ROOT'}: {e}")
+                print(f"Configuration error for {suf or 'ROOT'}: {e}", file=sys.stderr)
             failed.append(suf or "ROOT")
             continue
         except Exception as e:
             if args.print_logs and args.log_file:
                 logging.critical(f"Error creating config for {suf or 'ROOT'}: {e}")
             else:
-                print(f"Error creating config for {suf or 'ROOT'}: {e}")
+                print(f"Error creating config for {suf or 'ROOT'}: {e}", file=sys.stderr)
             failed.append(suf or "ROOT")
             continue
 
