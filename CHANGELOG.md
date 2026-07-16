@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.24] - 2026-07-16
+
+### Fixed
+- Duplicate startup and auto-select log lines. Every startup log line
+  (cache max age, rate limiting, HTML caching, adaptive async, etc.) was
+  logged twice — once in `setup_logging()`, once in `__init__`'s config
+  summary block. "Auto-selected: SEQUENTIAL ..." was similarly
+  double-logged with different wording. `setup_logging()` now only logs
+  the startup banner; the config summary and auto-select reasoning each
+  have a single source.
+
+### Added
+- Authors section in README.md.
+
 ## [3.1.23] - 2026-07-15
 
 ### Fixed
