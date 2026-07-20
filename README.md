@@ -69,11 +69,11 @@ step-by-step extension recipes.
 pip install -e ".[dev]"
 pre-commit install
 
-ruff check .          # lint
-black --check .       # format check
-mypy                  # type-check the new package
+ruff check .                  # lint
+black --check .               # format check
+mypy                          # type-check the new package
 pytest -m "not integration"   # fast test lane
-pytest                # full suite (includes integration)
+pytest                        # full suite (includes integration)
 ```
 
 Continuous integration runs lint + tests across Python 3.9–3.12 (see
