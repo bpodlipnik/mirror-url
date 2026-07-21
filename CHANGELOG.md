@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.26] - 2026-07-19
+
+### Added
+- `--missing-files` flag: skip per-file freshness checks (ETag/size/mtime)
+  for files that already exist locally, downloading only what's absent.
+  Much faster on large, largely-static datasets where a full per-file
+  network check on every run is expensive but rarely finds anything —
+  the directory-signature fix (v3.1.22) working correctly, just costly
+  at scale (a 71,992-file production run was taking ~1 hour, entirely
+  spent on verification). Trades detection of in-place file changes
+  (same filename, different server-side content) for speed; intended
+  for frequent runs alongside occasional full runs (without the flag)
+  on a longer cadence to still catch in-place changes.
+
 ## [3.1.25] - 2026-07-16
 
 ### Fixed
