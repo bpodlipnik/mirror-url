@@ -60,6 +60,16 @@ class CompareMixin:
                 self.performance_monitor.record("file_check", time.time() - start_time, True)
                 return False
 
+        # --missing-files: the file exists locally, and that's all we're
+        # asked to verify -- skip ETag/size/mtime freshness checking (and
+        # therefore the network round-trip) entirely. Faster, but will not
+        # detect a file that changed in place on the server while keeping
+        # the same name. See the CLI help text for --missing-files.
+        if getattr(self.config, "missing_files", False):
+            self.metrics.increment("missing_files_skipped_check")
+            self.performance_monitor.record("file_check", time.time() - start_time, True)
+            return True
+
         # Try to get metadata from cache if enabled
         stored_meta = None
         stored_etag = None
@@ -451,6 +461,15 @@ class CompareMixin:
                 test_checked += 1
                 files_processed_in_test += 1
                 return False
+
+            # --missing-files: see file_exists_and_up_to_date for the
+            # rationale -- the file exists locally, skip freshness
+            # verification (and the HEAD request below) entirely.
+            if getattr(self.config, "missing_files", False):
+                self.metrics.increment("missing_files_skipped_check")
+                test_checked += 1
+                files_processed_in_test += 1
+                return True
 
             # Get cached metadata
             stored = self.cache_manager.get_file_metadata(local_path)

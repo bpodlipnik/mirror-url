@@ -538,6 +538,12 @@ class _MirrorBase:
         # Log ETag support
         logging.info(f"{prefix}ETag support: {'ENABLED' if not config.no_etag else 'DISABLED'}")
 
+        if getattr(config, "missing_files", False):
+            logging.info(
+                f"{prefix}⏭️ --missing-files: skipping freshness checks for existing files "
+                f"(will not detect in-place changes to already-downloaded files)"
+            )
+
         # Log security settings
         if config.safe_urls:
             logging.info(f"{prefix}🔒 URL sanitization enabled")

@@ -137,6 +137,7 @@ class ConfigSchema(BaseModel):
     max_filename_len: int = Field(default=MAX_FILENAME_LENGTH, ge=1, le=512)
     bandwidth_limit: Optional[float] = Field(default=None, gt=0, le=1000)
     trusted_server: bool = False
+    missing_files: bool = False
     security_validation: bool = True
     http2: bool = True
     cleanup_policy: str = "safe"
@@ -215,6 +216,7 @@ class MirrorConfig(BaseModel):
     refresh_cache: bool = False
     cache_max_age: int = Field(default=DEFAULT_CACHE_MAX_AGE_DAYS, ge=0, le=MAX_CACHE_AGE_DAYS)
     no_etag: bool = False
+    missing_files: bool = False
     use_shared_log: bool = False
     scan_mode: ScanMode = ScanMode.ADAPTIVE
     parallel_threshold: int = PARALLEL_SCAN_THRESHOLD
@@ -642,6 +644,7 @@ def load_config_from_args(args: argparse.Namespace, silent: bool = False) -> Mir
         "refresh_cache": args.refresh_cache,
         "cache_max_age": args.cache_max_age,
         "no_etag": getattr(args, "no_etag", False),
+        "missing_files": getattr(args, "missing_files", False),
         "hash_algorithm": getattr(args, "hash_algorithm", "md5"),
         "use_shared_log": bool(args.log_file),
         "benchmark": args.benchmark,
