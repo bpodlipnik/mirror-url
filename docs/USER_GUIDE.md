@@ -211,6 +211,7 @@ list of options. The most commonly used options:
 | `--refresh-cache` | Force a full cache refresh this run. |
 | `--cache-max-age DAYS` | Max cache age before auto-refresh (default 7). |
 | `--no-etag` | Disable ETag-based change detection. |
+| `--missing-files` | Skip per-file freshness checks for files that already exist locally — only download what's absent. Much faster on large, largely-static datasets, but won't detect a file that changed in place on the server under the same name. Pair with occasional full runs (without this flag) to still catch in-place changes. |
 | `--quick` | Quick mode: refresh the cache timestamp only. |
 
 ### Filtering and scope
@@ -417,10 +418,21 @@ re-fetching directory listings.
 - `--refresh-cache` — force a full refresh now.
 - `--no-cache` — ignore the cache entirely (always full scan).
 - `--no-etag` — don't use ETags for change detection (size/time only).
+- `--missing-files` — skip freshness verification for files that already exist
+  locally; only download what's absent.
 - `--quick` — only bump the cache timestamp (no scanning/downloading).
 
 For very large trees, `--use-disk-backed-sets` keeps the file-set on disk to
 bound memory use.
+
+`--missing-files` trades correctness for speed on datasets where a per-file
+network check on every run is expensive but rarely finds anything (a large,
+largely-static remote tree). It skips ETag/size/mtime verification entirely
+once a file's local existence is confirmed — so a file that's replaced or
+corrected in place on the server, under the same name, will not be
+re-downloaded. A reasonable pattern is running `--missing-files` on a
+frequent schedule (e.g. daily) and an occasional full run without it (e.g.
+weekly) to still catch in-place changes on a bounded delay.
 
 ---
 

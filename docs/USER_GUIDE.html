@@ -386,6 +386,10 @@
 <td>Disable ETag-based change detection.</td>
 </tr>
 <tr class="odd">
+<td><code>--missing-files</code></td>
+<td>Skip per-file freshness checks for files that already exist locally — only download what's absent. Much faster on large, largely-static datasets, but won't detect a file that changed in place on the server under the same name. Pair with occasional full runs (without this flag) to still catch in-place changes.</td>
+</tr>
+<tr class="even">
 <td><code>--quick</code></td>
 <td>Quick mode: refresh the cache timestamp only.</td>
 </tr>
@@ -635,9 +639,11 @@
 <li><code>--refresh-cache</code> — force a full refresh now.</li>
 <li><code>--no-cache</code> — ignore the cache entirely (always full scan).</li>
 <li><code>--no-etag</code> — don’t use ETags for change detection (size/time only).</li>
+<li><code>--missing-files</code> — skip freshness verification for files that already exist locally; only download what’s absent.</li>
 <li><code>--quick</code> — only bump the cache timestamp (no scanning/downloading).</li>
 </ul>
 <p>For very large trees, <code>--use-disk-backed-sets</code> keeps the file-set on disk to bound memory use.</p>
+<p><code>--missing-files</code> trades correctness for speed on datasets where a per-file network check on every run is expensive but rarely finds anything (a large, largely-static remote tree). It skips ETag/size/mtime verification entirely once a file’s local existence is confirmed — so a file that’s replaced or corrected in place on the server, under the same name, will not be re-downloaded. A reasonable pattern is running <code>--missing-files</code> on a frequent schedule (e.g. daily) and an occasional full run without it (e.g. weekly) to still catch in-place changes on a bounded delay.</p>
 <hr />
 <h2 id="cleaning-up-obsolete-files">Cleaning up obsolete files</h2>
 <p>By default MirrorURL <strong>never deletes</strong> anything (<code>--cleanup safe</code>). To mirror deletions from the remote side, choose a stronger policy:</p>
