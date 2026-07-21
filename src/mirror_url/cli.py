@@ -585,6 +585,18 @@ EXAMPLES:
         "--force-rget-list", action="store_true", help="Force RGET-LIST use even if old"
     )
     cache.add_argument("--no-etag", action="store_true", help="Disable ETag verification")
+    cache.add_argument(
+        "--missing-files",
+        action="store_true",
+        help=(
+            "Skip the per-file freshness check entirely for files that already exist "
+            "locally -- only download files that are absent. Much faster for large, "
+            "largely-static datasets, but will not detect a file that changed in place "
+            "on the server while keeping the same name (no ETag/size/mtime comparison "
+            "is made for existing files). Use alongside occasional full runs (without "
+            "this flag) to still catch in-place changes periodically."
+        ),
+    )
 
     async_grp = parser.add_argument_group("Async & Adaptive Options")
     async_grp.add_argument(
@@ -1062,6 +1074,7 @@ EXAMPLES:
             refresh_cache=args.refresh_cache,
             cache_max_age=args.cache_max_age,
             no_etag=getattr(args, "no_etag", False),
+            missing_files=getattr(args, "missing_files", False),
             use_shared_log=use_shared,
             scan_mode=ScanMode(args.scan_mode) if args.scan_mode else ScanMode.ADAPTIVE,
             parallel_threshold=args.parallel_threshold,
@@ -1202,6 +1215,7 @@ EXAMPLES:
                     "refresh_cache": base_config.refresh_cache,
                     "cache_max_age": base_config.cache_max_age,
                     "no_etag": getattr(base_config, "no_etag", False),
+                    "missing_files": getattr(base_config, "missing_files", False),
                     "hash_algorithm": getattr(base_config, "hash_algorithm", "md5"),
                     "use_shared_log": use_shared,
                     "scan_mode": base_config.scan_mode,
