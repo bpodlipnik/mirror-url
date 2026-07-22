@@ -1440,6 +1440,8 @@ EXAMPLES:
                     config_dict["refresh_cache"] = True
                 if args.cache_max_age != DEFAULT_CACHE_MAX_AGE_DAYS:
                     config_dict["cache_max_age"] = args.cache_max_age
+                if getattr(args, "no_etag", False):
+                    config_dict["no_etag"] = True
                 if getattr(args, "missing_files", False):
                     config_dict["missing_files"] = True
                 if not args.cache_html:  # Handles --no-cache-html
@@ -1501,6 +1503,7 @@ EXAMPLES:
                     no_cache=args.no_cache,
                     refresh_cache=args.refresh_cache,
                     cache_max_age=args.cache_max_age,
+                    no_etag=getattr(args, "no_etag", False),
                     missing_files=getattr(args, "missing_files", False),
                     use_shared_log=use_shared,
                     scan_mode=ScanMode(args.scan_mode),
