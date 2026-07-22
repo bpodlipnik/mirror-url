@@ -4,6 +4,23 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.27] - 2026-07-22
+
+### Fixed
+- `--missing-files` and `--no-etag` were silently ignored whenever
+  mirror-url was invoked via plain CLI args without `--config`: the
+  direct `MirrorConfig(...)` constructor used on that path never
+  passed either field through, so both silently fell back to their
+  pydantic defaults (`False`) regardless of the flag. The `--config`
+  YAML branch was also missing a CLI-override entry for both flags, so
+  passing either on the CLI alongside `--config` was ignored too (only
+  setting it in the YAML file itself worked). The `--missing-files`
+  bug was invisible on a first run (every file is missing anyway) and
+  only showed up on a second run against an already-populated
+  destination, where every existing file went through a full
+  ETag/size/mtime freshness check again as if the flag had never been
+  passed.
+
 ## [3.1.26] - 2026-07-19
 
 ### Added
