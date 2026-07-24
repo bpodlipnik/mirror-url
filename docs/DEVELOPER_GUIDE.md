@@ -251,15 +251,14 @@ failure immediately.
 
 ```python
 class MirrorURL(
-    UrlMixin,        # _core/urls.py
-    ScanMixin,       # _core/scan.py
-    CompareMixin,    # _core/compare.py
-    DownloadMixin,   # _core/downloads.py
-    CleanupMixin,    # _core/cleanup.py
-    ReportMixin,     # _core/report.py
-    _MirrorBase,     # _core/_base.py — __init__ + shared state, listed LAST
-):
-    ...
+    UrlMixin,  # _core/urls.py
+    ScanMixin,  # _core/scan.py
+    CompareMixin,  # _core/compare.py
+    DownloadMixin,  # _core/downloads.py
+    CleanupMixin,  # _core/cleanup.py
+    ReportMixin,  # _core/report.py
+    _MirrorBase,  # _core/_base.py — __init__ + shared state, listed LAST
+): ...
 ```
 
 **Why this is safe and unambiguous:** every method is defined in exactly one

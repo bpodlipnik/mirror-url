@@ -523,7 +523,7 @@ config = MirrorConfig(
 )
 
 with MirrorURL(config) as mirror:
-    ok = mirror.sync()      # returns True on success, False on failure
+    ok = mirror.sync()  # returns True on success, False on failure
 
 print("sync succeeded" if ok else "sync failed")
 ```
