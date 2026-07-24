@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.28] - 2026-07-24
+
+### Added
+- `--list-dirs`: discover and print the directory tree under the target
+  URL / `--dir-suffix`, then exit -- without scanning files, comparing
+  freshness, or downloading/deleting anything. Reuses the existing BFS
+  directory-discovery walk, so it respects `--exclude-dir` and
+  `--max-depth` exactly like a real sync would (`--filter` does not
+  apply, since it only matches files). Useful for seeing what's
+  available on a remote server before picking a `--dir-suffix`.
+
 ## [3.1.27] - 2026-07-22
 
 ### Fixed
