@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mirror-url"
-version = "3.1.27"
+version = "3.1.28"
 description = "Enterprise-grade remote directory mirroring tool with adaptive concurrency, integrity checks, and SSRF-hardened transport."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -46,7 +46,10 @@ dev = [
     "pytest>=7.4",
     "pytest-asyncio>=0.21",
     "pytest-cov>=4.1",
-    "ruff>=0.4",
+    "ruff==0.16.0",  # pinned exact: `ruff format` output isn't guaranteed stable
+    # across versions, so an unpinned range lets CI drift out of sync with
+    # what's actually committed (see CHANGELOG). Bump deliberately, re-run
+    # `ruff format .`, and commit the result in the same PR.
     "black>=24.0",
     "mypy>=1.8",
     "types-PyYAML>=6.0",  # type stubs for the yaml import (silences import-untyped)

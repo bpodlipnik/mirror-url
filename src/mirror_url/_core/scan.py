@@ -254,6 +254,46 @@ class ScanMixin:
             self.metrics.add_error(str(e), "file_discovery")
             return None
 
+    def list_directories(self) -> bool:
+        """Discover and log the directory tree under the target URL /
+        --dir-suffix, without scanning files, comparing freshness, or
+        downloading/deleting anything.
+
+        Enabled via --list-dirs. Reuses the same BFS walk as
+        get_remote_files() -- so it respects --exclude-dir and --max-depth
+        exactly like a real sync would -- but stops after discovering each
+        directory instead of also scanning it for files. --filter does not
+        apply here since it only matches files, never directory names.
+
+        Read-only: never touches the on-disk cache and is safe to run
+        regardless of --dry-run.
+        """
+        prefix = self._get_prefix()
+        if not hasattr(self, "connection_manager") or not self.connection_manager:
+            logging.warning(f"{prefix}Skipping --list-dirs (connection failed)")
+            return False
+
+        if not self.connection_ok:
+            logging.info(f"{prefix}Skipping --list-dirs - remote directory not available")
+            return False
+
+        root = self.target_base_url or ""
+        safe_root = sanitize_url_for_log(root) if root else ""
+        count = 0
+        for url in self._discover_directories_bfs():
+            safe_url = sanitize_url_for_log(url)
+            rel = (
+                safe_url[len(safe_root) :].strip("/")
+                if safe_root and safe_url.startswith(safe_root)
+                else safe_url
+            )
+            label = rel if rel else "."
+            logging.info(f"{prefix}📁 {label}")
+            count += 1
+
+        logging.info(f"{prefix}Found {count} director{'y' if count == 1 else 'ies'}")
+        return True
+
     def _discover_directories_bfs(self) -> Generator[str, None, None]:
         """BFS directory discovery - strictly within target scope."""
         if not self.connection_ok:

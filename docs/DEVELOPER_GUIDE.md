@@ -11,7 +11,7 @@ If you only want to *use* MirrorURL (install, CLI, config, Python API), read
 repeats the essentials so you can work from it alone.
 
 - **Package:** `mirror_url` (src-layout under `src/`)
-- **Version:** 3.1.27
+- **Version:** 3.1.28
 - **Python:** 3.9 – 3.12
 - **Runtime deps:** `httpx`, `pydantic` v2, `PyYAML` (optional: `stringzilla`,
   `lxml`, `tqdm`, `psutil`)
@@ -62,7 +62,7 @@ Two consequences shape how you should work in this codebase:
 
 The legacy `mirror_url.py` was retained as a frozen reference, excluded from
 lint and packaging, until the package's test suite passed with real runtime
-dependencies installed -- then deleted (v3.1.27).
+dependencies installed -- then deleted (v3.1.28).
 
 ---
 
@@ -251,15 +251,14 @@ failure immediately.
 
 ```python
 class MirrorURL(
-    UrlMixin,        # _core/urls.py
-    ScanMixin,       # _core/scan.py
-    CompareMixin,    # _core/compare.py
-    DownloadMixin,   # _core/downloads.py
-    CleanupMixin,    # _core/cleanup.py
-    ReportMixin,     # _core/report.py
-    _MirrorBase,     # _core/_base.py — __init__ + shared state, listed LAST
-):
-    ...
+    UrlMixin,  # _core/urls.py
+    ScanMixin,  # _core/scan.py
+    CompareMixin,  # _core/compare.py
+    DownloadMixin,  # _core/downloads.py
+    CleanupMixin,  # _core/cleanup.py
+    ReportMixin,  # _core/report.py
+    _MirrorBase,  # _core/_base.py — __init__ + shared state, listed LAST
+): ...
 ```
 
 **Why this is safe and unambiguous:** every method is defined in exactly one
@@ -609,5 +608,5 @@ These bit the project before; the migration plan calls them out explicitly.
 
 ---
 
-*This guide describes the architecture as of version 3.1.27. When you change the
+*This guide describes the architecture as of version 3.1.28. When you change the
 structure, update this document in the same PR.*

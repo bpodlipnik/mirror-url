@@ -494,6 +494,17 @@ EXAMPLES:
     directory.add_argument(
         "--exclude-dir", nargs="*", default=[], metavar="DIR", help="Directories to exclude"
     )
+    directory.add_argument(
+        "--list-dirs",
+        action="store_true",
+        help=(
+            "List the directory tree under the target URL/--dir-suffix and exit -- "
+            "does not scan files, compare freshness, or download/delete anything. "
+            "Respects --exclude-dir and --max-depth; ignores --filter (which only "
+            "applies to files). Useful for discovering what's available before "
+            "picking a --dir-suffix."
+        ),
+    )
 
     performance = parser.add_argument_group("Performance & Worker Options")
     performance.add_argument(
@@ -1216,6 +1227,7 @@ EXAMPLES:
                     "cache_max_age": base_config.cache_max_age,
                     "no_etag": getattr(base_config, "no_etag", False),
                     "missing_files": getattr(base_config, "missing_files", False),
+                    "list_dirs": getattr(base_config, "list_dirs", False),
                     "hash_algorithm": getattr(base_config, "hash_algorithm", "md5"),
                     "use_shared_log": use_shared,
                     "scan_mode": base_config.scan_mode,
@@ -1444,6 +1456,8 @@ EXAMPLES:
                     config_dict["no_etag"] = True
                 if getattr(args, "missing_files", False):
                     config_dict["missing_files"] = True
+                if getattr(args, "list_dirs", False):
+                    config_dict["list_dirs"] = True
                 if not args.cache_html:  # Handles --no-cache-html
                     config_dict["cache_html"] = False
                 if args.html_cache_max_age != HTML_CACHE_MAX_AGE_HOURS:
@@ -1505,6 +1519,7 @@ EXAMPLES:
                     cache_max_age=args.cache_max_age,
                     no_etag=getattr(args, "no_etag", False),
                     missing_files=getattr(args, "missing_files", False),
+                    list_dirs=getattr(args, "list_dirs", False),
                     use_shared_log=use_shared,
                     scan_mode=ScanMode(args.scan_mode),
                     parallel_threshold=args.parallel_threshold,
@@ -1608,6 +1623,15 @@ EXAMPLES:
                 elif not mirror.connection_ok:
                     logging.warning(f"[{i}/{total}] Connection failed for {suf or 'ROOT'} (404?)")
                     failed.append(suf or "ROOT")
+                elif getattr(suffix_config, "list_dirs", False):
+                    if mirror.list_directories():
+                        logging.info(f"[{i}/{total}] ✅ Listed directories: {suf or 'ROOT'}")
+                        processed.append(suf or "ROOT")
+                    else:
+                        logging.error(
+                            f"[{i}/{total}] ❌ Failed to list directories: {suf or 'ROOT'}"
+                        )
+                        failed.append(suf or "ROOT")
                 else:
                     sync_success = mirror.sync()
                     if sync_success:
