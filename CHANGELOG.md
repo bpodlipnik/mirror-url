@@ -4,6 +4,27 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- `--list-dirs` incorrectly required `--dest-path`/`--log-path` when used
+  without `--config`, even though it never writes to `dest_path` and only
+  needs `log_path` for its own run log/cache-file bookkeeping. Both now
+  default to a scratch directory under the system temp dir when omitted;
+  an explicitly supplied `--dest-path`/`--log-path` still takes priority.
+  Non-`--list-dirs` runs are unaffected and still require both.
+- `docs/USER_GUIDE.md` didn't document `--list-dirs` at all despite being
+  version-stamped for the release it shipped in.
+
+### Added
+- `--list-dirs` now prints each discovered directory to stdout as a bare
+  relative path, one per line, independent of the existing `📁`-prefixed
+  logging (which stays subject to `--print-logs`/`--quiet` as before).
+  Makes the output pipeable/scriptable without needing `--print-logs` or
+  filtering log noise out of it. When mirroring more than one
+  `--dir-suffix` in the same run, each line gets a tab-separated suffix
+  column prepended (`L1/v2\t.`) instead of a bare path.
+
 ## [3.1.28] - 2026-07-24
 
 ### Added

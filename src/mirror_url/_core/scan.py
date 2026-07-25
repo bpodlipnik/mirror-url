@@ -11,6 +11,7 @@ import hashlib
 import logging
 import re
 import socket
+import sys
 import time
 from collections import deque
 from pathlib import Path
@@ -255,7 +256,7 @@ class ScanMixin:
             return None
 
     def list_directories(self) -> bool:
-        """Discover and log the directory tree under the target URL /
+        """Discover, log, and print the directory tree under the target URL /
         --dir-suffix, without scanning files, comparing freshness, or
         downloading/deleting anything.
 
@@ -264,6 +265,19 @@ class ScanMixin:
         exactly like a real sync would -- but stops after discovering each
         directory instead of also scanning it for files. --filter does not
         apply here since it only matches files, never directory names.
+
+        Each discovered directory is both logged (with the usual run
+        banner/prefix, subject to --print-logs/--quiet like any other log
+        line) AND printed as a bare path to stdout -- one per line, no
+        prefix, no icon, no summary line -- so the output can be piped or
+        captured directly (e.g. ``mirror-url --list-dirs ... | xargs -I{}
+        ...``) without needing --print-logs or filtering out banner/log
+        noise. The two are independent: stdout stays clean even when
+        --print-logs sends the full banner to stderr. When more than one
+        --dir-suffix is mirrored in the same run, each stdout line is
+        prefixed with a tab-separated suffix column (``L1/v2\t.``) instead
+        of a bare path, since a relative path alone would be ambiguous
+        about which suffix it came from.
 
         Read-only: never touches the on-disk cache and is safe to run
         regardless of --dry-run.
@@ -277,6 +291,19 @@ class ScanMixin:
             logging.info(f"{prefix}Skipping --list-dirs - remote directory not available")
             return False
 
+        # When mirroring more than one --dir-suffix in the same run, a bare
+        # relative path is ambiguous about which suffix it came from -- the
+        # log prefix disambiguates via "[i/total]", but that index is
+        # meaningless on stdout without the surrounding log context. Qualify
+        # each printed line with a tab-separated suffix column instead, so
+        # each line is still a single, easily awk/cut-able path plus its
+        # suffix rather than a glued-together compound path.
+        stdout_qualifier = ""
+        total_suffixes = getattr(self, "total_suffixes", 1)
+        dir_suffix = getattr(getattr(self, "config", None), "dir_suffix", None)
+        if total_suffixes > 1 and dir_suffix:
+            stdout_qualifier = dir_suffix.strip("/")
+
         root = self.target_base_url or ""
         safe_root = sanitize_url_for_log(root) if root else ""
         count = 0
@@ -289,6 +316,7 @@ class ScanMixin:
             )
             label = rel if rel else "."
             logging.info(f"{prefix}📁 {label}")
+            print(f"{stdout_qualifier}\t{label}" if stdout_qualifier else label, file=sys.stdout)
             count += 1
 
         logging.info(f"{prefix}Found {count} director{'y' if count == 1 else 'ies'}")

@@ -167,6 +167,11 @@ Either supply `--url`, `--dest-path`, and `--log-path`, **or** point at a config
 file with `--config`. Run `mirror-url --help` for the complete, authoritative
 list of options. The most commonly used options:
 
+> `--list-dirs` is an exception: since it only discovers and prints the
+> remote directory tree and never downloads or deletes anything, it doesn't
+> require `--dest-path` or `--log-path` — see the `--list-dirs` entry in
+> "Filtering and scope" below.
+
 ### Targets
 
 | Option | Description |
@@ -221,6 +226,7 @@ list of options. The most commonly used options:
 | `--filter P [P ...]` | Only download matching files. Each pattern is a plain extension (`.fits`) or a regex (`'2024.*\.fits$'`). |
 | `--exclude-dir D [D ...]` | Skip matching directories. |
 | `--max-depth N` | Maximum directory recursion depth (default 50). |
+| `--list-dirs` | Discover and print the directory tree under `--url`/`--dir-suffix`, then exit — no file scanning, freshness checks, or downloads/deletes. Respects `--exclude-dir`/`--max-depth`; `--filter` doesn't apply (files only). Doesn't require `--dest-path`/`--log-path`. |
 
 ### Cleanup of obsolete local files
 
@@ -269,6 +275,13 @@ Dry-run to see what a first sync would download:
 
 ```bash
 mirror-url --url https://example.com/files/ --dest-path ./m --log-path ./l --dry-run
+```
+
+See what's available under a base URL before picking a `--dir-suffix`
+(no `--dest-path`/`--log-path` needed):
+
+```bash
+mirror-url --url https://archive.example.org/mission/ --list-dirs
 ```
 
 Mirror several versioned subdirectories in one run:
@@ -404,6 +417,26 @@ on by default).
   URL and mirrors each in turn.
 - **`--max-depth`** bounds recursion. The crawler also enforces URL-scope checks
   so it never wanders outside the configured base host/path.
+- **`--list-dirs`** discovers and prints the directory tree under `--url`/
+  `--dir-suffix`, then exits — it reuses the same directory-discovery walk as
+  a real sync, so it respects `--exclude-dir` and `--max-depth`, but never
+  scans files, checks freshness, or downloads/deletes anything. `--filter`
+  doesn't apply, since it only matches filenames, not directories. Handy for
+  seeing what's on a remote server before choosing a `--dir-suffix`. Unlike
+  every other mode, it does **not** require `--dest-path` or `--log-path`.
+  Each directory is printed to **stdout** as a bare relative path, one per
+  line (`.` for the root), independent of `--print-logs`/`--quiet` and the
+  usual banner/summary logging — pipe or capture it directly:
+
+  ```bash
+  mirror-url --url https://archive.example.org/mission/ --list-dirs \
+    | xargs -I{} echo "found: {}"
+  ```
+
+  If you mirror more than one `--dir-suffix` in the same run, each line gets
+  a tab-separated suffix column prepended instead of a bare path (e.g.
+  `L1/v2\tsome/subdir`), so you can tell which subtree it came from while
+  keeping the path itself easy to `cut -f2`/`awk -F'\t'` out.
 
 ---
 
