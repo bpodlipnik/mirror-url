@@ -13,6 +13,7 @@ import json
 import logging
 import shlex
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -953,10 +954,21 @@ EXAMPLES:
     else:
         if not args.url:
             parser.error("--url is required when --config is not used")
-        if not args.dest_path:
-            parser.error("--dest-path is required when --config is not used")
-        if not args.log_path:
-            parser.error("--log-path is required when --config is not used")
+        if args.list_dirs:
+            # --list-dirs only discovers and prints the remote directory tree --
+            # it never writes to dest_path, and log_path is only used for its
+            # own run log/cache-file bookkeeping. Don't force the user to name
+            # either; fall back to a scratch directory under the system temp
+            # dir when they haven't supplied one.
+            if not args.dest_path:
+                args.dest_path = Path(tempfile.gettempdir()) / "mirror-url-list-dirs"
+            if not args.log_path:
+                args.log_path = Path(tempfile.gettempdir()) / "mirror-url-list-dirs"
+        else:
+            if not args.dest_path:
+                parser.error("--dest-path is required when --config is not used")
+            if not args.log_path:
+                parser.error("--log-path is required when --config is not used")
 
     # Configure logging levels for libraries
     # Configure logging levels for libraries
