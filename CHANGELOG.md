@@ -4,6 +4,35 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.30] - 2026-07-26
+
+### Added
+- `--list-files [N]`: discover and print files under the target URL /
+  `--dir-suffix`, then exit -- without comparing freshness or
+  downloading/deleting anything. Reuses the same BFS directory-discovery
+  walk and per-directory file scan as a real sync, so it respects
+  `--exclude-dir`, `--max-depth`, and `--filter` (unlike `--list-dirs`,
+  `--filter` *does* apply here, since it matches filenames). With no `N`,
+  prints every matching file; with `N`, prints only the last `N` files
+  *per directory*, sorted lexicographically by relative path -- a
+  deliberate, server-independent, zero-extra-request name sort rather
+  than a true timestamp sort (see `docs/USER_GUIDE.md` for the full
+  rationale). Each file is printed to stdout as its full path relative to
+  the target URL/`--dir-suffix`, one per line; every directory's block of
+  files is followed by a `# Files N/total` comment line, always -- even
+  on an unrestricted run -- so scripts can rely on the marker
+  unconditionally. Like `--list-dirs`, it doesn't require `--dest-path`/
+  `--log-path`, and `--list-dirs`/`--list-files` are mutually exclusive.
+
+### Fixed
+- `docs/USER_GUIDE.html` had drifted out of sync with
+  `docs/USER_GUIDE.md` -- it predated `--list-dirs` entirely and was
+  missing several other sections that had since been added to the
+  Markdown source. Regenerated from the current Markdown (preserving the
+  existing page's `<head>`/stylesheet) so both docs are back in sync;
+  going forward this needs regenerating on every `USER_GUIDE.md` content
+  change, not just on version bumps.
+
 ## [3.1.29] - 2026-07-25
 
 ### Fixed
