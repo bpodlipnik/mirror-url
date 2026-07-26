@@ -38,15 +38,24 @@ class ScanMixin:
         if not filename_sz:
             return False
 
-        # Convert to string for operations that need it (endswith with tuple)
+        # Convert to string for operations that need it (endswith with tuple).
+        # Lowercased once up front: both the extension check and the
+        # substring check below compare it against an already-lowercased
+        # pattern, so the filename side must be lowercased too for either
+        # to be genuinely case-insensitive. Filenames with mixed-case
+        # content -- e.g. the "T" time separator in ISO-8601-style
+        # timestamps such as "..._20260619T073111_..." -- previously never
+        # matched a lowercase --filter pattern like "20260619t073" because
+        # only the pattern side was lowercased.
         filename = str(filename_sz)
+        filename_lower = filename.lower()
 
         for pattern in self.config.file_filters:
             pattern_lower = pattern.lower()
 
             if pattern.startswith("."):
                 # Fast extension check - use string version for compatibility
-                if filename.endswith(pattern_lower):
+                if filename_lower.endswith(pattern_lower):
                     return True
             else:
                 # Check if pattern contains regex special characters
@@ -61,7 +70,7 @@ class ScanMixin:
                         pass
                 else:
                     # Simple substring match. NOTE: this deliberately uses
-                    # the plain-str `filename` (computed above), not a
+                    # the plain-str `filename_lower` (computed above), not a
                     # StringZilla Str-vs-Str comparison. _get_filename_fast()
                     # is typed as returning a StringZilla Str, but
                     # _get_url_path_fast() (urls.py) explicitly converts
@@ -77,7 +86,7 @@ class ScanMixin:
                     # this). Plain str `in` is correct and simple here; a
                     # few extra bytes of filename comparison is not where
                     # StringZilla's SIMD advantage would matter anyway.
-                    if pattern_lower in filename:
+                    if pattern_lower in filename_lower:
                         return True
 
         return False

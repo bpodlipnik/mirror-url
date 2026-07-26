@@ -4,6 +4,30 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.31] - 2026-07-26
+
+### Fixed
+- `--filter` substring and extension matching was not actually
+  case-insensitive: `matches_filter()` lowercased the *pattern* before
+  comparing, but never lowercased the *filename* it was comparing
+  against. This was invisible for patterns matching an
+  already-lowercase portion of a filename, but silently failed to
+  match whenever the matching portion contained an uppercase
+  character -- notably the `T` time separator in ISO-8601-style
+  timestamps that PROBA-3/STEREO filenames use (e.g.
+  `..._20260619T073111_...`). Reported via a real production command:
+  `--filter 20260619T073` returned zero matches against a directory
+  that visibly contained several. Same root cause affected the
+  extension-check branch (`.FITS` vs `.fits`), covered too though not
+  part of the original report. Fixed by lowercasing the filename once
+  and comparing both sides consistently; the regex branch already
+  passed `re.IGNORECASE` and was unaffected. This bug predates
+  `--list-files` -- it affects `--filter` in every mode, including
+  real syncs -- and was only surfaced now because `--list-files` is
+  the first mode where `--filter` output is immediately visible on
+  stdout rather than only showing up as an absence of downloads.
+  6 new regression tests in `tests/test_filter_case_insensitivity.py`.
+
 ## [3.1.30] - 2026-07-26
 
 ### Added
