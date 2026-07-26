@@ -322,6 +322,111 @@ class ScanMixin:
         logging.info(f"{prefix}Found {count} director{'y' if count == 1 else 'ies'}")
         return True
 
+    def list_files(self) -> bool:
+        """Discover, log, and print the files under the target URL /
+        --dir-suffix, without comparing freshness or downloading/deleting
+        anything.
+
+        Enabled via --list-files[=N]. Reuses the same BFS directory walk and
+        per-directory file scan as a real sync -- so it respects
+        --exclude-dir, --max-depth, and --filter exactly like a real sync
+        would -- but never touches the on-disk cache, never compares
+        freshness, and never downloads or deletes anything.
+
+        With no N (self.config.list_files_n == 0), every file matching
+        --filter is printed. With N > 0, only the last N files *per
+        directory* are printed, where "last" means the lexicographically
+        greatest filenames within that directory -- NOT a true timestamp
+        sort. This is deliberate: getting a real server timestamp would
+        need either parsing a directory-listing HTML format that varies by
+        web server (Apache/nginx/IIS/lighttpd all differ, and some don't
+        expose one at all) or an extra HEAD request per file, which does
+        not scale to the file counts these runs see (the exact problem
+        --missing-files was built to avoid at v3.1.26). A lexicographic
+        sort needs neither: it works identically regardless of web server,
+        and costs zero extra requests, but it only reflects chronological
+        order if filenames embed a sortable date/sequence -- true for the
+        PROBA-3/STEREO archives this tool targets, but not guaranteed for
+        an arbitrary directory. See USER_GUIDE.md.
+
+        Every directory's file block is followed by a "# Files N/total"
+        comment line, always -- including an unrestricted (no-N) run --
+        so downstream parsing can rely on the marker being present
+        unconditionally rather than only appearing when truncated.
+        Comment lines start with "#" and can be dropped with
+        ``grep -v '^#'`` for a pure one-line-per-file stream.
+
+        Each printed file uses its full path relative to the target
+        URL/--dir-suffix (e.g. ``v03/orbit_0042/file_20260722_003.fits``),
+        one per line -- unqualified, since the path itself already encodes
+        which directory (and, transitively, which --dir-suffix subtree) it
+        came from. When more than one --dir-suffix is mirrored in the same
+        run, each line is additionally prefixed with a tab-separated
+        suffix column, exactly like --list-dirs.
+
+        Read-only: never touches the on-disk cache and is safe to run
+        regardless of --dry-run.
+        """
+        prefix = self._get_prefix()
+        if not hasattr(self, "connection_manager") or not self.connection_manager:
+            logging.warning(f"{prefix}Skipping --list-files (connection failed)")
+            return False
+
+        if not self.connection_ok:
+            logging.info(f"{prefix}Skipping --list-files - remote directory not available")
+            return False
+
+        stdout_qualifier = ""
+        total_suffixes = getattr(self, "total_suffixes", 1)
+        dir_suffix = getattr(getattr(self, "config", None), "dir_suffix", None)
+        if total_suffixes > 1 and dir_suffix:
+            stdout_qualifier = dir_suffix.strip("/")
+
+        limit = getattr(getattr(self, "config", None), "list_files_n", 0) or 0
+
+        root = self.target_base_url or ""
+        safe_root = sanitize_url_for_log(root) if root else ""
+
+        def _rel(url: str) -> str:
+            safe_url = sanitize_url_for_log(url)
+            return (
+                safe_url[len(safe_root) :].strip("/")
+                if safe_root and safe_url.startswith(safe_root)
+                else safe_url
+            )
+
+        total_count = 0
+        printed_count = 0
+        for dir_url in self._discover_directories_bfs():
+            try:
+                files, _subdirs = self.scanner.scan_directory_sequential(dir_url)
+            except Exception as e:
+                logging.warning(f"{prefix}Error scanning {sanitize_url_for_log(dir_url)}: {e}")
+                continue
+
+            if not files:
+                continue
+
+            rel_files = sorted(_rel(f) for f in files)
+            dir_total = len(rel_files)
+            shown = rel_files[-limit:] if limit > 0 else rel_files
+
+            for label in shown:
+                logging.info(f"{prefix}📄 {label}")
+                print(
+                    f"{stdout_qualifier}\t{label}" if stdout_qualifier else label,
+                    file=sys.stdout,
+                )
+                printed_count += 1
+
+            print(f"# Files {len(shown)}/{dir_total}", file=sys.stdout)
+            total_count += dir_total
+
+        logging.info(
+            f"{prefix}Listed {printed_count} of {total_count} file{'s' if total_count != 1 else ''}"
+        )
+        return True
+
     def _discover_directories_bfs(self) -> Generator[str, None, None]:
         """BFS directory discovery - strictly within target scope."""
         if not self.connection_ok:

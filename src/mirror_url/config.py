@@ -139,6 +139,8 @@ class ConfigSchema(BaseModel):
     trusted_server: bool = False
     missing_files: bool = False
     list_dirs: bool = False
+    list_files: bool = False
+    list_files_n: int = 0
     security_validation: bool = True
     http2: bool = True
     cleanup_policy: str = "safe"
@@ -219,6 +221,8 @@ class MirrorConfig(BaseModel):
     no_etag: bool = False
     missing_files: bool = False
     list_dirs: bool = False
+    list_files: bool = False
+    list_files_n: int = 0
     use_shared_log: bool = False
     scan_mode: ScanMode = ScanMode.ADAPTIVE
     parallel_threshold: int = PARALLEL_SCAN_THRESHOLD
@@ -648,6 +652,8 @@ def load_config_from_args(args: argparse.Namespace, silent: bool = False) -> Mir
         "no_etag": getattr(args, "no_etag", False),
         "missing_files": getattr(args, "missing_files", False),
         "list_dirs": getattr(args, "list_dirs", False),
+        "list_files": getattr(args, "list_files", None) is not None,
+        "list_files_n": getattr(args, "list_files", None) or 0,
         "hash_algorithm": getattr(args, "hash_algorithm", "md5"),
         "use_shared_log": bool(args.log_file),
         "benchmark": args.benchmark,

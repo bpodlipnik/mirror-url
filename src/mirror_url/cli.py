@@ -506,6 +506,26 @@ EXAMPLES:
             "picking a --dir-suffix."
         ),
     )
+    directory.add_argument(
+        "--list-files",
+        nargs="?",
+        type=int,
+        const=0,
+        default=None,
+        metavar="N",
+        help=(
+            "List files under the target URL/--dir-suffix and exit -- does not "
+            "compare freshness or download/delete anything. Respects "
+            "--exclude-dir, --max-depth, and --filter. With no N, lists every "
+            "file; with N, lists only the last N files per directory, sorted "
+            "lexicographically by filename (server-independent -- no extra "
+            "requests, no reliance on any web server's directory-listing "
+            "format or Last-Modified metadata). This is a name sort, not a "
+            "true timestamp sort: it only reflects chronological order if "
+            "filenames embed a sortable date/sequence, as PROBA-3/STEREO "
+            "filenames do. See USER_GUIDE.md for details."
+        ),
+    )
 
     performance = parser.add_argument_group("Performance & Worker Options")
     performance.add_argument(
@@ -915,6 +935,9 @@ EXAMPLES:
 
     args = parser.parse_args()
 
+    if args.list_dirs and getattr(args, "list_files", None) is not None:
+        parser.error("--list-dirs and --list-files are mutually exclusive")
+
     # Handle config file
     if args.config:
         valid, error = validate_config_file(Path(args.config))
@@ -954,12 +977,12 @@ EXAMPLES:
     else:
         if not args.url:
             parser.error("--url is required when --config is not used")
-        if args.list_dirs:
-            # --list-dirs only discovers and prints the remote directory tree --
-            # it never writes to dest_path, and log_path is only used for its
-            # own run log/cache-file bookkeeping. Don't force the user to name
-            # either; fall back to a scratch directory under the system temp
-            # dir when they haven't supplied one.
+        if args.list_dirs or getattr(args, "list_files", None) is not None:
+            # --list-dirs / --list-files only discover and print the remote
+            # tree -- neither ever writes to dest_path, and log_path is only
+            # used for its own run log/cache-file bookkeeping. Don't force
+            # the user to name either; fall back to a scratch directory under
+            # the system temp dir when they haven't supplied one.
             if not args.dest_path:
                 args.dest_path = Path(tempfile.gettempdir()) / "mirror-url-list-dirs"
             if not args.log_path:
@@ -1240,6 +1263,8 @@ EXAMPLES:
                     "no_etag": getattr(base_config, "no_etag", False),
                     "missing_files": getattr(base_config, "missing_files", False),
                     "list_dirs": getattr(base_config, "list_dirs", False),
+                    "list_files": getattr(base_config, "list_files", False),
+                    "list_files_n": getattr(base_config, "list_files_n", 0),
                     "hash_algorithm": getattr(base_config, "hash_algorithm", "md5"),
                     "use_shared_log": use_shared,
                     "scan_mode": base_config.scan_mode,
@@ -1470,6 +1495,9 @@ EXAMPLES:
                     config_dict["missing_files"] = True
                 if getattr(args, "list_dirs", False):
                     config_dict["list_dirs"] = True
+                if getattr(args, "list_files", None) is not None:
+                    config_dict["list_files"] = True
+                    config_dict["list_files_n"] = args.list_files
                 if not args.cache_html:  # Handles --no-cache-html
                     config_dict["cache_html"] = False
                 if args.html_cache_max_age != HTML_CACHE_MAX_AGE_HOURS:
@@ -1532,6 +1560,8 @@ EXAMPLES:
                     no_etag=getattr(args, "no_etag", False),
                     missing_files=getattr(args, "missing_files", False),
                     list_dirs=getattr(args, "list_dirs", False),
+                    list_files=getattr(args, "list_files", None) is not None,
+                    list_files_n=getattr(args, "list_files", None) or 0,
                     use_shared_log=use_shared,
                     scan_mode=ScanMode(args.scan_mode),
                     parallel_threshold=args.parallel_threshold,
@@ -1643,6 +1673,13 @@ EXAMPLES:
                         logging.error(
                             f"[{i}/{total}] ❌ Failed to list directories: {suf or 'ROOT'}"
                         )
+                        failed.append(suf or "ROOT")
+                elif getattr(suffix_config, "list_files", False):
+                    if mirror.list_files():
+                        logging.info(f"[{i}/{total}] ✅ Listed files: {suf or 'ROOT'}")
+                        processed.append(suf or "ROOT")
+                    else:
+                        logging.error(f"[{i}/{total}] ❌ Failed to list files: {suf or 'ROOT'}")
                         failed.append(suf or "ROOT")
                 else:
                     sync_success = mirror.sync()
