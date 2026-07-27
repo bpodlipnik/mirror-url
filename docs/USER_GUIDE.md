@@ -491,7 +491,7 @@ on by default).
   >   don't expose one at all), so this would make `--list-files`'s
   >   correctness depend on which web server happens to be on the other
   >   end.
-  >   - **An extra HTTP `HEAD` request per file** to read its
+  > - **An extra HTTP `HEAD` request per file** to read its
   >   `Last-Modified` header — fully server-independent, but exactly the
   >   per-file network round-trip that `--missing-files` (see "Caching"
   >   above) was built to *avoid*, because it doesn't scale: a directory
