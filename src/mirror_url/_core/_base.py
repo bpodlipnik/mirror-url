@@ -252,22 +252,9 @@ class _MirrorBase:
             self._computed_target_path = None
 
         # ============================================================================
-        # 13. CACHE FILE - Safe initialization
+        # 13. LOG DIRECTORY - Create (with fallback) BEFORE anything derives paths
+        #     from self.log_path, so a fallback here is visible to every consumer.
         # ============================================================================
-        url_hash = hashlib.sha256(str(config.base_url).encode()).hexdigest()[:16]
-        try:
-            if suffix:
-                safe_suffix = suffix.replace("/", "_")
-                cache_name = f"mirror_url_{safe_suffix}_{url_hash}.json"
-            else:
-                folder_name = self._get_last_path_component(self.base_url)
-                cache_name = f"mirror_url_{folder_name}_{url_hash}.json"
-
-            self.cache_file = self.log_path / cache_name
-        except Exception as e:
-            logging.warning(f"Failed to create cache file path: {e}")
-            self.cache_file = None
-
         # Create log filename BEFORE using it
         if self.config.dir_suffix:
             safe_suffix = self.config.dir_suffix.replace("/", "_")
@@ -293,7 +280,25 @@ class _MirrorBase:
                 self.log_path = temp_log_dir
 
         # ============================================================================
-        # 14. SETUP LOGGING (if not using shared log)
+        # 14. CACHE FILE - Safe initialization (must come AFTER the log-directory
+        #     fallback above, since it derives its path from self.log_path)
+        # ============================================================================
+        url_hash = hashlib.sha256(str(config.base_url).encode()).hexdigest()[:16]
+        try:
+            if suffix:
+                safe_suffix = suffix.replace("/", "_")
+                cache_name = f"mirror_url_{safe_suffix}_{url_hash}.json"
+            else:
+                folder_name = self._get_last_path_component(self.base_url)
+                cache_name = f"mirror_url_{folder_name}_{url_hash}.json"
+
+            self.cache_file = self.log_path / cache_name
+        except Exception as e:
+            logging.warning(f"Failed to create cache file path: {e}")
+            self.cache_file = None
+
+        # ============================================================================
+        # 15. SETUP LOGGING (if not using shared log)
         # ============================================================================
         if not config.use_shared_log:
             # Set log level based on config
@@ -310,7 +315,7 @@ class _MirrorBase:
             self.setup_logging()
 
         # ============================================================================
-        # 15. CACHE MANAGER
+        # 16. CACHE MANAGER
         # ============================================================================
         if self.cache_file:
             self.cache_manager = CacheManager(self.cache_file, config, self.metrics)
