@@ -4,6 +4,26 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.32] - 2026-07-28
+
+### Changed
+- Renamed `--log_file` to `--log-file` -- it was the only CLI flag in the
+  tool that used an underscore instead of a hyphen, and was undocumented
+  in `USER_GUIDE.md`/`--help`. The old spelling is no longer accepted
+  (argparse rejects it as an unrecognized argument); scripts using it
+  need to update to the new spelling. Now documented in `USER_GUIDE.md`.
+
+### Fixed
+- `--log-file`'s generated filename was missing a separator between the
+  custom prefix and the `--dir-suffix` portion:
+  `f"{args.log_file}{suffixes_str}_{timestamp}.log"` produced e.g.
+  `mirror_url_lasco_ql_nrl260727_...log` (prefix and suffix jammed
+  together) instead of the intended
+  `mirror_url_lasco_ql_nrl_260727_...log`. Found via a real wrapper
+  script (`mirror_url_lasco_ql.sh`) trying to set a custom log-file
+  prefix per mirrored server for the first time. 6 new tests in
+  `tests/test_log_file_flag.py`.
+
 ## [3.1.31] - 2026-07-26
 
 ### Fixed
