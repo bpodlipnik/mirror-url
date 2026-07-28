@@ -6,7 +6,7 @@ the remote directory tree, decides which files are new or changed, and downloads
 them efficiently — with adaptive concurrency, resumable/parallel downloads,
 integrity checks, incremental caching, and an SSRF-hardened transport layer.
 
-- **Version:** 3.1.31
+- **Version:** 3.1.32
 - **Python:** 3.9 – 3.12 (pure Python, any OS/architecture)
 - **License:** MIT
 
@@ -79,21 +79,21 @@ On a build machine:
 
 ```bash
 pip install build
-python -m build          # produces dist/mirror_url-3.1.31-py3-none-any.whl
+python -m build          # produces dist/mirror_url-3.1.32-py3-none-any.whl
 ```
 
 Copy the wheel to the target server and install it:
 
 ```bash
 python3 -m venv /opt/mirror-url
-/opt/mirror-url/bin/pip install /tmp/mirror_url-3.1.31-py3-none-any.whl
+/opt/mirror-url/bin/pip install /tmp/mirror_url-3.1.32-py3-none-any.whl
 /opt/mirror-url/bin/mirror-url --help
 ```
 
 To include the optional speed extras:
 
 ```bash
-/opt/mirror-url/bin/pip install "/tmp/mirror_url-3.1.31-py3-none-any.whl[fast]"
+/opt/mirror-url/bin/pip install "/tmp/mirror_url-3.1.32-py3-none-any.whl[fast]"
 ```
 
 Available extras: `fast` (stringzilla + lxml), `progress` (tqdm),
@@ -102,24 +102,24 @@ Available extras: `fast` (stringzilla + lxml), `progress` (tqdm),
 ### From a Git repository
 
 ```bash
-pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.31"
+pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.32"
 # private repo over SSH:
-pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.1.31"
+pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.1.32"
 ```
 
 ### As an isolated CLI with pipx
 
 ```bash
-pipx install /tmp/mirror_url-3.1.31-py3-none-any.whl
-# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.31"
+pipx install /tmp/mirror_url-3.1.32-py3-none-any.whl
+# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.32"
 ```
 
 ### With Docker
 
 ```dockerfile
 FROM python:3.12-slim
-COPY dist/mirror_url-3.1.31-py3-none-any.whl /tmp/
-RUN pip install --no-cache-dir "/tmp/mirror_url-3.1.31-py3-none-any.whl[fast]"
+COPY dist/mirror_url-3.1.32-py3-none-any.whl /tmp/
+RUN pip install --no-cache-dir "/tmp/mirror_url-3.1.32-py3-none-any.whl[fast]"
 ENTRYPOINT ["mirror-url"]
 ```
 
@@ -247,10 +247,23 @@ list of options. The most commonly used options:
 | `--progress-bar` | Show a tqdm progress bar (needs the `progress` extra). |
 | `--stats` | Print detailed statistics at the end. |
 | `--metrics-json FILE` | Export run metrics to a JSON file. |
+| `--log-file NAME` | Custom base name for the run's log file, replacing the default `mirror_url` prefix. See below for the exact filename format. |
 | `--verbose` / `--debug` | More logging. |
 | `--quiet` | Warnings and errors only. |
 | `--health-check-port N` | Port for the health/metrics HTTP server (default 8080). |
 | `--version` | Print version and exit. |
+
+Without `--log-file`, each `--dir-suffix` gets its own log file named
+`mirror_url_<suffix>_<timestamp>.log`. With `--log-file NAME`, the filename
+is always `NAME_<suffix>_<timestamp>.log` instead — where `<suffix>` is
+every `--dir-suffix` value joined with underscores (or `all` if none were
+given), and `<timestamp>` is `YYYYMMDD_HHMMSS`. With more than one
+`--dir-suffix`, all of them share this single log file rather than each
+getting a separate one. This is handy for wrapper scripts that invoke
+`mirror-url` once per date/target and want a recognizable, greppable
+filename prefix — e.g. `--log-file mirror_url_lasco_ql_nrl` on a run with
+`--dir-suffix 260727` produces
+`mirror_url_lasco_ql_nrl_260727_20260727_030308.log`.
 
 ### Examples
 

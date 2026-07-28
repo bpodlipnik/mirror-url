@@ -195,7 +195,7 @@ are new or changed, and downloads them efficiently — with adaptive
 concurrency, resumable/parallel downloads, integrity checks, incremental
 caching, and an SSRF-hardened transport layer.</p>
 <ul>
-<li><strong>Version:</strong> 3.1.31</li>
+<li><strong>Version:</strong> 3.1.32</li>
 <li><strong>Python:</strong> 3.9 – 3.12 (pure Python, any
 OS/architecture)</li>
 <li><strong>License:</strong> MIT</li>
@@ -271,33 +271,33 @@ class="sourceCode bash"><code class="sourceCode bash"><span id="cb1-1"><a href="
 <p>On a build machine:</p>
 <div class="sourceCode" id="cb2"><pre
 class="sourceCode bash"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> install build</span>
-<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> <span class="at">-m</span> build          <span class="co"># produces dist/mirror_url-3.1.31-py3-none-any.whl</span></span></code></pre></div>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> <span class="at">-m</span> build          <span class="co"># produces dist/mirror_url-3.1.32-py3-none-any.whl</span></span></code></pre></div>
 <p>Copy the wheel to the target server and install it:</p>
 <div class="sourceCode" id="cb3"><pre
 class="sourceCode bash"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="ex">python3</span> <span class="at">-m</span> venv /opt/mirror-url</span>
-<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="ex">/opt/mirror-url/bin/pip</span> install /tmp/mirror_url-3.1.31-py3-none-any.whl</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="ex">/opt/mirror-url/bin/pip</span> install /tmp/mirror_url-3.1.32-py3-none-any.whl</span>
 <span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="ex">/opt/mirror-url/bin/mirror-url</span> <span class="at">--help</span></span></code></pre></div>
 <p>To include the optional speed extras:</p>
 <div class="sourceCode" id="cb4"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="ex">/opt/mirror-url/bin/pip</span> install <span class="st">&quot;/tmp/mirror_url-3.1.31-py3-none-any.whl[fast]&quot;</span></span></code></pre></div>
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="ex">/opt/mirror-url/bin/pip</span> install <span class="st">&quot;/tmp/mirror_url-3.1.32-py3-none-any.whl[fast]&quot;</span></span></code></pre></div>
 <p>Available extras: <code>fast</code> (stringzilla + lxml),
 <code>progress</code> (tqdm), <code>monitor</code> (psutil),
 <code>all</code> (everything), <code>dev</code> (test/lint
 toolchain).</p>
 <h3 id="from-a-git-repository">From a Git repository</h3>
 <div class="sourceCode" id="cb5"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> install <span class="st">&quot;git+https://github.com/bpodlipnik/mirror-url.git@v3.1.31&quot;</span></span>
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> install <span class="st">&quot;git+https://github.com/bpodlipnik/mirror-url.git@v3.1.32&quot;</span></span>
 <span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="co"># private repo over SSH:</span></span>
-<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> install <span class="st">&quot;git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.1.31&quot;</span></span></code></pre></div>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> install <span class="st">&quot;git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.1.32&quot;</span></span></code></pre></div>
 <h3 id="as-an-isolated-cli-with-pipx">As an isolated CLI with pipx</h3>
 <div class="sourceCode" id="cb6"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pipx</span> install /tmp/mirror_url-3.1.31-py3-none-any.whl</span>
-<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="co"># or:  pipx install &quot;git+https://github.com/bpodlipnik/mirror-url.git@v3.1.31&quot;</span></span></code></pre></div>
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pipx</span> install /tmp/mirror_url-3.1.32-py3-none-any.whl</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="co"># or:  pipx install &quot;git+https://github.com/bpodlipnik/mirror-url.git@v3.1.32&quot;</span></span></code></pre></div>
 <h3 id="with-docker">With Docker</h3>
 <div class="sourceCode" id="cb7"><pre
 class="sourceCode dockerfile"><code class="sourceCode dockerfile"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="kw">FROM</span> python:3.12-slim</span>
-<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="kw">COPY</span> dist/mirror_url-3.1.31-py3-none-any.whl /tmp/</span>
-<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a><span class="kw">RUN</span> <span class="ex">pip</span> install <span class="at">--no-cache-dir</span> <span class="st">&quot;/tmp/mirror_url-3.1.31-py3-none-any.whl[fast]&quot;</span></span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="kw">COPY</span> dist/mirror_url-3.1.32-py3-none-any.whl /tmp/</span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a><span class="kw">RUN</span> <span class="ex">pip</span> install <span class="at">--no-cache-dir</span> <span class="st">&quot;/tmp/mirror_url-3.1.32-py3-none-any.whl[fast]&quot;</span></span>
 <span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a><span class="kw">ENTRYPOINT</span> [<span class="st">&quot;mirror-url&quot;</span>]</span></code></pre></div>
 <h3 id="verify-the-install">Verify the install</h3>
 <div class="sourceCode" id="cb8"><pre
@@ -630,23 +630,44 @@ extra).</td>
 <td>Export run metrics to a JSON file.</td>
 </tr>
 <tr class="even">
+<td><code>--log-file NAME</code></td>
+<td>Custom base name for the run’s log file, replacing the default
+<code>mirror_url</code> prefix. See below for the exact filename
+format.</td>
+</tr>
+<tr class="odd">
 <td><code>--verbose</code> / <code>--debug</code></td>
 <td>More logging.</td>
 </tr>
-<tr class="odd">
+<tr class="even">
 <td><code>--quiet</code></td>
 <td>Warnings and errors only.</td>
 </tr>
-<tr class="even">
+<tr class="odd">
 <td><code>--health-check-port N</code></td>
 <td>Port for the health/metrics HTTP server (default 8080).</td>
 </tr>
-<tr class="odd">
+<tr class="even">
 <td><code>--version</code></td>
 <td>Print version and exit.</td>
 </tr>
 </tbody>
 </table>
+<p>Without <code>--log-file</code>, each <code>--dir-suffix</code> gets
+its own log file named
+<code>mirror_url_&lt;suffix&gt;_&lt;timestamp&gt;.log</code>. With
+<code>--log-file NAME</code>, the filename is always
+<code>NAME_&lt;suffix&gt;_&lt;timestamp&gt;.log</code> instead — where
+<code>&lt;suffix&gt;</code> is every <code>--dir-suffix</code> value
+joined with underscores (or <code>all</code> if none were given), and
+<code>&lt;timestamp&gt;</code> is <code>YYYYMMDD_HHMMSS</code>. With
+more than one <code>--dir-suffix</code>, all of them share this single
+log file rather than each getting a separate one. This is handy for
+wrapper scripts that invoke <code>mirror-url</code> once per date/target
+and want a recognizable, greppable filename prefix —
+e.g. <code>--log-file mirror_url_lasco_ql_nrl</code> on a run with
+<code>--dir-suffix 260727</code> produces
+<code>mirror_url_lasco_ql_nrl_260727_20260727_030308.log</code>.</p>
 <h3 id="examples">Examples</h3>
 <p>Mirror only FITS files, large parallel downloads, export metrics:</p>
 <div class="sourceCode" id="cb11"><pre
@@ -889,8 +910,7 @@ HTML formats include</strong> — but that format is server-specific
 (Apache, nginx, IIS/Microsoft, lighttpd, etc. all differ, and some
 servers don’t expose one at all), so this would make
 <code>--list-files</code>’s correctness depend on which web server
-happens to be on the other end.
-<ul>
+happens to be on the other end.</li>
 <li><strong>An extra HTTP <code>HEAD</code> request per file</strong> to
 read its <code>Last-Modified</code> header — fully server-independent,
 but exactly the per-file network round-trip that
@@ -898,7 +918,6 @@ but exactly the per-file network round-trip that
 <em>avoid</em>, because it doesn’t scale: a directory with tens of
 thousands of files would turn a <code>--list-files</code> probe into a
 run lasting as long as a full sync.</li>
-</ul></li>
 </ul>
 <p>A lexicographic sort needs neither: it costs <strong>zero extra
 network requests</strong> beyond the directory listing itself, and works
