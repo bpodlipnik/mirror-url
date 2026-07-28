@@ -343,3 +343,55 @@ def test_parallel_download_manager_lifecycle(tmp_path: Path):
         f"shutdown() took {elapsed:.2f}s -- the cleanup thread should wake "
         f"immediately via _shutdown_event, not wait out its sleep interval"
     )
+
+
+# ---------------------------------------------------------------------------
+# MirrorURL init: log-path fallback must also redirect the cache file
+# ---------------------------------------------------------------------------
+def test_log_path_fallback_also_relocates_cache_file(tmp_path: Path, monkeypatch):
+    """Regression test.
+
+    If ``--log-path`` collides with an existing regular file (e.g. because a
+    shell wrapper did ``mirror-url ... --log-path "$LOG" >> "$LOG"``, which
+    creates ``$LOG`` as a plain file before mirror-url ever runs),
+    ``log_filepath.parent.mkdir(..., exist_ok=True)`` raises ``FileExistsError``
+    and the constructor falls back to a temp directory, updating
+    ``self.log_path``.
+
+    Previously the cache-file path was computed from ``self.log_path`` *before*
+    that fallback ran, so it kept pointing at the broken original path. Passing
+    the stale path to ``CacheManager.__init__`` (which also does
+    ``.parent.mkdir(..., exist_ok=True)``) crashed with the same
+    ``FileExistsError`` instead of using the fallback directory, aborting the
+    whole run instead of just warning.
+    """
+    from mirror_url.config import MirrorConfig
+    from mirror_url.core import MirrorURL
+
+    # Simulate a shell `>> "$LOG"` creating the log path as a plain file
+    # before mirror-url starts.
+    broken_log_path = tmp_path / "L3_png_v03.log"
+    broken_log_path.write_text("")
+
+    # Force the temp-dir fallback into a location we can assert against,
+    # independent of the real OS temp dir / pid.
+    fallback_root = tmp_path / "fallback_root"
+    monkeypatch.setattr("mirror_url._core._base.tempfile.gettempdir", lambda: str(fallback_root))
+
+    cfg = MirrorConfig(
+        base_url="https://example.com/data",
+        dest_path=tmp_path / "dest",
+        log_path=broken_log_path,
+        no_cache=False,
+    )
+
+    # Must not raise -- this used to crash with FileExistsError.
+    with MirrorURL(cfg) as mirror:
+        assert mirror.log_path != broken_log_path
+        assert mirror.log_path.is_relative_to(fallback_root)
+        assert mirror.cache_file is not None
+        # The cache file must follow the corrected (fallback) log_path, not
+        # the original broken one.
+        assert mirror.cache_file.parent == mirror.log_path
+        # cache_manager must have initialized without crashing
+        assert mirror.cache_manager is not None

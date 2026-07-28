@@ -4,6 +4,23 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.33] - 2026-07-28
+
+### Fixed
+- Fixed a crash when `--log-path` collides with an existing regular file
+  (e.g. a shell wrapper doing `mirror-url ... --log-path "$LOG" >> "$LOG"`,
+  which creates `$LOG` as a plain file before mirror-url runs). The
+  constructor already detected this and fell back to a temp directory for
+  the log file itself, but the cache-file path was computed from
+  `self.log_path` *before* that fallback ran, so `CacheManager.__init__`
+  still tried to create its parent directory at the broken original path
+  and raised the same `FileExistsError`, aborting the run instead of just
+  warning and continuing. The cache-file path is now derived after the
+  log-directory fallback, so it always follows the corrected path. Found
+  in production via `sync_last3_orbits.sh` accidentally passing the same
+  path to both a shell log redirect and `--log-path`. 1 new regression
+  test in `tests/test_subsystems.py`.
+
 ## [3.1.32] - 2026-07-28
 
 ### Changed
