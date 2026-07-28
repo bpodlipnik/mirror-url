@@ -154,7 +154,7 @@ def setup_shared_logging(args: argparse.Namespace) -> None:
     # Create log filename with suffixes properly separated by underscores
     suffixes_str = "_".join(args.dir_suffix) if args.dir_suffix else "all"
     timestamp = time.strftime("%Y%m%d_%H%M%S")
-    log_filename = f"{args.log_file}{suffixes_str}_{timestamp}.log"
+    log_filename = f"{args.log_file}_{suffixes_str}_{timestamp}.log"
     log_path = Path(args.log_path) / log_filename
 
     # Remove ALL existing handlers
@@ -773,7 +773,18 @@ EXAMPLES:
     logging_grp = parser.add_argument_group("Logging & Output Options")
     logging_grp.add_argument("--debug", action="store_true", help="Enable debug logging")
     logging_grp.add_argument("--print-logs", action="store_true", help="Print logs to console")
-    logging_grp.add_argument("--log_file", metavar="NAME", help="Shared log base name")
+    logging_grp.add_argument(
+        "--log-file",
+        metavar="NAME",
+        help=(
+            "Custom base name for the run's log file, replacing the default "
+            "'mirror_url' prefix. The full filename is always assembled as "
+            "NAME_SUFFIX_TIMESTAMP.log, where SUFFIX is the underscore-joined "
+            "--dir-suffix value(s) (or 'all' if none given) and TIMESTAMP is "
+            "YYYYMMDD_HHMMSS. With more than one --dir-suffix, all suffixes "
+            "share this single log file instead of getting one file each."
+        ),
+    )
     logging_grp.add_argument("--quiet", action="store_true", help="Quiet mode (WARNING+ only)")
     logging_grp.add_argument("--verbose", action="store_true", help="Verbose mode (DEBUG)")
     logging_grp.add_argument("--progress-bar", action="store_true", help="Enable tqdm progress bar")
