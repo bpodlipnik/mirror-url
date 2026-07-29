@@ -4,6 +4,23 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.34] - 2026-07-29
+
+### Added
+- `--list-dirs` now accepts an optional `N`, mirroring `--list-files [N]`:
+  `--list-dirs 3` prints only the last 3 discovered directories. With no
+  `N`, behavior is unchanged (every directory, in discovery order).
+  Directories have no natural per-parent grouping the way files do, so `N`
+  ranks lexicographically across the *entire* discovered tree for a
+  suffix, always excluding the root (`.`) from that ranking (it isn't a
+  real `--dir-suffix` candidate). This directly replaces the common
+  `--list-dirs | grep -v '^\.$' | sort | tail -n N` pipeline with a
+  built-in equivalent. New `list_dirs_n` field on `MirrorConfig`/
+  `ConfigSchema`, threaded through the plain-CLI constructor, the
+  `--config` (YAML) branch (base_config + CLI override), and
+  `load_config_from_args()`. 8 new tests in `tests/test_list_dirs_n.py`;
+  existing CLI-threading tests updated for the new argparse shape.
+
 ## [3.1.33] - 2026-07-28
 
 ### Fixed

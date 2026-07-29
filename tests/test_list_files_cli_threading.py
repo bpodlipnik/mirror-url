@@ -110,15 +110,28 @@ def test_main_loop_dispatches_to_list_files():
 
 def test_list_dirs_and_list_files_are_mutually_exclusive():
     src = inspect.getsource(cli_module)
-    assert 'if args.list_dirs and getattr(args, "list_files", None) is not None:' in src, (
+    assert 'getattr(args, "list_dirs", None) is not None' in src
+    assert '"--list-dirs and --list-files are mutually exclusive"' in src, (
         "no mutual-exclusion guard found for --list-dirs / --list-files"
     )
+    # Confirm both conditions are joined with `and` in the same guard, not
+    # just present somewhere independently in the file.
+    guard_start = src.index('"--list-dirs and --list-files are mutually exclusive"')
+    preceding = src[max(0, guard_start - 400) : guard_start]
+    assert "and" in preceding and 'getattr(args, "list_files", None) is not None' in preceding
 
 
 def test_dest_and_log_path_defaults_cover_list_files_too():
     src = inspect.getsource(cli_module)
-    assert 'if args.list_dirs or getattr(args, "list_files", None) is not None:' in src, (
+    marker = 'args.dest_path = Path(tempfile.gettempdir()) / "mirror-url-list-dirs"'
+    assert marker in src, (
         "--list-files does not share --list-dirs's --dest-path/--log-path "
         "scratch-dir fallback -- a --list-files-only run without --config "
         "would hit the '--dest-path is required' error"
+    )
+    preceding = src[max(0, src.index(marker) - 700) : src.index(marker)]
+    assert (
+        "or" in preceding
+        and 'getattr(args, "list_dirs", None) is not None' in preceding
+        and 'getattr(args, "list_files", None) is not None' in preceding
     )

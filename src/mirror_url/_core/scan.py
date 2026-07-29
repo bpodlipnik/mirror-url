@@ -269,24 +269,39 @@ class ScanMixin:
         --dir-suffix, without scanning files, comparing freshness, or
         downloading/deleting anything.
 
-        Enabled via --list-dirs. Reuses the same BFS walk as
+        Enabled via --list-dirs[=N]. Reuses the same BFS walk as
         get_remote_files() -- so it respects --exclude-dir and --max-depth
         exactly like a real sync would -- but stops after discovering each
         directory instead of also scanning it for files. --filter does not
         apply here since it only matches files, never directory names.
 
-        Each discovered directory is both logged (with the usual run
+        With no N (self.config.list_dirs_n == 0), every directory is logged
+        and printed in discovery (BFS) order, exactly as before -- this path
+        streams directly off the walk and is unchanged. With N > 0, only the
+        last N directories are printed, where "last" means the
+        lexicographically greatest relative paths -- NOT a true timestamp
+        sort, same caveat as --list-files[N]. Unlike --list-files, there is
+        no natural per-parent grouping to rank within (a directory tree
+        isn't grouped by "directory" the way files are grouped by their
+        containing directory), so N ranks across the *entire* discovered
+        set for this suffix. The root ('.') is always excluded from that
+        ranking (though never from the unrestricted default output) since
+        it isn't a candidate --dir-suffix value and would otherwise dilute
+        the "last N real directories" a caller typically wants (e.g.
+        picking the N most recent orbit directories to mirror next).
+
+        Each printed directory is both logged (with the usual run
         banner/prefix, subject to --print-logs/--quiet like any other log
         line) AND printed as a bare path to stdout -- one per line, no
-        prefix, no icon, no summary line -- so the output can be piped or
-        captured directly (e.g. ``mirror-url --list-dirs ... | xargs -I{}
-        ...``) without needing --print-logs or filtering out banner/log
-        noise. The two are independent: stdout stays clean even when
-        --print-logs sends the full banner to stderr. When more than one
-        --dir-suffix is mirrored in the same run, each stdout line is
-        prefixed with a tab-separated suffix column (``L1/v2\t.``) instead
-        of a bare path, since a relative path alone would be ambiguous
-        about which suffix it came from.
+        prefix, no icon -- so the output can be piped or captured directly
+        (e.g. ``mirror-url --list-dirs ... | xargs -I{} ...``) without
+        needing --print-logs or filtering out banner/log noise. The two are
+        independent: stdout stays clean even when --print-logs sends the
+        full banner to stderr. When more than one --dir-suffix is mirrored
+        in the same run, each stdout line is prefixed with a tab-separated
+        suffix column (``L1/v2\t.``) instead of a bare path, since a
+        relative path alone would be ambiguous about which suffix it came
+        from.
 
         Read-only: never touches the on-disk cache and is safe to run
         regardless of --dry-run.
@@ -313,22 +328,44 @@ class ScanMixin:
         if total_suffixes > 1 and dir_suffix:
             stdout_qualifier = dir_suffix.strip("/")
 
+        limit = getattr(getattr(self, "config", None), "list_dirs_n", 0) or 0
+
         root = self.target_base_url or ""
         safe_root = sanitize_url_for_log(root) if root else ""
-        count = 0
-        for url in self._discover_directories_bfs():
+
+        def _rel(url: str) -> str:
             safe_url = sanitize_url_for_log(url)
             rel = (
                 safe_url[len(safe_root) :].strip("/")
                 if safe_root and safe_url.startswith(safe_root)
                 else safe_url
             )
-            label = rel if rel else "."
+            return rel if rel else "."
+
+        def _emit(label: str) -> None:
             logging.info(f"{prefix}📁 {label}")
             print(f"{stdout_qualifier}\t{label}" if stdout_qualifier else label, file=sys.stdout)
-            count += 1
 
-        logging.info(f"{prefix}Found {count} director{'y' if count == 1 else 'ies'}")
+        if limit > 0:
+            # Buffer the whole walk first: the "last N" ranking can only be
+            # computed once every directory in this suffix's tree is known.
+            all_labels = [_rel(url) for url in self._discover_directories_bfs()]
+            candidates = [label for label in all_labels if label != "."]
+            total_count = len(candidates)
+            shown = sorted(candidates)[-limit:]
+            for label in shown:
+                _emit(label)
+            logging.info(
+                f"{prefix}Listed {len(shown)} of {total_count} "
+                f"director{'y' if total_count == 1 else 'ies'}"
+            )
+        else:
+            count = 0
+            for url in self._discover_directories_bfs():
+                _emit(_rel(url))
+                count += 1
+            logging.info(f"{prefix}Found {count} director{'y' if count == 1 else 'ies'}")
+
         return True
 
     def list_files(self) -> bool:

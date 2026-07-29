@@ -139,6 +139,7 @@ class ConfigSchema(BaseModel):
     trusted_server: bool = False
     missing_files: bool = False
     list_dirs: bool = False
+    list_dirs_n: int = 0
     list_files: bool = False
     list_files_n: int = 0
     security_validation: bool = True
@@ -221,6 +222,7 @@ class MirrorConfig(BaseModel):
     no_etag: bool = False
     missing_files: bool = False
     list_dirs: bool = False
+    list_dirs_n: int = 0
     list_files: bool = False
     list_files_n: int = 0
     use_shared_log: bool = False
@@ -651,7 +653,8 @@ def load_config_from_args(args: argparse.Namespace, silent: bool = False) -> Mir
         "cache_max_age": args.cache_max_age,
         "no_etag": getattr(args, "no_etag", False),
         "missing_files": getattr(args, "missing_files", False),
-        "list_dirs": getattr(args, "list_dirs", False),
+        "list_dirs": getattr(args, "list_dirs", None) is not None,
+        "list_dirs_n": getattr(args, "list_dirs", None) or 0,
         "list_files": getattr(args, "list_files", None) is not None,
         "list_files_n": getattr(args, "list_files", None) or 0,
         "hash_algorithm": getattr(args, "hash_algorithm", "md5"),

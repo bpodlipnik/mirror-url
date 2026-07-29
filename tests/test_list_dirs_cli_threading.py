@@ -45,9 +45,13 @@ def _direct_constructor_block() -> str:
 
 def test_direct_mirrorconfig_constructor_includes_list_dirs():
     block = _direct_constructor_block()
-    assert 'list_dirs=getattr(args, "list_dirs", False)' in block, (
+    assert 'list_dirs=getattr(args, "list_dirs", None) is not None' in block, (
         "--list-dirs is not threaded through the plain-CLI (no --config) "
         "MirrorConfig(...) constructor -- the flag would be silently ignored"
+    )
+    assert 'list_dirs_n=getattr(args, "list_dirs", None) or 0' in block, (
+        "--list-dirs's N value is not threaded through the plain-CLI (no --config) "
+        "MirrorConfig(...) constructor -- N would be silently ignored"
     )
 
 
@@ -58,13 +62,19 @@ def test_config_branch_populates_list_dirs_from_base_config():
         "--config (YAML) branch -- setting list_dirs in the YAML file would be "
         "silently ignored"
     )
+    assert '"list_dirs_n": getattr(base_config, "list_dirs_n", 0)' in src, (
+        "--list-dirs's N value is not populated into config_dict from base_config "
+        "in the --config (YAML) branch -- setting list_dirs_n in the YAML file "
+        "would be silently ignored"
+    )
 
 
 def test_config_branch_has_cli_override_for_list_dirs():
     src = inspect.getsource(cli_module)
     assert (
-        'if getattr(args, "list_dirs", False):\n                    config_dict["list_dirs"] = True'
-        in src
+        'if getattr(args, "list_dirs", None) is not None:\n'
+        '                    config_dict["list_dirs"] = True\n'
+        '                    config_dict["list_dirs_n"] = args.list_dirs' in src
     ), (
         "--list-dirs passed alongside --config has no CLI-override entry "
         "in config_dict -- only the YAML file's value would ever be used"
@@ -81,13 +91,24 @@ def test_configschema_and_mirrorconfig_both_declare_list_dirs():
     assert "list_dirs: bool = False" in runtime_src, (
         "MirrorConfig (runtime model) is missing the list_dirs field"
     )
+    assert "list_dirs_n: int = 0" in schema_src, (
+        "ConfigSchema (YAML validation model) is missing the list_dirs_n field -- "
+        "a YAML config setting list_dirs_n would fail validation or be silently dropped"
+    )
+    assert "list_dirs_n: int = 0" in runtime_src, (
+        "MirrorConfig (runtime model) is missing the list_dirs_n field"
+    )
 
 
 def test_load_config_from_args_includes_list_dirs():
     src = inspect.getsource(config_module)
-    assert '"list_dirs": getattr(args, "list_dirs", False)' in src, (
+    assert '"list_dirs": getattr(args, "list_dirs", None) is not None' in src, (
         "load_config_from_args() does not thread --list-dirs through -- used by "
         "the benchmark config path, would silently ignore the flag there"
+    )
+    assert '"list_dirs_n": getattr(args, "list_dirs", None) or 0' in src, (
+        "load_config_from_args() does not thread --list-dirs's N value through -- "
+        "used by the benchmark config path, would silently ignore N there"
     )
 
 
