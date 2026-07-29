@@ -154,3 +154,33 @@ def test_sync_mode_without_list_dirs_still_requires_dest_and_log_path(monkeypatc
     assert exc_info.value.code == 2
     captured = capsys.readouterr()
     assert "--dest-path is required" in captured.err
+
+
+def test_list_dirs_without_n_sets_list_dirs_true_and_n_zero(monkeypatch):
+    monkeypatch.setattr(cli_module, "MirrorURL", _CapturingMirrorStub)
+    monkeypatch.setattr(
+        sys, "argv", ["mirror-url", "--url", "https://example.test/data/", "--list-dirs"]
+    )
+
+    with pytest.raises(SystemExit):
+        cli_module.main()
+
+    config = _CapturingMirrorStub.captured_configs[0]
+    assert config.list_dirs is True
+    assert config.list_dirs_n == 0
+
+
+def test_list_dirs_with_n_threads_n_through(monkeypatch):
+    monkeypatch.setattr(cli_module, "MirrorURL", _CapturingMirrorStub)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["mirror-url", "--url", "https://example.test/data/", "--list-dirs", "3"],
+    )
+
+    with pytest.raises(SystemExit):
+        cli_module.main()
+
+    config = _CapturingMirrorStub.captured_configs[0]
+    assert config.list_dirs is True
+    assert config.list_dirs_n == 3

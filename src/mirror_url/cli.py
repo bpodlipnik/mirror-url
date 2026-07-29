@@ -497,13 +497,20 @@ EXAMPLES:
     )
     directory.add_argument(
         "--list-dirs",
-        action="store_true",
+        nargs="?",
+        type=int,
+        const=0,
+        default=None,
+        metavar="N",
         help=(
             "List the directory tree under the target URL/--dir-suffix and exit -- "
             "does not scan files, compare freshness, or download/delete anything. "
             "Respects --exclude-dir and --max-depth; ignores --filter (which only "
             "applies to files). Useful for discovering what's available before "
-            "picking a --dir-suffix."
+            "picking a --dir-suffix. With no N, every directory is printed in "
+            "discovery order; with N, only the last N directories are printed, "
+            "sorted lexicographically by relative path (like --list-files[N]), "
+            "with the root ('.') excluded from that ranking."
         ),
     )
     directory.add_argument(
@@ -946,7 +953,10 @@ EXAMPLES:
 
     args = parser.parse_args()
 
-    if args.list_dirs and getattr(args, "list_files", None) is not None:
+    if (
+        getattr(args, "list_dirs", None) is not None
+        and getattr(args, "list_files", None) is not None
+    ):
         parser.error("--list-dirs and --list-files are mutually exclusive")
 
     # Handle config file
@@ -988,7 +998,10 @@ EXAMPLES:
     else:
         if not args.url:
             parser.error("--url is required when --config is not used")
-        if args.list_dirs or getattr(args, "list_files", None) is not None:
+        if (
+            getattr(args, "list_dirs", None) is not None
+            or getattr(args, "list_files", None) is not None
+        ):
             # --list-dirs / --list-files only discover and print the remote
             # tree -- neither ever writes to dest_path, and log_path is only
             # used for its own run log/cache-file bookkeeping. Don't force
@@ -1274,6 +1287,7 @@ EXAMPLES:
                     "no_etag": getattr(base_config, "no_etag", False),
                     "missing_files": getattr(base_config, "missing_files", False),
                     "list_dirs": getattr(base_config, "list_dirs", False),
+                    "list_dirs_n": getattr(base_config, "list_dirs_n", 0),
                     "list_files": getattr(base_config, "list_files", False),
                     "list_files_n": getattr(base_config, "list_files_n", 0),
                     "hash_algorithm": getattr(base_config, "hash_algorithm", "md5"),
@@ -1504,8 +1518,9 @@ EXAMPLES:
                     config_dict["no_etag"] = True
                 if getattr(args, "missing_files", False):
                     config_dict["missing_files"] = True
-                if getattr(args, "list_dirs", False):
+                if getattr(args, "list_dirs", None) is not None:
                     config_dict["list_dirs"] = True
+                    config_dict["list_dirs_n"] = args.list_dirs
                 if getattr(args, "list_files", None) is not None:
                     config_dict["list_files"] = True
                     config_dict["list_files_n"] = args.list_files
@@ -1570,7 +1585,8 @@ EXAMPLES:
                     cache_max_age=args.cache_max_age,
                     no_etag=getattr(args, "no_etag", False),
                     missing_files=getattr(args, "missing_files", False),
-                    list_dirs=getattr(args, "list_dirs", False),
+                    list_dirs=getattr(args, "list_dirs", None) is not None,
+                    list_dirs_n=getattr(args, "list_dirs", None) or 0,
                     list_files=getattr(args, "list_files", None) is not None,
                     list_files_n=getattr(args, "list_files", None) or 0,
                     use_shared_log=use_shared,

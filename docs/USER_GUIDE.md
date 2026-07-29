@@ -6,7 +6,7 @@ the remote directory tree, decides which files are new or changed, and downloads
 them efficiently — with adaptive concurrency, resumable/parallel downloads,
 integrity checks, incremental caching, and an SSRF-hardened transport layer.
 
-- **Version:** 3.1.33
+- **Version:** 3.1.34
 - **Python:** 3.9 – 3.12 (pure Python, any OS/architecture)
 - **License:** MIT
 
@@ -79,21 +79,21 @@ On a build machine:
 
 ```bash
 pip install build
-python -m build          # produces dist/mirror_url-3.1.33-py3-none-any.whl
+python -m build          # produces dist/mirror_url-3.1.34-py3-none-any.whl
 ```
 
 Copy the wheel to the target server and install it:
 
 ```bash
 python3 -m venv /opt/mirror-url
-/opt/mirror-url/bin/pip install /tmp/mirror_url-3.1.33-py3-none-any.whl
+/opt/mirror-url/bin/pip install /tmp/mirror_url-3.1.34-py3-none-any.whl
 /opt/mirror-url/bin/mirror-url --help
 ```
 
 To include the optional speed extras:
 
 ```bash
-/opt/mirror-url/bin/pip install "/tmp/mirror_url-3.1.33-py3-none-any.whl[fast]"
+/opt/mirror-url/bin/pip install "/tmp/mirror_url-3.1.34-py3-none-any.whl[fast]"
 ```
 
 Available extras: `fast` (stringzilla + lxml), `progress` (tqdm),
@@ -102,24 +102,24 @@ Available extras: `fast` (stringzilla + lxml), `progress` (tqdm),
 ### From a Git repository
 
 ```bash
-pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.33"
+pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.34"
 # private repo over SSH:
-pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.1.33"
+pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.1.34"
 ```
 
 ### As an isolated CLI with pipx
 
 ```bash
-pipx install /tmp/mirror_url-3.1.33-py3-none-any.whl
-# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.33"
+pipx install /tmp/mirror_url-3.1.34-py3-none-any.whl
+# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.34"
 ```
 
 ### With Docker
 
 ```dockerfile
 FROM python:3.12-slim
-COPY dist/mirror_url-3.1.33-py3-none-any.whl /tmp/
-RUN pip install --no-cache-dir "/tmp/mirror_url-3.1.33-py3-none-any.whl[fast]"
+COPY dist/mirror_url-3.1.34-py3-none-any.whl /tmp/
+RUN pip install --no-cache-dir "/tmp/mirror_url-3.1.34-py3-none-any.whl[fast]"
 ENTRYPOINT ["mirror-url"]
 ```
 
@@ -226,7 +226,7 @@ list of options. The most commonly used options:
 | `--filter P [P ...]` | Only download matching files. Each pattern is a plain extension (`.fits`) or a regex (`'2024.*\.fits$'`). |
 | `--exclude-dir D [D ...]` | Skip matching directories. |
 | `--max-depth N` | Maximum directory recursion depth (default 50). |
-| `--list-dirs` | Discover and print the directory tree under `--url`/`--dir-suffix`, then exit — no file scanning, freshness checks, or downloads/deletes. Respects `--exclude-dir`/`--max-depth`; `--filter` doesn't apply (files only). Doesn't require `--dest-path`/`--log-path`. |
+| `--list-dirs [N]` | Discover and print the directory tree under `--url`/`--dir-suffix`, then exit — no file scanning, freshness checks, or downloads/deletes. Respects `--exclude-dir`/`--max-depth`; `--filter` doesn't apply (files only). With `N`, shows only the last `N` directories overall, sorted **lexicographically by relative path** (a name sort, not a true timestamp sort), with the root (`.`) excluded from that ranking. Doesn't require `--dest-path`/`--log-path`. |
 | `--list-files [N]` | Discover and print files under `--url`/`--dir-suffix`, then exit — no freshness checks or downloads/deletes. Respects `--exclude-dir`/`--max-depth`/`--filter`. With `N`, shows only the last `N` files *per directory*, sorted **lexicographically by filename** (a name sort, not a true timestamp sort — see "Filtering and scope" below). Doesn't require `--dest-path`/`--log-path`. |
 
 ### Cleanup of obsolete local files
@@ -437,7 +437,7 @@ on by default).
   URL and mirrors each in turn.
 - **`--max-depth`** bounds recursion. The crawler also enforces URL-scope checks
   so it never wanders outside the configured base host/path.
-- **`--list-dirs`** discovers and prints the directory tree under `--url`/
+- **`--list-dirs [N]`** discovers and prints the directory tree under `--url`/
   `--dir-suffix`, then exits — it reuses the same directory-discovery walk as
   a real sync, so it respects `--exclude-dir` and `--max-depth`, but never
   scans files, checks freshness, or downloads/deletes anything. `--filter`
@@ -452,6 +452,25 @@ on by default).
   mirror-url --url https://archive.example.org/mission/ --list-dirs \
     | xargs -I{} echo "found: {}"
   ```
+
+  With no `N`, every directory is printed in discovery order, exactly as
+  above. With `N`, only the last `N` directories are printed, sorted
+  **lexicographically** by relative path, with the root (`.`) excluded from
+  that ranking (it isn't a real `--dir-suffix` candidate, and would
+  otherwise dilute the "last N real directories" a caller typically wants).
+  Unlike `--list-files [N]`, which ranks *per directory* (files are
+  naturally grouped by the directory that contains them), `--list-dirs [N]`
+  ranks across the **entire** discovered tree for this suffix, since
+  directories have no equivalent natural grouping:
+
+  ```bash
+  mirror-url --url https://archive.example.org/mission/L3_png/v03/ \
+    --list-dirs 3
+  ```
+
+  This directly replaces the common pattern of piping `--list-dirs` through
+  `grep -v '^\.$' | sort | tail -n N` to pick the most recent N
+  directories to mirror next.
 
   If you mirror more than one `--dir-suffix` in the same run, each line gets
   a tab-separated suffix column prepended instead of a bare path (e.g.
@@ -488,11 +507,12 @@ on by default).
   line gets the same tab-separated suffix column as `--list-dirs`. Comment
   lines are never suffix-qualified, since they aren't file paths.
 
-  > **⚠️ "Last N" is a filename sort, not a timestamp sort.** With `N`,
-  > files are ranked by sorting their relative paths **lexicographically**
-  > (plain string/alphabetical order) and keeping the last `N` per
-  > directory — it is **not** based on any server-reported modification
-  > time.
+  > **⚠️ "Last N" is a filename/path sort, not a timestamp sort.** With
+  > `N`, entries are ranked by sorting their relative paths
+  > **lexicographically** (plain string/alphabetical order) and keeping the
+  > last `N` — per directory for `--list-files [N]`, across the whole tree
+  > for `--list-dirs [N]` — it is **not** based on any server-reported
+  > modification time.
   >
   > This is a deliberate tradeoff, not an oversight. Getting a true
   > per-file timestamp would need one of two things, and both were
