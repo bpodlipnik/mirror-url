@@ -10,7 +10,7 @@ with adaptive concurrency, resumable/partial downloads, integrity verification,
 and an SSRF-hardened transport layer.
 
 > **Status:** Refactor complete. The full implementation lives in the
-> [`src/mirror_url/`](./src/mirror_url) package (30 modules), migrated verbatim
+> [`src/mirror_url/`](./src/mirror_url) package, migrated verbatim
 > from the original single-file script per [`REFACTORING_PLAN.md`](./REFACTORING_PLAN.md).
 > The legacy single-file script was retained as a frozen reference until the
 > test suite passed against the package with real runtime dependencies
@@ -82,7 +82,7 @@ Continuous integration runs lint + tests across Python 3.9–3.12 (see
 ## Project layout
 
 ```
-src/mirror_url/          # the package (30 modules, dependency-layered)
+src/mirror_url/          # the package (dependency-layered)
 tests/                   # pytest suite
 REFACTORING_PLAN.md      # module breakdown + migration roadmap
 CHANGELOG.md             # notable changes (Keep a Changelog format)
