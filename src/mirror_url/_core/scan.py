@@ -275,6 +275,14 @@ class ScanMixin:
         directory instead of also scanning it for files. --filter does not
         apply here since it only matches files, never directory names.
 
+        Unlike every other mode, --list-dirs defaults --max-depth to
+        LIST_DIRS_DEFAULT_MAX_DEPTH (1: the current folder's immediate
+        children only) instead of MAX_DIRECTORY_DEPTH -- resolved in cli.py
+        right after argument parsing, not here. "What's in this folder" is
+        the overwhelmingly common ask, and silently recursing 50 levels
+        deep by default surprised users in practice. An explicit
+        --max-depth always overrides this.
+
         With no N (self.config.list_dirs_n == 0), every directory is logged
         and printed in discovery (BFS) order, exactly as before -- this path
         streams directly off the walk and is unchanged. With N > 0, only the
@@ -302,6 +310,14 @@ class ScanMixin:
         suffix column (``L1/v2\t.``) instead of a bare path, since a
         relative path alone would be ambiguous about which suffix it came
         from.
+
+        The listing is always followed by a "# Directories N/total" comment
+        line on stdout -- always, including an unrestricted (no-N) run,
+        where N == total -- mirroring --list-files' "# Files N/total"
+        convention so downstream parsing can rely on the marker being
+        present unconditionally. Never suffix-qualified, same reasoning as
+        --list-files' comment lines: it isn't a directory path. Drop it
+        with ``grep -v '^#'`` for a pure one-line-per-directory stream.
 
         Read-only: never touches the on-disk cache and is safe to run
         regardless of --dry-run.
@@ -355,16 +371,19 @@ class ScanMixin:
             shown = sorted(candidates)[-limit:]
             for label in shown:
                 _emit(label)
-            logging.info(
-                f"{prefix}Listed {len(shown)} of {total_count} "
-                f"director{'y' if total_count == 1 else 'ies'}"
-            )
+            shown_count = len(shown)
         else:
-            count = 0
+            shown_count = 0
             for url in self._discover_directories_bfs():
                 _emit(_rel(url))
-                count += 1
-            logging.info(f"{prefix}Found {count} director{'y' if count == 1 else 'ies'}")
+                shown_count += 1
+            total_count = shown_count
+
+        print(f"# Directories {shown_count}/{total_count}", file=sys.stdout)
+        logging.info(
+            f"{prefix}Listed {shown_count} of {total_count} "
+            f"director{'y' if total_count == 1 else 'ies'}"
+        )
 
         return True
 

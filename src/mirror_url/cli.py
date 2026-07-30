@@ -40,6 +40,7 @@ from .constants import (
     DEFAULT_WORKERS,
     FS_CACHE_TTL_SECONDS,
     HTML_CACHE_MAX_AGE_HOURS,
+    LIST_DIRS_DEFAULT_MAX_DEPTH,
     MAX_BATCH_SIZE,
     MAX_CHUNKS_PER_FILE,
     MAX_DIRECTORY_DEPTH,
@@ -817,9 +818,14 @@ EXAMPLES:
     scan.add_argument(
         "--max-depth",
         type=int,
-        default=MAX_DIRECTORY_DEPTH,
+        default=None,
         metavar="N",
-        help=f"Maximum directory depth (default: {MAX_DIRECTORY_DEPTH})",
+        help=(
+            f"Maximum directory depth (default: {MAX_DIRECTORY_DEPTH}; "
+            f"--list-dirs defaults to {LIST_DIRS_DEFAULT_MAX_DEPTH} -- the "
+            "current folder's immediate children only -- unless --max-depth "
+            "is given explicitly)"
+        ),
     )
     scan.add_argument(
         "--max-filename-len",
@@ -952,6 +958,21 @@ EXAMPLES:
     )
 
     args = parser.parse_args()
+
+    if args.max_depth is None:
+        # --max-depth wasn't given explicitly. --list-dirs is almost always
+        # "what's in this folder", not "walk the whole tree" -- defaulting
+        # it to MAX_DIRECTORY_DEPTH (50) silently recurses into every
+        # subdirectory, which is rarely what's wanted and was a reported
+        # surprise in practice. Give --list-dirs its own shallow default;
+        # every other mode (including --list-files and real syncs) keeps
+        # the original MAX_DIRECTORY_DEPTH default. An explicit --max-depth
+        # always wins, for every mode, including --list-dirs.
+        args.max_depth = (
+            LIST_DIRS_DEFAULT_MAX_DEPTH
+            if getattr(args, "list_dirs", None) is not None
+            else MAX_DIRECTORY_DEPTH
+        )
 
     if (
         getattr(args, "list_dirs", None) is not None

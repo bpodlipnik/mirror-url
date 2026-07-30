@@ -6,7 +6,7 @@ the remote directory tree, decides which files are new or changed, and downloads
 them efficiently — with adaptive concurrency, resumable/parallel downloads,
 integrity checks, incremental caching, and an SSRF-hardened transport layer.
 
-- **Version:** 3.1.34
+- **Version:** 3.1.35
 - **Python:** 3.9 – 3.12 (pure Python, any OS/architecture)
 - **License:** MIT
 
@@ -79,21 +79,21 @@ On a build machine:
 
 ```bash
 pip install build
-python -m build          # produces dist/mirror_url-3.1.34-py3-none-any.whl
+python -m build          # produces dist/mirror_url-3.1.35-py3-none-any.whl
 ```
 
 Copy the wheel to the target server and install it:
 
 ```bash
 python3 -m venv /opt/mirror-url
-/opt/mirror-url/bin/pip install /tmp/mirror_url-3.1.34-py3-none-any.whl
+/opt/mirror-url/bin/pip install /tmp/mirror_url-3.1.35-py3-none-any.whl
 /opt/mirror-url/bin/mirror-url --help
 ```
 
 To include the optional speed extras:
 
 ```bash
-/opt/mirror-url/bin/pip install "/tmp/mirror_url-3.1.34-py3-none-any.whl[fast]"
+/opt/mirror-url/bin/pip install "/tmp/mirror_url-3.1.35-py3-none-any.whl[fast]"
 ```
 
 Available extras: `fast` (stringzilla + lxml), `progress` (tqdm),
@@ -102,24 +102,24 @@ Available extras: `fast` (stringzilla + lxml), `progress` (tqdm),
 ### From a Git repository
 
 ```bash
-pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.34"
+pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.35"
 # private repo over SSH:
-pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.1.34"
+pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.1.35"
 ```
 
 ### As an isolated CLI with pipx
 
 ```bash
-pipx install /tmp/mirror_url-3.1.34-py3-none-any.whl
-# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.34"
+pipx install /tmp/mirror_url-3.1.35-py3-none-any.whl
+# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.35"
 ```
 
 ### With Docker
 
 ```dockerfile
 FROM python:3.12-slim
-COPY dist/mirror_url-3.1.34-py3-none-any.whl /tmp/
-RUN pip install --no-cache-dir "/tmp/mirror_url-3.1.34-py3-none-any.whl[fast]"
+COPY dist/mirror_url-3.1.35-py3-none-any.whl /tmp/
+RUN pip install --no-cache-dir "/tmp/mirror_url-3.1.35-py3-none-any.whl[fast]"
 ENTRYPOINT ["mirror-url"]
 ```
 
@@ -225,8 +225,8 @@ list of options. The most commonly used options:
 |---|---|
 | `--filter P [P ...]` | Only download matching files. Each pattern is a plain extension (`.fits`) or a regex (`'2024.*\.fits$'`). |
 | `--exclude-dir D [D ...]` | Skip matching directories. |
-| `--max-depth N` | Maximum directory recursion depth (default 50). |
-| `--list-dirs [N]` | Discover and print the directory tree under `--url`/`--dir-suffix`, then exit — no file scanning, freshness checks, or downloads/deletes. Respects `--exclude-dir`/`--max-depth`; `--filter` doesn't apply (files only). With `N`, shows only the last `N` directories overall, sorted **lexicographically by relative path** (a name sort, not a true timestamp sort), with the root (`.`) excluded from that ranking. Doesn't require `--dest-path`/`--log-path`. |
+| `--max-depth N` | Maximum directory recursion depth (default 50; `--list-dirs` defaults to 1 instead — see below). |
+| `--list-dirs [N]` | Discover and print the directory tree under `--url`/`--dir-suffix`, then exit — no file scanning, freshness checks, or downloads/deletes. Respects `--exclude-dir`/`--max-depth` (defaults to `1` — the current folder's immediate children only — unless `--max-depth` is given explicitly; every other mode still defaults to 50); `--filter` doesn't apply (files only). With `N`, shows only the last `N` directories overall, sorted **lexicographically by relative path** (a name sort, not a true timestamp sort), with the root (`.`) excluded from that ranking. Always followed by a `# Directories N/total` summary line, including unrestricted runs (`N == total`). Doesn't require `--dest-path`/`--log-path`. |
 | `--list-files [N]` | Discover and print files under `--url`/`--dir-suffix`, then exit — no freshness checks or downloads/deletes. Respects `--exclude-dir`/`--max-depth`/`--filter`. With `N`, shows only the last `N` files *per directory*, sorted **lexicographically by filename** (a name sort, not a true timestamp sort — see "Filtering and scope" below). Doesn't require `--dest-path`/`--log-path`. |
 
 ### Cleanup of obsolete local files
@@ -444,6 +444,23 @@ on by default).
   doesn't apply, since it only matches filenames, not directories. Handy for
   seeing what's on a remote server before choosing a `--dir-suffix`. Unlike
   every other mode, it does **not** require `--dest-path` or `--log-path`.
+
+  Unlike every other mode, `--list-dirs` also defaults `--max-depth` to `1`
+  — the current folder's immediate children only — instead of the usual 50.
+  "What's in this folder" is the overwhelmingly common ask, and recursing
+  the full tree by default is easy to be surprised by on a deep archive.
+  Pass `--max-depth` explicitly to go deeper (or shallower); it always wins
+  over this default, for every mode including `--list-dirs`:
+
+  ```bash
+  # Immediate children only (the default)
+  mirror-url --url https://archive.example.org/mission/ --list-dirs
+
+  # Walk 3 levels deep instead
+  mirror-url --url https://archive.example.org/mission/ --list-dirs \
+    --max-depth 3
+  ```
+
   Each directory is printed to **stdout** as a bare relative path, one per
   line (`.` for the root), independent of `--print-logs`/`--quiet` and the
   usual banner/summary logging — pipe or capture it directly:
@@ -453,15 +470,20 @@ on by default).
     | xargs -I{} echo "found: {}"
   ```
 
-  With no `N`, every directory is printed in discovery order, exactly as
-  above. With `N`, only the last `N` directories are printed, sorted
-  **lexicographically** by relative path, with the root (`.`) excluded from
-  that ranking (it isn't a real `--dir-suffix` candidate, and would
-  otherwise dilute the "last N real directories" a caller typically wants).
-  Unlike `--list-files [N]`, which ranks *per directory* (files are
-  naturally grouped by the directory that contains them), `--list-dirs [N]`
-  ranks across the **entire** discovered tree for this suffix, since
-  directories have no equivalent natural grouping:
+  The listing is always followed by a `# Directories N/total` comment line
+  on stdout — including an unrestricted (no-`N`) run, where `N == total` —
+  mirroring `--list-files`' `# Files N/total` convention. Drop it with
+  `grep -v '^#'` for a pure one-directory-per-line stream.
+
+  With no `N`, every directory (within `--max-depth`) is printed in
+  discovery order, as above. With `N`, only the last `N` directories are
+  printed, sorted **lexicographically** by relative path, with the root
+  (`.`) excluded from that ranking (it isn't a real `--dir-suffix`
+  candidate, and would otherwise dilute the "last N real directories" a
+  caller typically wants). Unlike `--list-files [N]`, which ranks *per
+  directory* (files are naturally grouped by the directory that contains
+  them), `--list-dirs [N]` ranks across the **entire** discovered tree for
+  this suffix, since directories have no equivalent natural grouping:
 
   ```bash
   mirror-url --url https://archive.example.org/mission/L3_png/v03/ \

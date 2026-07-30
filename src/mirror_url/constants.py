@@ -17,6 +17,7 @@ DEFAULT_WORKERS = 8
 DEFAULT_ASYNC_WORKERS = 50
 PROGRESS_INTERVAL = 60
 MAX_DIRECTORY_DEPTH = 50
+LIST_DIRS_DEFAULT_MAX_DEPTH = 1  # immediate children only, unless --max-depth overrides it
 
 # Rate limiting
 REQUEST_DELAY = 0.05

@@ -1,12 +1,14 @@
 """Tests for ScanMixin.list_directories()'s clean stdout output.
 
 Follow-up to test_list_dirs.py: in addition to the existing logging
-(banner, per-directory "📁 <path>" lines, "Found N directories" summary --
-all subject to --print-logs/--quiet and routed to the log file by
-default), list_directories() now also prints each discovered directory
-as a bare path to stdout, one per line, with no icon/prefix/summary, so
-the output is pipeable/scriptable without needing --print-logs or having
-to filter log noise out of it.
+(banner, per-directory "📁 <path>" lines, "Listed N of Total directories"
+summary -- all subject to --print-logs/--quiet and routed to the log
+file by default), list_directories() also prints each discovered
+directory as a bare path to stdout, one per line, with no icon/prefix,
+followed by a "# Directories N/total" comment line -- mirroring
+--list-files' "# Files N/total" convention -- so the output is
+pipeable/scriptable (drop the comment with ``grep -v '^#'``) without
+needing --print-logs or having to filter log noise out of it.
 
 Same stubbing convention as test_list_dirs.py: build a ScanMixin
 instance directly and stub _discover_directories_bfs() rather than
@@ -62,10 +64,10 @@ def test_list_directories_prints_bare_paths_to_stdout(capsys):
 
     assert result is True
     out_lines = capsys.readouterr().out.splitlines()
-    assert out_lines == [".", "L1", "L1/v03", "L2"]
+    assert out_lines == [".", "L1", "L1/v03", "L2", "# Directories 4/4"]
 
 
-def test_list_directories_stdout_has_no_icons_prefixes_or_summary(capsys):
+def test_list_directories_stdout_has_no_icons_or_suffix_prefix(capsys):
     mirror = _StubMirror(target_base_url="https://example.test/data/")
     mirror._discovered = ["https://example.test/data/L1/"]
 
@@ -73,19 +75,32 @@ def test_list_directories_stdout_has_no_icons_prefixes_or_summary(capsys):
 
     out = capsys.readouterr().out
     assert "📁" not in out
-    assert "Found" not in out
     assert "[1/1]" not in out
     assert "\t" not in out
 
 
-def test_list_directories_stdout_empty_when_no_directories(capsys):
+def test_list_directories_stdout_summary_line_is_comment_prefixed(capsys):
+    """The trailing summary must start with '#' so it can be dropped with
+    grep -v '^#' for a pure one-directory-per-line stream, same as
+    --list-files' '# Files N/total' convention."""
+    mirror = _StubMirror(target_base_url="https://example.test/data/")
+    mirror._discovered = ["https://example.test/data/L1/"]
+
+    mirror.list_directories()
+
+    out_lines = capsys.readouterr().out.splitlines()
+    assert out_lines[-1].startswith("#")
+    assert out_lines[-1] == "# Directories 1/1"
+
+
+def test_list_directories_stdout_only_summary_when_no_directories(capsys):
     mirror = _StubMirror(target_base_url="https://example.test/data/")
     mirror._discovered = []
 
     result = mirror.list_directories()
 
     assert result is True
-    assert capsys.readouterr().out == ""
+    assert capsys.readouterr().out.splitlines() == ["# Directories 0/0"]
 
 
 def test_list_directories_returns_false_without_connection_manager_prints_nothing(capsys):
@@ -104,7 +119,8 @@ def test_list_directories_qualifies_stdout_paths_with_suffix_when_multiple_suffi
     """With a single --dir-suffix (or none), stdout stays a bare path.
     With more than one --dir-suffix mirrored in the same run, a bare path
     is ambiguous about which suffix it came from, so each line gets a
-    tab-separated suffix column prepended."""
+    tab-separated suffix column prepended. The trailing summary comment
+    line is never suffix-qualified, since it isn't a directory path."""
     mirror = _StubMirror(
         target_base_url="https://example.test/data/L1/v03/",
         total_suffixes=2,
@@ -118,7 +134,7 @@ def test_list_directories_qualifies_stdout_paths_with_suffix_when_multiple_suffi
     mirror.list_directories()
 
     out_lines = capsys.readouterr().out.splitlines()
-    assert out_lines == ["L1/v03\t.", "L1/v03\tsub"]
+    assert out_lines == ["L1/v03\t.", "L1/v03\tsub", "# Directories 2/2"]
 
 
 def test_list_directories_single_suffix_run_has_no_qualifier(capsys):
@@ -134,4 +150,4 @@ def test_list_directories_single_suffix_run_has_no_qualifier(capsys):
     mirror.list_directories()
 
     out_lines = capsys.readouterr().out.splitlines()
-    assert out_lines == ["."]
+    assert out_lines == [".", "# Directories 1/1"]
