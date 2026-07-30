@@ -4,6 +4,35 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.35] - 2026-07-30
+
+### Changed
+- `--list-dirs` now defaults `--max-depth` to `1` (the current folder's
+  immediate children only) instead of the usual `MAX_DIRECTORY_DEPTH`
+  (50). Reported in production: `--list-dirs` against a multi-level
+  archive (date directories each containing further subdirectories)
+  silently recursed the full 50 levels, printing every nested
+  subdirectory instead of just the top level -- "what's in this folder"
+  is the overwhelmingly common ask. An explicit `--max-depth` always
+  overrides this, for every mode including `--list-dirs`. Every other
+  mode (`--list-files`, real syncs) is unaffected and keeps the original
+  default. New `LIST_DIRS_DEFAULT_MAX_DEPTH` constant; `--max-depth`'s
+  argparse default became the sentinel `None` so `cli.py` can tell
+  whether it was passed explicitly, resolved right after parsing.
+
+### Added
+- `--list-dirs`'s output is now always followed by a
+  `# Directories N/total` summary line on stdout, mirroring
+  `--list-files`' existing `# Files N/total` convention -- including
+  unrestricted (no-`N`) runs, where `N == total`. Drop it with
+  `grep -v '^#'` for a pure one-directory-per-line stream.
+
+5 new tests for the max-depth default resolution
+(`tests/test_list_dirs_default_max_depth.py`); existing stdout/log
+assertions in `test_list_dirs.py`, `test_list_dirs_stdout.py`, and
+`test_list_dirs_n.py` updated for the new summary line. USER_GUIDE.md
+updated (table rows + detailed section); USER_GUIDE.html regenerated.
+
 ## [3.1.34] - 2026-07-29
 
 ### Added

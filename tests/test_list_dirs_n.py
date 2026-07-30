@@ -78,7 +78,7 @@ def test_list_dirs_n_keeps_lexicographically_last_n_directories(capsys):
 
     assert result is True
     out_lines = capsys.readouterr().out.splitlines()
-    assert out_lines == ["orbit_0043", "orbit_0044", "orbit_0045"]
+    assert out_lines == ["orbit_0043", "orbit_0044", "orbit_0045", "# Directories 3/5"]
 
 
 def test_list_dirs_n_excludes_root_from_ranking(capsys):
@@ -98,7 +98,7 @@ def test_list_dirs_n_excludes_root_from_ranking(capsys):
 
     out_lines = capsys.readouterr().out.splitlines()
     assert "." not in out_lines
-    assert out_lines == ["orbit_0001", "orbit_0002"]
+    assert out_lines == ["orbit_0001", "orbit_0002", "# Directories 2/2"]
 
 
 def test_list_dirs_no_n_keeps_discovery_order_unrestricted(capsys):
@@ -109,7 +109,15 @@ def test_list_dirs_no_n_keeps_discovery_order_unrestricted(capsys):
     mirror.list_directories()
 
     out_lines = capsys.readouterr().out.splitlines()
-    assert out_lines == [".", "orbit_0041", "orbit_0042", "orbit_0043", "orbit_0044", "orbit_0045"]
+    assert out_lines == [
+        ".",
+        "orbit_0041",
+        "orbit_0042",
+        "orbit_0043",
+        "orbit_0044",
+        "orbit_0045",
+        "# Directories 6/6",
+    ]
 
 
 def test_list_dirs_n_ordering_is_lexicographic_not_discovery_order(capsys):
@@ -124,7 +132,7 @@ def test_list_dirs_n_ordering_is_lexicographic_not_discovery_order(capsys):
     mirror.list_directories()
 
     out_lines = capsys.readouterr().out.splitlines()
-    assert out_lines == ["orbit_0043", "orbit_0045"]
+    assert out_lines == ["orbit_0043", "orbit_0045", "# Directories 2/3"]
 
 
 def test_list_dirs_n_larger_than_available_shows_all_non_root(capsys):
@@ -133,7 +141,14 @@ def test_list_dirs_n_larger_than_available_shows_all_non_root(capsys):
     mirror.list_directories()
 
     out_lines = capsys.readouterr().out.splitlines()
-    assert out_lines == ["orbit_0041", "orbit_0042", "orbit_0043", "orbit_0044", "orbit_0045"]
+    assert out_lines == [
+        "orbit_0041",
+        "orbit_0042",
+        "orbit_0043",
+        "orbit_0044",
+        "orbit_0045",
+        "# Directories 5/5",
+    ]
 
 
 def test_list_dirs_n_logs_shown_of_total_summary(caplog):
@@ -162,13 +177,13 @@ def test_list_dirs_n_multi_suffix_qualifies_stdout_lines(capsys):
     mirror.list_directories()
 
     out_lines = capsys.readouterr().out.splitlines()
-    assert out_lines == ["L1/v03\torbit_0042"]
+    assert out_lines == ["L1/v03\torbit_0042", "# Directories 1/2"]
 
 
-def test_list_dirs_n_empty_when_only_root_discovered(capsys):
+def test_list_dirs_n_only_summary_when_only_root_discovered(capsys):
     mirror = _StubMirror(ROOT, ["https://example.test/data/"], list_dirs_n=3)
 
     result = mirror.list_directories()
 
     assert result is True
-    assert capsys.readouterr().out == ""
+    assert capsys.readouterr().out.splitlines() == ["# Directories 0/0"]

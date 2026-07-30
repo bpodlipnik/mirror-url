@@ -56,7 +56,7 @@ def test_list_directories_logs_relative_paths_and_returns_true(caplog):
     assert any("📁 L1" in m and "L1/v03" not in m for m in messages)
     assert any("📁 L1/v03" in m for m in messages)
     assert any("📁 L2" in m for m in messages)
-    assert any("Found 4 directories" in m for m in messages)
+    assert any("Listed 4 of 4 directories" in m for m in messages)
 
 
 def test_list_directories_singular_count(caplog):
@@ -67,8 +67,8 @@ def test_list_directories_singular_count(caplog):
         result = mirror.list_directories()
 
     assert result is True
-    assert any("Found 1 directory" in r.message for r in caplog.records)
-    assert not any("Found 1 directories" in r.message for r in caplog.records)
+    assert any("Listed 1 of 1 directory" in r.message for r in caplog.records)
+    assert not any("directories" in r.message for r in caplog.records if "Listed" in r.message)
 
 
 def test_list_directories_returns_false_without_connection_manager():
