@@ -4,6 +4,44 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.36] - 2026-07-30
+
+### Fixed
+- Fixed an off-by-one in `_discover_directories_bfs()` (the shared BFS
+  walk behind real syncs, `--list-dirs`, and `--list-files`): a
+  directory sitting exactly *at* `--max-depth` was still fetched
+  (`scanner.scan_directory_sequential()`, a real HTTP request) purely
+  to discover its children -- but those children land one level past
+  `max_depth`, so they get silently discarded the instant they're
+  popped, without ever being scanned. The fetch was 100% wasted I/O:
+  a full network round-trip per directory at the deepest listed level,
+  for a result nothing ever used.
+
+  Invisible at the old default of `max_depth=50` on typical (shallow)
+  trees, this became glaring with 3.1.35's new `--list-dirs` default
+  of `max_depth=1`: reported in production as `--list-dirs` against a
+  271-subdirectory archive taking 42s, vs. ~2s for an equivalent
+  single-page `curl` fetch of the same listing -- because it was
+  fetching all 271 children's pages just to list the children
+  themselves, turning a one-request "what's in this folder" probe
+  into 272 requests.
+
+  Fix: only scan a directory (and only apply the per-request
+  rate-limit wait) when `depth < self.config.max_depth` -- i.e. only
+  when there's still depth budget left to use whatever children it
+  might yield. The directory itself is still yielded/listed
+  regardless; only the now-provably-unnecessary network request is
+  skipped. Real syncs and `--list-files` are unaffected in terms of
+  files collected (each independently re-scans every yielded
+  directory for its own files/content), so this changes total real
+  HTTP requests only where such compensating re-scans don't exist --
+  which is exactly `--list-dirs`'s own bare directory-discovery pass.
+
+  5 new tests in `tests/test_bfs_depth_boundary_scan.py`, asserting
+  exact scan-call counts at several `--max-depth` values against a
+  stubbed scanner (including the max_depth=0 edge case and confirming
+  a scan exception can't fire for a directory that's never scanned).
+
 ## [3.1.35] - 2026-07-30
 
 ### Changed

@@ -526,38 +526,56 @@ class ScanMixin:
 
             processed_dirs.add(url)
 
-            try:
-                files, subdirs = self.scanner.scan_directory_sequential(url)
-            except Exception as e:
-                # FIX (partial-scan guard): this directory's files/subdirs are
-                # unknown, not empty -- treating them as [] previously made
-                # get_remote_files() return a silently-incomplete listing
-                # that clean_obsolete() couldn't distinguish from a complete
-                # one. Flag the run as incomplete so cleanup is skipped.
-                logging.warning(
-                    f"Error scanning {url}: {e} -- directory listing incomplete, "
-                    f"cleanup will be skipped this run"
-                )
-                self.scan_incomplete = True
-                _files, subdirs = [], []
+            # A directory is only worth *fetching* (an actual HTTP request)
+            # if we still have depth budget left to use its subdirectories
+            # -- children discovered here would land at depth + 1, and if
+            # that already exceeds max_depth they'd be silently discarded
+            # the moment they're popped (via the `depth > max_depth` check
+            # above), without ever being scanned themselves. Fetching a
+            # directory exactly at max_depth used to happen anyway, purely
+            # to discover children that were then thrown away -- one
+            # wasted network round-trip per directory at the deepest
+            # level. That's invisible at the old default of max_depth=50
+            # on a shallow tree, but with --list-dirs's new max_depth=1
+            # default it meant fetching every single immediate child's
+            # page just to list the child itself, turning a one-request
+            # "what's in this folder" probe into N+1 requests.
+            if depth < self.config.max_depth:
+                try:
+                    _files, subdirs = self.scanner.scan_directory_sequential(url)
+                except Exception as e:
+                    # FIX (partial-scan guard): this directory's files/subdirs
+                    # are unknown, not empty -- treating them as [] previously
+                    # made get_remote_files() return a silently-incomplete
+                    # listing that clean_obsolete() couldn't distinguish from
+                    # a complete one. Flag the run as incomplete so cleanup is
+                    # skipped.
+                    logging.warning(
+                        f"Error scanning {url}: {e} -- directory listing incomplete, "
+                        f"cleanup will be skipped this run"
+                    )
+                    self.scan_incomplete = True
+                    subdirs = []
+
+                for subdir in subdirs:
+                    # Only add subdirs that start with root_url
+                    if subdir not in processed_dirs and subdir.startswith(root_url):
+                        if self._is_dir_excluded(subdir):
+                            logging.debug(f"Excluding directory: {sanitize_url_for_log(subdir)}")
+                            continue
+                        queue.append((subdir, depth + 1))
+
+                # Rate limiting -- only meaningful right after an actual
+                # request; skip it for the no-fetch branch above, since
+                # there's nothing to throttle.
+                parsed = urlparse(url)
+                try:
+                    ip = socket.gethostbyname(parsed.hostname)
+                    self.per_ip_limiter.wait(ip)
+                except Exception:
+                    pass
 
             yield url
-
-            for subdir in subdirs:
-                # Only add subdirs that start with root_url
-                if subdir not in processed_dirs and subdir.startswith(root_url):
-                    if self._is_dir_excluded(subdir):
-                        logging.debug(f"Excluding directory: {sanitize_url_for_log(subdir)}")
-                        continue
-                    queue.append((subdir, depth + 1))
-
-            # Rate limiting
-            parsed = urlparse(url)
-            try:
-                ip = socket.gethostbyname(parsed.hostname)
-                self.per_ip_limiter.wait(ip)
-            except Exception:
-                pass
 
     def _get_local_path_from_url(self, url: str) -> Optional[Path]:
         """
