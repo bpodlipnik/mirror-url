@@ -423,13 +423,29 @@ on by default).
 
 - **`--filter`** accepts one or more patterns. A pattern that looks like a bare
   extension (`.fits`) matches by suffix; anything else is treated as a regular
-  expression matched against the filename. Examples:
+  expression matched against the filename. **Multiple patterns are OR'd** — a
+  file matches if *any* pattern matches, not all of them:
 
   ```bash
   --filter .fits .txt                 # any .fits or .txt
   --filter '.*\.fits$'                # regex: files ending in .fits
   --filter '2024.*\.fits' .png        # mixed regex + extension
   ```
+
+  For **AND** (a file must match multiple independent conditions at once —
+  e.g. a channel *and* a date range), pass a single pattern combining them
+  with regex lookaheads instead of multiple `--filter` values — the engine
+  already falls back to full `re` support (including lookaheads) for any
+  pattern containing regex metacharacters:
+
+  ```bash
+  # (fe OR pb channel) AND (18-20 June, 03-05h) -- one --filter value
+  --filter '(?=.*(?:fe|pb))(?=.*_202606(?:1[89]|20)T0[3-5]\d{4}_)'
+  ```
+
+  If you combine `--filter` with `--list-files [N]`/`--list-dirs [N]`'s "last
+  `N`" ranking, see the callout below `--list-files [N]` about what happens
+  when a filter matches more than one filename prefix in the same run.
 
 - **`--exclude-dir`** skips directories by name/path suffix (simple `*` globs
   supported).
@@ -562,6 +578,31 @@ on by default).
   > filenames are date/sequence-stamped, but is **not guaranteed** for an
   > arbitrary directory with inconsistent naming — there, "last N" means
   > "alphabetically last N", which may not be "most recent N".
+  >
+  > **A sharper version of the same tradeoff bites when `--filter`
+  > matches more than one filename prefix/channel in the same run** — e.g.
+  > `--filter fe pb` for two instrument channels named `..._fe_l3_...` and
+  > `..._pb_l3_...`. Every `fe`-file sorts before every `pb`-file (`f` <
+  > `p`), **regardless of timestamp** — so once a directory has at least
+  > `N` `pb`-files, "last `N`" is `N` `pb`-files, full stop, no matter how
+  > recent the newest `fe`-file is. The `fe` channel doesn't just rank
+  > lower — with more than `N` `pb`-files present, it's invisible.
+  > Workarounds:
+  >
+  > - **Query each channel separately** — `--filter fe` and `--filter pb`
+  >   as two separate runs — sidesteps the collision entirely, since each
+  >   run's "last N" only ever ranks within one prefix.
+  > - **Or request enough files to be sure**, then sort/filter by
+  >   timestamp yourself instead of relying on the filename-prefix order:
+  >   ```bash
+  >   mirror-url --url https://archive.example.org/mission/L3_png/v03/ \
+  >     --list-files 200 --filter fe pb --quiet \
+  >     | grep -v '^#' | sort -t_ -k4 | tail -3
+  >   ```
+  >   (`sort -t_ -k4` sorts from the 4th underscore-delimited field
+  >   onward — i.e. from the embedded timestamp, not the channel prefix
+  >   sitting before it — so the result is chronological across channels
+  >   instead of "whichever channel's name sorts higher, wins".)
 
 ---
 
