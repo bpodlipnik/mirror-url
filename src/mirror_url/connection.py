@@ -37,7 +37,7 @@ from .exceptions import (
 from .rate_limiter import PerIPRateLimiter, RateLimiter
 from .security import SecurityValidator
 from .transport import SecureTransport
-from .utils import exponential_backoff, sanitize_url_for_log, trim_url
+from .utils import exponential_backoff, parse_retry_after, sanitize_url_for_log, trim_url
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, avoids an import cycle
     from .config import MirrorConfig
@@ -761,6 +761,52 @@ class ConnectionManager:
                                     _redirect_depth=_redirect_depth + 1,
                                     **redirect_kwargs,
                                 )
+
+                        # Retry on 429 Too Many Requests -- honor Retry-After if the
+                        # server sent one, otherwise fall back to the same
+                        # exponential backoff used for 5xx errors below.
+                        #
+                        # Previously 429 fell straight through to the generic "4xx
+                        # and other final responses" branch further down and was
+                        # never retried at all -- treated identically to a
+                        # permanent client error like 400 or 404. But 429 is an
+                        # explicit "come back later" signal from the server, not
+                        # a permanent failure; giving up immediately on it (a) is
+                        # the wrong behavior for a *mirroring* tool that expects
+                        # to eventually succeed, and (b) ignores Retry-After
+                        # entirely, which the server may have sent specifically
+                        # to say how long to wait.
+                        if status_code == 429:
+                            self.consecutive_failures += 1
+                            if attempt == self.config.max_retries:
+                                if self.circuit_breaker_manager:
+                                    self.circuit_breaker_manager.record_failure(domain)
+                                self.metrics.add_error(
+                                    f"HTTP 429 for {sanitize_url_for_log(url)}",
+                                    "rate_limited",
+                                )
+                                raise MirrorConnectionError(
+                                    f"Request failed after {attempt + 1} attempts "
+                                    f"with HTTP 429 (rate limited)"
+                                )
+                            retry_after = parse_retry_after(response.headers.get("Retry-After"))
+                            computed_wait = exponential_backoff(attempt, self.config.retry_delay)
+                            wait_time = (
+                                max(retry_after, computed_wait)
+                                if retry_after is not None
+                                else computed_wait
+                            )
+                            logging.warning(
+                                f"HTTP 429 rate limited (attempt {attempt + 1}), "
+                                f"retrying in {wait_time:.1f}s"
+                                + (
+                                    f" (server requested {retry_after:.1f}s via Retry-After)"
+                                    if retry_after is not None
+                                    else ""
+                                )
+                            )
+                            time.sleep(wait_time)
+                            continue
 
                         # Retry on 5xx server errors
                         if isinstance(status_code, int) and 500 <= status_code < 600:

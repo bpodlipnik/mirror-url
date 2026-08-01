@@ -4,6 +4,51 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.37] - 2026-08-01
+
+### Fixed
+- HTTP 429 (Too Many Requests) responses were treated identically to any
+  other 4xx client error in the primary sync download/HEAD path
+  (`connection.py`): given up on immediately, no retry, `Retry-After`
+  header never read. 429 is an explicit "come back later" signal from
+  the server, not a permanent failure -- for a mirroring tool that
+  expects to eventually succeed, giving up on the first 429 was the
+  wrong behavior. Now retries 429 specifically, honoring `Retry-After`
+  when the server sends one (both the integer-seconds and HTTP-date
+  forms per RFC 9110 §10.2.3, capped at the same ceiling
+  `exponential_backoff()` already uses so a hostile/misconfigured
+  server can't stall the run indefinitely), falling back to the usual
+  exponential backoff otherwise. New `parse_retry_after()` helper in
+  `utils.py`. Found while reviewing `async_connection.py` for possible
+  performance work -- 429/`Retry-After` handling turned out to be the
+  one genuine gap in an otherwise fairly sophisticated adaptive
+  concurrency/circuit-breaker/DNS-caching setup that already existed.
+
+  `async_connection.py`'s two `HTTPStatusError` handlers were
+  deliberately left untouched: neither `AsyncConnectionManager.head()`
+  nor `AdaptiveAsyncManager.head()` ever calls
+  `response.raise_for_status()`, so those branches are unreachable
+  dead code there -- a 429 flows through the success path instead
+  (returned as-is with `status_code=429`). The caller
+  (`compare.py`'s async metadata check) already falls back to the sync
+  path above for any status that isn't 200/304/a safe-to-skip 4xx, so
+  the fix applies end-to-end without touching the async layer.
+
+### Removed
+- Deleted `AdaptiveAsyncManager._do_head_request()` -- an entire unused
+  method (own retry loop, DNS lookup, semaphore handling) with zero
+  callers anywhere in the codebase, fully superseded by `head()`'s own
+  inline retry logic. No functional change; confirmed via mypy's error
+  count actually *dropping* by one with it gone.
+
+16 new tests: `parse_retry_after()` unit-tested directly (both header
+forms, cap, past/future dates, malformed/missing input), plus
+`ConnectionManager.request()`'s new 429 branch driven end-to-end
+through the real retry loop via `httpx.MockTransport` (retry-then-
+succeed with and without `Retry-After`, retries exhausted raises
+`MirrorConnectionError`, a longer server-requested wait isn't
+shortened by the computed backoff, 404 still isn't retried).
+
 ## [3.1.36] - 2026-07-30
 
 ### Fixed
