@@ -15,6 +15,7 @@ import logging
 import random
 import sys
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote, unquote, urlparse
@@ -52,6 +53,60 @@ def exponential_backoff(
     jitter = random.uniform(0, min(JITTER_FACTOR * capped_delay, max_delay - capped_delay))
 
     return capped_delay + jitter
+
+
+def parse_retry_after(
+    header_value: Optional[str], max_delay: float = MAX_BACKOFF_DELAY
+) -> Optional[float]:
+    """
+    Parse an HTTP ``Retry-After`` header value into a wait time in seconds.
+
+    Per RFC 9110 §10.2.3, the header is either a non-negative integer
+    number of seconds (``Retry-After: 120``) or an HTTP-date
+    (``Retry-After: Fri, 31 Jul 2026 07:28:00 GMT``). Both forms are
+    supported here.
+
+    Args:
+        header_value: The raw ``Retry-After`` header value, or None if the
+            response didn't include one.
+        max_delay: Upper bound on the returned delay. A server-requested
+            wait is honored, but never trusted unconditionally -- a
+            misconfigured or hostile server could otherwise send an
+            arbitrarily large value (or a date far in the future) and
+            stall the caller indefinitely. Capped to the same ceiling
+            exponential_backoff() already uses, so the two compose
+            predictably wherever a caller takes ``max(parsed, computed)``.
+
+    Returns:
+        Delay in seconds, clamped to ``[0, max_delay]``, or None if
+        `header_value` is missing or doesn't parse as either form.
+    """
+    if not header_value:
+        return None
+
+    header_value = header_value.strip()
+
+    # Integer-seconds form.
+    if header_value.isdigit():
+        return max(0.0, min(float(header_value), max_delay))
+
+    # HTTP-date form.
+    try:
+        retry_at = parsedate_to_datetime(header_value)
+    except (TypeError, ValueError):
+        return None
+
+    if retry_at is None:
+        return None
+
+    # parsedate_to_datetime() returns a naive datetime for legacy
+    # (non-GMT-suffixed) date formats; treat those as UTC per RFC 9110,
+    # which mandates GMT for HTTP-dates.
+    if retry_at.tzinfo is None:
+        retry_at = retry_at.replace(tzinfo=timezone.utc)
+
+    delta = (retry_at - datetime.now(timezone.utc)).total_seconds()
+    return max(0.0, min(delta, max_delay))
 
 
 def _validate_and_sanitize_cache(data: Any) -> Dict[str, Any]:

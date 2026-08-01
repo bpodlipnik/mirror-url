@@ -345,6 +345,18 @@ class AsyncConnectionManager:
                 continue
 
             # 5️⃣ HTTP STATUS ERRORS
+            #
+            # NOTE: httpx.head() never raises HTTPStatusError on its own --
+            # only response.raise_for_status() does, and nothing in this
+            # method calls it. So this branch is unreachable under normal
+            # operation; a 429 (or any other non-2xx) response flows through
+            # the SUCCESS path above instead, returned as `resp` with
+            # status_code=429. The caller (compare.py's async metadata
+            # check) already handles that by falling back to the sync
+            # request path for anything that isn't 200/304/a safe-to-skip
+            # 4xx -- and that sync path now retries 429 with Retry-After
+            # (see connection.py). No 429-specific handling was added here;
+            # it would never run.
             except httpx.HTTPStatusError as e:
                 duration = time.time() - start_time
                 status = e.response.status_code if e.response else 0
@@ -768,65 +780,6 @@ class AdaptiveAsyncManager:
         """Get circuit breaker statistics."""
         if self.circuit_breaker_manager:
             return self.circuit_breaker_manager.get_stats()
-        return None
-
-    async def _do_head_request(
-        self, url: str, headers: Optional[Dict[str, str]]
-    ) -> Optional[httpx.Response]:
-        """Internal method to perform the actual HEAD request."""
-        if not await self._ensure_client() or self._fallback_to_sync:
-            return None
-
-        if self._client is None:
-            return None
-
-        if self.rate_limiter:
-            parsed = urlparse(url)
-            try:
-                ip = socket.gethostbyname(parsed.hostname)
-                self.rate_limiter.wait(ip)
-            except Exception:
-                pass
-
-        # FIX: previously `semaphore = asyncio.Semaphore(self._current_concurrency)`
-        # was constructed here per call — that never limited concurrency.
-        # Reuse the shared instance semaphore from _init_client.
-        sem = self._semaphore or asyncio.Semaphore(self._current_concurrency)
-        start_time = time.time()
-
-        async with sem:
-            for attempt in range(self.config.max_retries + 1):
-                try:
-                    resp = await asyncio.wait_for(
-                        self._client.head(
-                            url, headers=headers or {}, timeout=httpx.Timeout(12.0, connect=4.0)
-                        ),
-                        timeout=12.0,
-                    )
-
-                    self.metrics.increment("async_metadata_checks")
-                    duration = time.time() - start_time
-                    self.metrics.add_request_time(duration)
-                    self.record_result(url, True, duration * 1000, duration)
-                    # Treat 404 as "no resource" rather than a usable response
-                    if getattr(resp, "status_code", None) == 404:
-                        return None
-                    return resp
-
-                except asyncio.TimeoutError:
-                    if attempt == self.config.max_retries:
-                        duration = time.time() - start_time
-                        self.record_result(url, False, 12000.0, duration)
-                        return None
-                    await asyncio.sleep(exponential_backoff(attempt, self.config.retry_delay * 0.7))
-
-                except (httpx.TimeoutException, httpx.ConnectError, httpx.ReadError):
-                    if attempt == self.config.max_retries:
-                        duration = time.time() - start_time
-                        self.record_result(url, False, duration * 1000, duration)
-                        return None
-                    await asyncio.sleep(exponential_backoff(attempt, self.config.retry_delay * 0.7))
-
         return None
 
     async def head(
