@@ -8,10 +8,11 @@ Methods extracted verbatim from the original ``MirrorURL`` class
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 import time
 from pathlib import Path
-from typing import Optional, Set
+from typing import List, Optional, Set, Tuple
 from urllib.parse import unquote, urlparse
 
 from ..decorators import log_performance
@@ -20,6 +21,85 @@ from ..security import PathSafety
 
 
 class CleanupMixin:
+    def _scan_local_tree(self) -> Tuple[List[Path], List[Path]]:
+        """Single-pass recursive walk of target_dir, collecting both files
+        and directories in one traversal via os.scandir().
+
+        Replaces what used to be up to 4 separate Path.rglob("*") calls
+        per clean_obsolete() invocation (preview's file-check, preview's
+        empty-dir-check, the main file/dir collection, and
+        _count_obsolete_files()'s confirm-delete count) -- each of which
+        re-walked the *entire* local tree from scratch. Also avoids
+        rglob()'s per-item is_file()/is_dir() calls, each of which costs
+        its own stat() syscall even though os.scandir()'s DirEntry
+        objects already carry that type information from the directory
+        read itself on most platforms (no second syscall needed).
+
+        Symlinks are followed for file/directory classification (matching
+        pathlib's Path.is_file()/is_dir() default behavior, which the
+        previous rglob()-based code relied on), but a symlinked directory
+        is only ever descended into once: each directory's resolved real
+        path is tracked in `visited`, so a symlink cycle terminates
+        cleanly instead of looping forever. This is more explicit and
+        robust than the previous code's approach, which just caught
+        whatever RuntimeError pathlib's own (version-dependent) loop
+        detection happened to raise.
+
+        A directory that can't be listed (permission error, or it
+        disappeared mid-walk) is logged at debug level and skipped rather
+        than aborting the whole walk -- mirrors the previous code's
+        graceful handling of individual unreadable entries.
+        """
+        files: List[Path] = []
+        dirs: List[Path] = []
+        visited: Set[Path] = set()
+
+        try:
+            root_real = self.target_dir.resolve()
+        except OSError:
+            root_real = self.target_dir
+        visited.add(root_real)
+
+        stack: List[Path] = [self.target_dir]
+        while stack:
+            current = stack.pop()
+            try:
+                with os.scandir(current) as it:
+                    entries = list(it)
+            except (PermissionError, FileNotFoundError, NotADirectoryError) as e:
+                logging.debug(f"Skipping unreadable directory {current}: {e}")
+                continue
+
+            for entry in entries:
+                entry_path = Path(entry.path)
+                try:
+                    is_dir = entry.is_dir()
+                    is_file = entry.is_file()
+                except OSError as e:
+                    # Broken symlink or a permission/stat error on this one
+                    # entry -- pathlib's is_file()/is_dir() would likewise
+                    # treat this as neither, so skip it the same way.
+                    logging.debug(f"Skipping unreadable entry {entry_path}: {e}")
+                    continue
+
+                if is_dir:
+                    dirs.append(entry_path)
+                    try:
+                        real = entry_path.resolve()
+                    except OSError:
+                        real = entry_path
+                    if real not in visited:
+                        visited.add(real)
+                        stack.append(entry_path)
+                    else:
+                        logging.debug(
+                            f"Skipping already-visited directory (symlink cycle guard): {entry_path}"
+                        )
+                elif is_file:
+                    files.append(entry_path)
+
+        return files, dirs
+
     @log_performance("clean_obsolete")
     def clean_obsolete(self, remote_files: Set[str]) -> None:
         if self.config.cleanup_policy == CleanupPolicy.SAFE_NO_DELETE:
@@ -59,24 +139,9 @@ class CleanupMixin:
             logging.debug("Cleanup skipped: target_parsed is None")
             return
 
-        # Delete confirmation
-        if (
-            self.config.cleanup_policy == CleanupPolicy.DELETE
-            and self.config.confirm_delete
-            and not is_preview
-        ):
-            obsolete_count = self._count_obsolete_files(remote_files)
-            if obsolete_count > 0:
-                response = (
-                    input(f"⚠️ Confirm deletion of {obsolete_count} files? [yes/N]: ")
-                    .strip()
-                    .lower()
-                )
-                if response != "yes":
-                    logging.info("Deletion cancelled by user")
-                    return
-
-        # Build expected files set
+        # Build expected files set (moved up from after the confirm-delete
+        # block so it's available for the confirm-count too, without that
+        # block needing its own separate local-tree walk)
         expected: Set[Path] = set()
         for url in remote_files:
             try:
@@ -98,6 +163,29 @@ class CleanupMixin:
                 logging.debug(f"Error building expected path for {url}: {e}")
                 continue
 
+        # Single walk of the local tree, shared by everything below --
+        # the confirm-delete count, preview mode's file/empty-dir checks,
+        # and the real DELETE/MOVE collection all used to each re-walk the
+        # entire tree independently via their own Path.rglob("*") call.
+        all_files, all_dirs = self._scan_local_tree()
+
+        # Delete confirmation
+        if (
+            self.config.cleanup_policy == CleanupPolicy.DELETE
+            and self.config.confirm_delete
+            and not is_preview
+        ):
+            obsolete_count = sum(1 for item in all_files if item not in expected)
+            if obsolete_count > 0:
+                response = (
+                    input(f"⚠️ Confirm deletion of {obsolete_count} files? [yes/N]: ")
+                    .strip()
+                    .lower()
+                )
+                if response != "yes":
+                    logging.info("Deletion cancelled by user")
+                    return
+
         # Initialize counters
         files_would_delete = 0
         dirs_would_delete = 0
@@ -113,24 +201,14 @@ class CleanupMixin:
             logging.info(f"{prefix}🔍 PREVIEW MODE - Scanning for obsolete files...")
 
             # Check files
-            try:
-                for item in self.target_dir.rglob("*"):
-                    if item.is_file():
-                        if item not in expected:
-                            files_would_delete += 1
-                            if is_preview:
-                                logging.info(f"[PREVIEW] Would delete: {item}")
-                            # ... rest of logic ...
-            except (RuntimeError, PermissionError, FileNotFoundError):
-                logging.warning(
-                    "Symlink loop or permission error detected during cleanup. Skipping."
-                )
+            for item in all_files:
+                if item not in expected:
+                    files_would_delete += 1
+                    logging.info(f"[PREVIEW] Would delete: {item}")
 
             # Check empty directories
-            for item in sorted(
-                self.target_dir.rglob("*"), key=lambda p: len(p.parts), reverse=True
-            ):
-                if item.is_dir() and item != self.target_dir:
+            for item in sorted(all_dirs, key=lambda p: len(p.parts), reverse=True):
+                if item != self.target_dir:
                     try:
                         is_empty = not any(item.iterdir())
                         if is_empty:
@@ -166,14 +244,11 @@ class CleanupMixin:
 
         logging.info(f"{prefix}Scanning for obsolete files...")
 
-        # Collect files and directories to process
-        files_to_process = []
-        dirs_to_check = []
-        for item in self.target_dir.rglob("*"):
-            if item.is_file():
-                files_to_process.append(item)
-            elif item.is_dir():
-                dirs_to_check.append(item)
+        # Files and directories were already collected in the single
+        # upfront walk (self._scan_local_tree()) shared with the
+        # confirm-delete count and preview mode above.
+        files_to_process = all_files
+        dirs_to_check = all_dirs
 
         # Process files
         for item in files_to_process:
@@ -321,34 +396,3 @@ class CleanupMixin:
         self.metrics.metrics["cleanup_failed_operations"] = failed_operations
 
         logging.info("-" * 50)
-
-    def _count_obsolete_files(self, remote_files: Set[str]) -> int:
-        """Count obsolete files for preview."""
-        expected = set()
-
-        for url in remote_files:
-            try:
-                url_path = urlparse(url).path
-                target_path = self.target_parsed.path
-
-                if url_path.startswith(target_path):
-                    rel = unquote(url_path[len(target_path) :].lstrip("/"))
-                    local = PathSafety.safe_join(
-                        self.target_dir,
-                        *rel.split("/"),
-                        max_depth=self.config.max_depth,
-                        max_filename_len=self.config.max_filename_len,
-                        create_base=not self.config.dry_run,
-                    )
-
-                    if local and PathSafety.is_subpath(self.target_dir, local):
-                        expected.add(local)
-            except Exception:
-                continue
-
-        count = 0
-        for item in self.target_dir.rglob("*"):
-            if item.is_file() and item not in expected:
-                count += 1
-
-        return count
