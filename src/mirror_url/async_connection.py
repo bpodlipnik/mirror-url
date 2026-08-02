@@ -550,11 +550,29 @@ class AdaptiveAsyncManager:
         )
 
         test_batch = test_urls[:PROFILE_SAMPLE_SIZE]
-        successful_samples = 0
         total_samples = len(test_batch)
 
-        for i, url in enumerate(test_batch):
-            try:
+        # Fire the profiling sample requests concurrently, multiplexed over
+        # the already-established, already-HTTP/2 connection, instead of
+        # awaiting them one at a time. The previous strictly-sequential
+        # for-loop meant N samples cost N * (real round-trip time) --
+        # turning what should be a handful of ~200-500ms probes into
+        # several real seconds of pure warm-up before a single file
+        # transfer even started, on any server with non-trivial latency.
+        #
+        # Bounded by self._current_concurrency, which _get_profile() (the
+        # caller above) already set appropriately for this domain --
+        # ADAPTIVE_START_CONCURRENCY by default, or the conservative
+        # fallback for a KNOWN_THROTTLED_DOMAINS / learned-throttled
+        # domain (see domain_health.py). So a domain already flagged as
+        # sensitive is still probed gently, just concurrently within that
+        # same conservative bound, rather than hit with a burst of up to
+        # PROFILE_SAMPLE_SIZE simultaneous requests regardless of its
+        # throttle history.
+        sample_semaphore = asyncio.Semaphore(max(1, self._current_concurrency))
+
+        async def _sample_one(index: int, url: str) -> bool:
+            async with sample_semaphore:
                 req_start = time.time()
                 if self.rate_limiter:
                     parsed = urlparse(url)
@@ -564,7 +582,6 @@ class AdaptiveAsyncManager:
                     except Exception:
                         pass
                 try:
-                    # Python 3.10 fix: replaced async with asyncio.timeout(5.0) with asyncio.wait_for
                     resp = await asyncio.wait_for(
                         self._client.head(
                             url, timeout=httpx.Timeout(3.0, connect=2.0), follow_redirects=False
@@ -573,20 +590,21 @@ class AdaptiveAsyncManager:
                     )
                     rtt = (time.time() - req_start) * 1000
                     success = resp.status_code < 400
-                    if success:
-                        successful_samples += 1
-                    # Always record the sample so error rate reflects HTTP failures, not just timeouts
+                    # Always record the sample so error rate reflects HTTP
+                    # failures, not just timeouts.
                     profile.add_sample(rtt, success, time.time() - req_start)
+                    return success
                 except asyncio.TimeoutError:
-                    logging.debug(f"Profile sample {i + 1} timed out")
+                    logging.debug(f"Profile sample {index + 1} timed out")
                     profile.add_sample(5000.0, False, 5.0)
-            except Exception as e:
-                profile.add_sample(5000.0, False, 0)
-                logging.debug(f"Profile sample {i + 1} failed: {e}")
+                    return False
+                except Exception as e:
+                    profile.add_sample(5000.0, False, 0)
+                    logging.debug(f"Profile sample {index + 1} failed: {e}")
+                    return False
 
-            if (i + 1) % 5 == 0:
-                logging.debug(f"Profile progress: {i + 1}/{total_samples} samples complete")
-                await asyncio.sleep(0.1)
+        results = await asyncio.gather(*(_sample_one(i, url) for i, url in enumerate(test_batch)))
+        successful_samples = sum(1 for r in results if r)
 
         profile._update_metrics()
         success_rate = (successful_samples / total_samples * 100) if total_samples > 0 else 0

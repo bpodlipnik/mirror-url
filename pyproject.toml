@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mirror-url"
-version = "3.1.40"
+version = "3.1.41"
 description = "Enterprise-grade remote directory mirroring tool with adaptive concurrency, integrity checks, and SSRF-hardened transport."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -29,7 +29,12 @@ classifiers = [
 
 # Core runtime dependencies (imported unconditionally by the package).
 dependencies = [
-    "httpx>=0.24",
+    # [http2]: config.http2 defaults to True, so h2 is a hard runtime
+    # requirement, not optional -- without it, AdaptiveAsyncManager's
+    # client init raises on every single run (httpx refuses http2=True
+    # without h2 installed), silently and permanently falling back to
+    # the slower sync path. See CHANGELOG for the version this was fixed.
+    "httpx[http2]>=0.24",
     "pydantic>=2.0",
     "PyYAML>=6.0",
 ]
