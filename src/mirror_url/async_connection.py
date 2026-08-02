@@ -25,7 +25,6 @@ from .constants import (
     ADAPTIVE_RTT_THRESHOLD_MS,
     ADAPTIVE_START_CONCURRENCY,
     ASYNC_SEMAPHORE_LIMIT,
-    CONTENT_HASH_LIMIT,
     KNOWN_THROTTLED_DOMAINS,
     PROFILE_SAMPLE_SIZE,
 )
@@ -398,88 +397,6 @@ class AsyncConnectionManager:
                 return None
 
         return None
-
-    async def get_small_content(self, url: str) -> Optional[bytes]:
-        """Get small content via async GET."""
-        # Check if we have a client
-        if self._client is None or self._client.is_closed:
-            self.metrics.add_error(
-                f"Async client not available for {url}", "async_client_unavailable"
-            )
-            return None
-
-        # FIX: Add fallback for tests where circuit_breaker may not be initialized
-        if hasattr(self, "circuit_breaker") and self.circuit_breaker:
-            can_execute = await self.circuit_breaker.can_execute()
-            if not can_execute:
-                self.metrics.increment("circuit_breaker_trips")
-                return None
-
-        # Apply per-IP rate limiting
-        if self.rate_limiter:
-            parsed = urlparse(url)
-            try:
-                # Use thread pool for DNS resolution to avoid blocking
-                loop = asyncio.get_running_loop()
-                ip = await loop.run_in_executor(None, socket.gethostbyname, parsed.hostname)
-                await self.rate_limiter.async_wait(ip)
-            except Exception:
-                pass
-
-        start = time.time()
-        try:
-            # FIX: previously this was `async with asyncio.Semaphore(ASYNC_SEMAPHORE_LIMIT):`
-            # which created a fresh single-permit-batch semaphore on every
-            # call — it never actually limited concurrent requests. Reuse
-            # the shared instance semaphore initialized in __aenter__.
-            sem = self._semaphore or asyncio.Semaphore(ASYNC_SEMAPHORE_LIMIT)
-            async with sem:
-                # Handle mock clients that don't support async context manager properly
-                try:
-                    # Try streaming first (preferred)
-                    async with self._client.stream("GET", url, timeout=15.0) as resp:
-                        if resp.status_code != 200:
-                            return None
-                        content_chunks = []
-                        async for chunk in resp.aiter_bytes():
-                            content_chunks.append(chunk)
-                            if sum(len(c) for c in content_chunks) >= CONTENT_HASH_LIMIT:
-                                break
-                        content = b"".join(content_chunks)
-                except AttributeError:
-                    # Mock client fallback - use direct get
-                    resp = await self._client.get(url, timeout=15.0)
-                    if resp.status_code != 200:
-                        return None
-                    content = resp.content
-                    if len(content) > CONTENT_HASH_LIMIT:
-                        content = content[:CONTENT_HASH_LIMIT]
-
-                rtt = (time.time() - start) * 1000
-
-                # Record result if method exists
-                if hasattr(self, "record_result"):
-                    self.record_result(url, True, rtt, time.time() - start)
-
-                # Record success in circuit breaker
-                if hasattr(self, "circuit_breaker") and self.circuit_breaker:
-                    await self.circuit_breaker.record_success()
-
-                return content
-
-        except Exception as e:
-            rtt = (time.time() - start) * 1000
-            logging.debug(f"Async GET failed for {url}: {e}")
-
-            # Record failure if method exists
-            if hasattr(self, "record_result"):
-                self.record_result(url, False, rtt, time.time() - start)
-
-            # Record failure in circuit breaker
-            if hasattr(self, "circuit_breaker") and self.circuit_breaker:
-                await self.circuit_breaker.record_failure()
-
-            return None
 
 
 class AdaptiveAsyncManager:
@@ -914,81 +831,6 @@ class AdaptiveAsyncManager:
                 f"Async HEAD overall timeout for {url}", "async_head_overall_timeout"
             )
             self.record_result(url, False, duration * 1000, duration)
-            return None
-
-    async def get_small_content(self, url: str) -> Optional[bytes]:
-        """Get small content via async GET."""
-        if not await self._ensure_client() or self._fallback_to_sync:
-            return None
-
-        if self._client is None:
-            return None
-
-        # FIX: await the coroutine
-        parsed_url = urlparse(url)
-        domain = parsed_url.netloc
-
-        if self.circuit_breaker_manager and not self.circuit_breaker_manager.can_execute(domain):
-            self.metrics.increment("circuit_breaker_trips")
-            return None
-
-        if self.rate_limiter:
-            parsed = urlparse(url)
-            try:
-                # Use thread pool for DNS resolution to avoid blocking
-                loop = asyncio.get_running_loop()
-                ip = await loop.run_in_executor(None, socket.gethostbyname, parsed.hostname)
-                await self.rate_limiter.async_wait(ip)
-            except Exception:
-                pass
-
-        start = time.time()
-        try:
-            # FIX: use the shared instance semaphore. Previously a fresh
-            # asyncio.Semaphore(self._current_concurrency) was constructed
-            # per-call and so never actually limited concurrent operations.
-            sem = self._semaphore or asyncio.Semaphore(self._current_concurrency)
-            async with sem:
-                # Handle mock clients that don't support async context manager properly
-                try:
-                    # Try streaming first (preferred for large files)
-                    async with self._client.stream("GET", url, timeout=15.0) as resp:
-                        if resp.status_code != 200:
-                            return None
-
-                        content_chunks = []
-                        async for chunk in resp.aiter_bytes():
-                            content_chunks.append(chunk)
-                            if sum(len(c) for c in content_chunks) >= CONTENT_HASH_LIMIT:
-                                break
-
-                        content = b"".join(content_chunks)
-                except AttributeError:
-                    # Mock client fallback - use direct get
-                    resp = await self._client.get(url, timeout=15.0)
-                    if resp.status_code != 200:
-                        return None
-                    content = resp.content
-                    if len(content) > CONTENT_HASH_LIMIT:
-                        content = content[:CONTENT_HASH_LIMIT]
-
-                rtt = (time.time() - start) * 1000
-
-                self.record_result(url, True, rtt, time.time() - start)
-
-                if self.circuit_breaker_manager:
-                    self.circuit_breaker_manager.record_success(domain)
-
-                return content
-
-        except Exception as e:
-            rtt = (time.time() - start) * 1000
-            logging.debug(f"Async GET failed for {url}: {e}")
-            self.record_result(url, False, rtt, time.time() - start)
-
-            if self.circuit_breaker_manager:
-                self.circuit_breaker_manager.record_failure(domain)
-
             return None
 
     async def apply_pending_concurrency_change(self) -> None:

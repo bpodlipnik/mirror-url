@@ -4,6 +4,38 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.40] - 2026-08-02
+
+### Removed
+- Deleted both `get_small_content()` implementations in
+  `async_connection.py` (`AsyncConnectionManager.get_small_content()`
+  and `AdaptiveAsyncManager.get_small_content()`) -- confirmed zero
+  callers anywhere in the codebase or tests, and not part of the
+  public API (not re-exported from `__init__.py`, not documented).
+  Same class of finding as the earlier removal of
+  `AdaptiveAsyncManager._do_head_request()`.
+
+  Found while investigating whether integrating `aiodns` (a c-ares-
+  based true async DNS resolver) would meaningfully speed up DNS
+  resolution: `AdaptiveAsyncManager.get_small_content()` had an
+  uncached `socket.gethostbyname()` call on every invocation, unlike
+  the tool's two other DNS-lookup call sites, which both check the
+  existing 5-minute-TTL `_dns_cache` first. Before "fixing" that gap,
+  checking who actually calls the method revealed the answer: nobody.
+  `aiodns` itself was assessed and not pursued -- this tool mirrors
+  one domain per run with many requests against it, so the existing
+  cached + executor-offloaded DNS resolution already amortizes to a
+  handful of real lookups per run; a native async resolver would
+  shave microseconds off an operation that's already essentially free
+  in this workload pattern, at the cost of a C-extension dependency
+  that works against the project's "pure Python, any OS/architecture"
+  design goal.
+
+  No functional change: removed code was unreachable. Removing it
+  also dropped `CONTENT_HASH_LIMIT` from the file's imports (no
+  longer referenced anywhere in it). mypy's error count for the file
+  dropped by 2 (12 -> 10) with the dead code gone.
+
 ## [3.1.39] - 2026-08-02
 
 ### Changed
