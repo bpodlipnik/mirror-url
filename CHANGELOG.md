@@ -4,6 +4,61 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.39] - 2026-08-02
+
+### Changed
+- `clean_obsolete()` (`_core/cleanup.py`) now walks the local
+  `--dest-path` tree exactly **once** per run, via a new
+  `os.scandir()`-based `_scan_local_tree()` helper, instead of up to 4
+  separate `Path.rglob("*")` calls that each re-walked the *entire*
+  tree from scratch: the preview file-check, the preview empty-dir
+  check, the main DELETE/MOVE collection, and the (now-removed)
+  `_count_obsolete_files()` used only for the `--confirm-delete`
+  prompt. For a large local mirror this meant walking the whole tree
+  2-4x for a single `clean_obsolete()` call. Also avoids `rglob()`'s
+  per-item `is_file()`/`is_dir()` calls, each of which costs its own
+  `stat()` syscall even though `os.scandir()`'s `DirEntry` objects
+  already carry that type information from the directory read itself
+  on most platforms.
+
+  A parallel worker pool for the walk itself was considered and
+  deliberately not built: this walks the *local* destination
+  filesystem, not the network, and on typical local SSD storage a
+  sequential `scandir()` walk is already fast -- parallelizing local
+  directory traversal adds real complexity (a thread-safe work queue,
+  more failure modes) for a benefit that's speculative without an
+  established local-I/O bottleneck. Can be revisited if one shows up
+  in practice.
+
+  Symlinks are still followed for file/directory classification
+  (matching the previous `Path.is_file()`/`is_dir()` behavior), but a
+  symlinked directory is now only ever descended into once: each
+  directory's resolved real path is tracked in a `visited` set, so a
+  symlink cycle terminates cleanly. This replaces (and is more
+  explicit/robust than) the previous code's blanket `except
+  RuntimeError` around `rglob()`, which relied on whatever
+  version-dependent loop detection pathlib happened to raise.
+
+  An unreadable subdirectory (permission error, or it disappears
+  mid-walk) is logged at debug level and skipped, same as before --
+  the rest of the walk continues rather than aborting entirely.
+
+  No behavior change for callers: `clean_obsolete()`'s preview
+  output, confirm-delete prompt, and DELETE/MOVE results are
+  unchanged -- this only removes redundant re-walking of the same
+  local tree.
+
+  33 new tests in `tests/test_cleanup_scandir_walk.py`: the walk
+  helper in isolation (file/dir collection, empty directories, a real
+  symlink-cycle regression test, an unreadable-directory case via a
+  monkeypatched `os.scandir()` since tests run as root in CI/sandboxes
+  where real `chmod`-based permission denial doesn't apply), plus
+  `clean_obsolete()` end-to-end for PREVIEW, `--dry-run`, DELETE (with
+  and without `--confirm-delete`, including a regression guard that
+  the confirm-prompt count and the actual deletion count can never
+  diverge now that they share one walk), and MOVE mode -- the last of
+  which had no dedicated test at all before this change.
+
 ## [3.1.38] - 2026-08-02
 
 ### Added
