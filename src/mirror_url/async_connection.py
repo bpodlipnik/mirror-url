@@ -29,6 +29,7 @@ from .constants import (
     KNOWN_THROTTLED_DOMAINS,
     PROFILE_SAMPLE_SIZE,
 )
+from .domain_health import get_domain_health_tracker
 from .models import ServerProfile
 from .rate_limiter import PerIPRateLimiter
 from .transport import SecureAsyncTransport
@@ -1077,7 +1078,16 @@ class AdaptiveAsyncManager:
             parsed = urlparse(url)
             domain = parsed.netloc.lower()
             if domain not in self.profiles:
-                is_throttled = any(kd in domain for kd in KNOWN_THROTTLED_DOMAINS)
+                known_throttled = any(kd in domain for kd in KNOWN_THROTTLED_DOMAINS)
+                # Alongside the static, hardcoded list above (day-one
+                # protection for a handful of well-known archives), also
+                # consult the persistent, self-learning tracker: a domain
+                # that has racked up repeated 429/503s across previous
+                # runs starts conservative too, without ever needing to be
+                # added to KNOWN_THROTTLED_DOMAINS by hand. Either signal
+                # is sufficient.
+                learned_throttled = get_domain_health_tracker().is_throttled(domain)
+                is_throttled = known_throttled or learned_throttled
                 start_conc = 3 if is_throttled else ADAPTIVE_START_CONCURRENCY
                 self.profiles[domain] = ServerProfile(
                     domain=domain, is_throttled=is_throttled, recommended_concurrency=start_conc
@@ -1086,7 +1096,8 @@ class AdaptiveAsyncManager:
                     # Also set current concurrency to conservative value
                     if not self._fallback_to_sync:
                         self._current_concurrency = start_conc
-                    logging.info(f"🔍 Known throttled domain: {domain}, starting conservative")
+                    reason = "known" if known_throttled else "learned from past 429/503s"
+                    logging.info(f"🔍 Throttled domain ({reason}): {domain}, starting conservative")
             return self.profiles[domain]
 
 
