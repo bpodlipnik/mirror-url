@@ -27,6 +27,7 @@ from .circuit_breaker import CircuitBreakerManager
 from .compat import Str
 from .concurrency import UnifiedConcurrencyManager
 from .constants import DEFAULT_TIMEOUT, MAX_CONNECTION_POOLS
+from .domain_health import get_domain_health_tracker
 from .enums import ConcurrencyType
 from .exceptions import (
     ConcurrencyLimitError,
@@ -777,6 +778,7 @@ class ConnectionManager:
                         # entirely, which the server may have sent specifically
                         # to say how long to wait.
                         if status_code == 429:
+                            get_domain_health_tracker().record_incident(domain)
                             self.consecutive_failures += 1
                             if attempt == self.config.max_retries:
                                 if self.circuit_breaker_manager:
@@ -810,6 +812,14 @@ class ConnectionManager:
 
                         # Retry on 5xx server errors
                         if isinstance(status_code, int) and 500 <= status_code < 600:
+                            if status_code == 503:
+                                # 503 Service Unavailable is the classic
+                                # overload/throttle signal alongside 429;
+                                # other 5xx (500/502/504) usually indicate a
+                                # server bug or gateway issue rather than
+                                # throttling, so they're retried the same
+                                # way but not counted toward domain health.
+                                get_domain_health_tracker().record_incident(domain)
                             self.consecutive_failures += 1
                             if attempt == self.config.max_retries:
                                 if self.circuit_breaker_manager:

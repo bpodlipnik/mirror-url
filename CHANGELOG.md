@@ -4,6 +4,59 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.38] - 2026-08-02
+
+### Added
+- New persistent, self-learning domain-health tracker
+  (`domain_health.py`): remote domains that repeatedly send 429/503
+  responses across separate mirror-url invocations are now
+  automatically treated as throttled -- getting a conservative
+  starting concurrency -- without needing to be hardcoded into
+  `KNOWN_THROTTLED_DOMAINS` (constants.py) first. Every observed
+  429 or 503 (not other 5xx like 500/502/504, which usually indicate
+  a server bug or gateway issue rather than throttling) is recorded
+  as an incident for that domain in a small JSON file in the user's
+  cache directory (`~/.cache/mirror-url/domain_health.json` on POSIX,
+  `%LOCALAPPDATA%\mirror-url\domain_health.json` on Windows) --
+  shared across every invocation regardless of `--dir-suffix`/
+  `--log-path`, since domain health is a property of the server, not
+  of any specific mirrored subtree. A domain is considered throttled
+  once it has 5 or more incidents within a trailing 14-day window;
+  this decays automatically and gradually as old incidents age out,
+  with no manual reset or separate expiry logic needed. The existing
+  `KNOWN_THROTTLED_DOMAINS` list still applies as a day-one default
+  for a handful of well-known archives -- either signal (hardcoded or
+  learned) is sufficient to start conservative.
+
+  Deliberately 429/503-only, not RTT-variance-based: a hard status
+  code is an unambiguous signal, whereas RTT variance is noisy
+  (network jitter, local load, a brief server hiccup all look similar
+  statistically) and would need real-world calibration this project
+  doesn't have yet -- can be added later once this simpler mechanism
+  has proven itself.
+
+  Thread-safe within a process; cross-process safety relies on atomic
+  replace-on-write (`Path.replace`, not `Path.rename` -- the latter
+  fails on Windows if the destination already exists) so a concurrent
+  writer never observes a half-written or corrupted file. A lost
+  update between two simultaneous writers (e.g. two mirror-url
+  processes mirroring different `--dir-suffix` values of the same
+  domain at once) is possible but not guarded against explicitly --
+  it self-corrects over subsequent incidents, at a low cost compared
+  to full file locking. Every operation degrades gracefully to a
+  no-op on any I/O or parse failure (missing permissions, corrupt
+  file, read-only filesystem, etc.) -- this is a best-effort
+  optimization hint, never a hard dependency, and never the reason a
+  mirror run fails.
+
+  39 new tests: 21 for the tracker itself
+  (`tests/test_domain_health.py` -- path resolution on POSIX/Windows,
+  threshold/window logic, cross-instance persistence, corrupt-file
+  and malformed-entry handling, unwritable-directory handling) plus
+  18 in `tests/test_429_retry_after.py` covering incident recording
+  end-to-end through the real `ConnectionManager.request()` retry
+  loop (429 and 503 both recorded, other 5xx and 404 are not).
+
 ## [3.1.37] - 2026-08-01
 
 ### Fixed

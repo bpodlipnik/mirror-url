@@ -90,12 +90,13 @@ def test_parse_retry_after_missing_or_unparseable_returns_none(value):
 # ---------------------------------------------------------------------------
 
 
-def _build_connection_manager(monkeypatch, handler):
+def _build_connection_manager(monkeypatch, handler, tmp_path):
     """Build a real ConnectionManager whose connection pool is backed by
     an httpx.MockTransport, so request() drives its actual retry logic
     end-to-end against a scripted response sequence."""
     from mirror_url.config import MirrorConfig
     from mirror_url.connection import ConnectionManager
+    from mirror_url.domain_health import DomainHealthTracker
     from mirror_url.metrics import MetricsCollector
 
     config = MirrorConfig(
@@ -111,6 +112,15 @@ def _build_connection_manager(monkeypatch, handler):
     mock_client = httpx.Client(transport=httpx.MockTransport(handler))
     monkeypatch.setattr(mgr.connection_pool, "get_client", lambda base_url: mock_client)
 
+    # request() records 429/503 incidents via the process-wide domain-health
+    # singleton (see test_domain_health.py) -- redirect it to a tmp-path
+    # tracker for the duration of this test, never the real
+    # ~/.cache/mirror-url/domain_health.json. Without this, every run of
+    # this test file writes real incidents into the developer's/CI's
+    # actual home directory cache.
+    test_tracker = DomainHealthTracker(path=tmp_path / "domain_health.json")
+    monkeypatch.setattr("mirror_url.connection.get_domain_health_tracker", lambda: test_tracker)
+
     # request() does an unrelated small random jitter sleep (0-0.02s) once,
     # BEFORE entering the retry loop, on every call regardless of outcome
     # (see connection.py). Pin it to exactly 0.0 so sleep_calls[0] is
@@ -122,10 +132,10 @@ def _build_connection_manager(monkeypatch, handler):
     sleep_calls = []
     monkeypatch.setattr("mirror_url.connection.time.sleep", lambda s: sleep_calls.append(s))
 
-    return mgr, sleep_calls
+    return mgr, sleep_calls, test_tracker
 
 
-def test_429_with_retry_after_header_is_retried_and_succeeds(monkeypatch):
+def test_429_with_retry_after_header_is_retried_and_succeeds(monkeypatch, tmp_path):
     calls = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -134,7 +144,7 @@ def test_429_with_retry_after_header_is_retried_and_succeeds(monkeypatch):
             return httpx.Response(429, headers={"Retry-After": "2"})
         return httpx.Response(200, content=b"ok")
 
-    mgr, sleep_calls = _build_connection_manager(monkeypatch, handler)
+    mgr, sleep_calls, tracker = _build_connection_manager(monkeypatch, handler, tmp_path)
 
     resp = mgr.request("https://example.test/data/file.png")
 
@@ -145,9 +155,14 @@ def test_429_with_retry_after_header_is_retried_and_succeeds(monkeypatch):
     # be honored (possibly extended by the jittered exponential-backoff
     # floor, but never less than 2s).
     assert sleep_calls[1] >= 2.0
+    # The 429 must also have been recorded as a domain-health incident
+    # (see test_domain_health.py for the tracker's own unit tests).
+    with tracker.lock:
+        tracker._load()
+        assert len(tracker._data.get("example.test", [])) == 1
 
 
-def test_429_without_retry_after_falls_back_to_exponential_backoff(monkeypatch):
+def test_429_without_retry_after_falls_back_to_exponential_backoff(monkeypatch, tmp_path):
     calls = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -156,7 +171,7 @@ def test_429_without_retry_after_falls_back_to_exponential_backoff(monkeypatch):
             return httpx.Response(429)  # no Retry-After header at all
         return httpx.Response(200, content=b"ok")
 
-    mgr, sleep_calls = _build_connection_manager(monkeypatch, handler)
+    mgr, sleep_calls, _tracker = _build_connection_manager(monkeypatch, handler, tmp_path)
 
     resp = mgr.request("https://example.test/data/file.png")
 
@@ -167,7 +182,7 @@ def test_429_without_retry_after_falls_back_to_exponential_backoff(monkeypatch):
     assert sleep_calls[1] > 0
 
 
-def test_429_exhausting_all_retries_raises_mirror_connection_error(monkeypatch):
+def test_429_exhausting_all_retries_raises_mirror_connection_error(monkeypatch, tmp_path):
     from mirror_url.connection import MirrorConnectionError
 
     calls = []
@@ -176,7 +191,7 @@ def test_429_exhausting_all_retries_raises_mirror_connection_error(monkeypatch):
         calls.append(request)
         return httpx.Response(429, headers={"Retry-After": "1"})
 
-    mgr, sleep_calls = _build_connection_manager(monkeypatch, handler)
+    mgr, sleep_calls, tracker = _build_connection_manager(monkeypatch, handler, tmp_path)
 
     with pytest.raises(MirrorConnectionError, match="429"):
         mgr.request("https://example.test/data/file.png")
@@ -187,9 +202,14 @@ def test_429_exhausting_all_retries_raises_mirror_connection_error(monkeypatch):
     assert len(sleep_calls) == 4
     assert sleep_calls[0] == 0.0  # the pinned jitter, not a retry sleep
     assert all(s > 0 for s in sleep_calls[1:]), "all 3 retry backoffs must be positive waits"
+    # Every one of the 4 observed 429s counts as an incident, even the
+    # ones that were retried (not just the final give-up).
+    with tracker.lock:
+        tracker._load()
+        assert len(tracker._data.get("example.test", [])) == 4
 
 
-def test_429_retry_after_longer_than_computed_backoff_is_honored(monkeypatch):
+def test_429_retry_after_longer_than_computed_backoff_is_honored(monkeypatch, tmp_path):
     """A server explicitly asking for e.g. 5s must not be shortened just
     because the jittered exponential backoff would have picked less."""
     calls = []
@@ -200,13 +220,13 @@ def test_429_retry_after_longer_than_computed_backoff_is_honored(monkeypatch):
             return httpx.Response(429, headers={"Retry-After": "5"})
         return httpx.Response(200, content=b"ok")
 
-    mgr, sleep_calls = _build_connection_manager(monkeypatch, handler)
+    mgr, sleep_calls, _tracker = _build_connection_manager(monkeypatch, handler, tmp_path)
     mgr.request("https://example.test/data/file.png")
 
     assert sleep_calls[1] >= 5.0
 
 
-def test_404_is_still_not_retried(monkeypatch):
+def test_404_is_still_not_retried(monkeypatch, tmp_path):
     """Sanity check: the new 429 branch must not affect other 4xx codes --
     404 still raises immediately via raise_for_status(), no retry."""
     calls = []
@@ -215,10 +235,57 @@ def test_404_is_still_not_retried(monkeypatch):
         calls.append(request)
         return httpx.Response(404)
 
-    mgr, sleep_calls = _build_connection_manager(monkeypatch, handler)
+    mgr, sleep_calls, tracker = _build_connection_manager(monkeypatch, handler, tmp_path)
 
     with pytest.raises(httpx.HTTPStatusError):
         mgr.request("https://example.test/data/file.png")
 
     assert len(calls) == 1, "404 must not be retried"
     assert sleep_calls == [0.0], "only the fixed pre-request jitter, no retry-backoff sleep"
+    # 404 is not a throttle/overload signal -- must not count as an incident.
+    with tracker.lock:
+        tracker._load()
+        assert "example.test" not in tracker._data
+
+
+def test_503_is_also_recorded_as_a_domain_health_incident(monkeypatch, tmp_path):
+    """503 Service Unavailable is the other classic overload/throttle
+    signal alongside 429 -- must count toward domain health too, not
+    just get retried."""
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        if len(calls) == 1:
+            return httpx.Response(503)
+        return httpx.Response(200, content=b"ok")
+
+    mgr, sleep_calls, tracker = _build_connection_manager(monkeypatch, handler, tmp_path)
+    resp = mgr.request("https://example.test/data/file.png")
+
+    assert resp.status_code == 200
+    with tracker.lock:
+        tracker._load()
+        assert len(tracker._data.get("example.test", [])) == 1
+
+
+def test_other_5xx_are_retried_but_not_recorded_as_incidents(monkeypatch, tmp_path):
+    """500/502/504 usually indicate a server bug or gateway issue, not
+    throttling -- still retried the same way as any 5xx, but must not
+    pollute the domain-health throttle signal the way 429/503 do."""
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        if len(calls) == 1:
+            return httpx.Response(500)
+        return httpx.Response(200, content=b"ok")
+
+    mgr, sleep_calls, tracker = _build_connection_manager(monkeypatch, handler, tmp_path)
+    resp = mgr.request("https://example.test/data/file.png")
+
+    assert resp.status_code == 200
+    assert len(calls) == 2, "500 must still be retried"
+    with tracker.lock:
+        tracker._load()
+        assert "example.test" not in tracker._data
