@@ -4,6 +4,71 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.41] - 2026-08-02
+
+### Fixed
+- **`h2` was never declared as a dependency anywhere** (base
+  dependencies, `[dev]`, or any other extra), even though
+  `config.http2` defaults to `True`. Without `h2` installed,
+  `httpx.AsyncClient(http2=True, ...)` raises on construction inside
+  `AdaptiveAsyncManager._init_client()`; `_ensure_client()` catches
+  that and returns `False`, and every caller (`profile_server()`,
+  `head()`, etc.) then silently and *permanently* falls back to the
+  slower sync path for the entire run -- with no error ever surfaced
+  to the user. Found while building tests for the concurrent
+  profiling change below: a fresh venv built strictly from
+  `pyproject.toml` reproduced this exactly. Fixed by depending on
+  `httpx[http2]` instead of bare `httpx` in base `dependencies` --
+  `h2` is a hard runtime requirement given the tool's own default,
+  not an optional extra. New regression test
+  (`test_ensure_client_succeeds_with_default_http2_setting`) drives
+  the real `_ensure_client()`/`_init_client()` path with the
+  unmodified default config (no mock transport substitution),
+  verified to fail with the exact original error message when run
+  against an `h2`-less environment, and to pass once `h2` is present.
+
+  If you're on an existing install, run `pip install --upgrade
+  --no-cache-dir mirror-url` to pick up the dependency, or `pip
+  install h2` directly to fix it immediately without waiting for the
+  next release. Check whether you were affected with `pip show h2`.
+
+### Changed
+- `AdaptiveAsyncManager.profile_server()` fired its up-to-20
+  ("`PROFILE_SAMPLE_SIZE`") warm-up HEAD samples in a strictly
+  sequential `for` loop, `await`-ing each one to completion before
+  starting the next -- so N samples cost N × (real round-trip time),
+  turning a handful of quick probes into several real seconds of pure
+  warm-up before a single file transfer even started, on any server
+  with non-trivial latency, despite the underlying `httpx.AsyncClient`
+  already having HTTP/2 multiplexing enabled and able to genuinely
+  run several requests concurrently over one connection. Samples are
+  now fired concurrently via `asyncio.gather()`, bounded by a
+  semaphore sized to `self._current_concurrency` -- the same value
+  `_get_profile()` already set for this domain (
+  `ADAPTIVE_START_CONCURRENCY` by default, or the conservative
+  fallback for a `KNOWN_THROTTLED_DOMAINS`/domain-health-learned-
+  throttled domain, see 3.1.38). A domain already flagged as
+  sensitive is therefore still probed gently -- concurrently within
+  that same conservative bound, not at a burst of up to
+  `PROFILE_SAMPLE_SIZE` simultaneous requests regardless of its
+  throttle history.
+
+  9 new tests in `tests/test_profile_server_concurrency.py` prove
+  genuine concurrency rather than just "still works": a mock
+  transport records peak simultaneous in-flight requests and enforces
+  an artificial per-request delay, so a still-sequential
+  implementation would show `peak_in_flight == 1` and take
+  `N × delay` wall-clock time -- versus the fixed version's
+  `peak_in_flight > 1`, bounded by the configured concurrency, and
+  `~ceil(N / concurrency) × delay` wall-clock time (directly asserted
+  with a generous margin for CI jitter). Also covers: the concurrency
+  bound is respected even when a `KNOWN_THROTTLED_DOMAINS`-style
+  conservative value is set, success/error counting stays correct
+  despite results arriving out of `asyncio.gather()` order, the
+  existing high-error-rate-triggers-sync-fallback behavior is
+  unaffected, a slow/timing-out sample doesn't block the rest of the
+  batch, and the `PROFILE_SAMPLE_SIZE` cap still applies.
+
 ## [3.1.40] - 2026-08-02
 
 ### Removed
