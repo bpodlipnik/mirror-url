@@ -56,8 +56,9 @@ incremental runs, and strong SSRF/path-traversal protections.
 ## Requirements
 
 - **Python 3.9 or newer.**
-- Runtime dependencies (installed automatically): `httpx`, `pydantic` (v2),
-  `PyYAML`.
+- Runtime dependencies (installed automatically): `httpx` (with the
+  `http2` extra, which pulls in `h2` -- HTTP/2 is on by default, see
+  `--no-http2`), `pydantic` (v2), `PyYAML`.
 - Optional accelerators (install via extras, see below): `stringzilla` + `lxml`
   (faster parsing), `tqdm` (progress bars), `psutil` (memory/disk monitoring).
 

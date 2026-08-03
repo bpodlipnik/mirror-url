@@ -250,7 +250,9 @@ protections.</p>
 <h2 id="requirements">Requirements</h2>
 <ul>
 <li><strong>Python 3.9 or newer.</strong></li>
-<li>Runtime dependencies (installed automatically): <code>httpx</code>,
+<li>Runtime dependencies (installed automatically): <code>httpx</code>
+(with the <code>http2</code> extra, which pulls in <code>h2</code> –
+HTTP/2 is on by default, see <code>--no-http2</code>),
 <code>pydantic</code> (v2), <code>PyYAML</code>.</li>
 <li>Optional accelerators (install via extras, see below):
 <code>stringzilla</code> + <code>lxml</code> (faster parsing),
