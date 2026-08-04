@@ -851,6 +851,7 @@ class ParallelDownloadManager:
                 if hasattr(self.mirror, "fs_cache"):
                     self.mirror.fs_cache.invalidate(download.final_path)
 
+            logging.info(f"Downloaded: {download.final_path} ({format_bytes(download.file_size)})")
             logging.info(
                 f"✅ Streaming complete: {download.final_path.name} ({format_bytes(download.file_size)})"
             )
@@ -1185,6 +1186,16 @@ class ParallelDownloadManager:
             # ====================================================================
             # SUCCESS
             # ====================================================================
+            # Same log line the single-shot (non-chunked) download path emits
+            # (_core/downloads.py) -- previously only the "Assembling.../
+            # Successfully assembled..." lines above were logged here, so a
+            # chunk-assembled file never got the plain "Downloaded: <path>
+            # (<size>)" line every other file does, even though it's counted
+            # identically in the run summary. Kept as its own line (not
+            # merged into "Successfully assembled") so grepping logs for
+            # "^Downloaded: " reliably finds every downloaded file,
+            # regardless of which code path fetched it.
+            logging.info(f"Downloaded: {download.final_path} ({format_bytes(file_size)})")
             logging.info(
                 f"✅ Successfully assembled {download.final_path.name} ({format_bytes(file_size)})"
             )

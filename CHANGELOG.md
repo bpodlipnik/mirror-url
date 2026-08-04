@@ -4,6 +4,44 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.42] - 2026-08-04
+
+### Fixed
+- **Missing "Downloaded:" log line for chunk-assembled and streaming
+  files.** Found reviewing a real production log: the summary said
+  "Downloading 13 files" / "Downloaded: 13", but only 12
+  `Downloaded: <path> (<size>)` lines actually appeared -- the 13th
+  file was fetched via the parallel chunked-download path, which only
+  logged "Assembling..." / "Successfully assembled..." lines, never
+  the plain per-file line every other file gets from the single-shot
+  path (`_core/downloads.py`). The file was correctly downloaded and
+  correctly counted in every summary total (`files_processed`, and by
+  extension "Files downloaded", is incremented identically on both
+  paths) -- this was a logging-completeness gap, not a counting bug,
+  but it meant grepping a log for `^Downloaded: ` to get a file
+  inventory silently missed chunk-assembled and streamed files. Added
+  the same log line, same format, to both completion paths
+  (`assemble_file()` and the streaming-mode branch in
+  `download_parallel()`), so every downloaded file gets exactly one
+  `Downloaded: ` line regardless of which download method fetched it.
+
+- **`Rate: X/s` progress lines never said what X was per second** --
+  files? directories? downloads? The item type
+  (`directories`/`downloads`/`files checked`) was already present
+  earlier in the same log line, just never repeated next to the rate
+  figure itself, making it ambiguous when read out of context (e.g.
+  grepped from a log rather than read inline). Both the interim
+  (`Rate: X/s`) and final (`Overall rate: X/s`) report lines in
+  `progress.py` now include the tracked item's name, e.g.
+  `Rate: 14.8 files checked/s`, `Overall rate: 18.3 directories/s`.
+
+  7 new tests: 4 in `tests/test_progress_rate_unit.py` for the rate-
+  unit fix, 3 in `tests/test_download_completion_logging.py` driving
+  the real `assemble_file()`/`download_parallel()` production code
+  paths against real chunk files on disk (not mocked), including a
+  format-parity check against the single-shot path's existing log
+  line.
+
 ## [3.1.41] - 2026-08-02
 
 ### Fixed

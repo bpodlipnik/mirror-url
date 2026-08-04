@@ -217,7 +217,7 @@ class ProgressTracker:
             rate = self.completed / total_elapsed if total_elapsed > 0 else 0
             report = (
                 f"{self.prefix}Progress [{self.level}]: {self.completed}/{self.total} {self.name} "
-                f"({percentage:.1f}%) - Complete! (Overall rate: {rate:.1f}/s)"
+                f"({percentage:.1f}%) - Complete! (Overall rate: {rate:.1f} {self.name}/s)"
             )
         else:
             rate = self.completed / total_elapsed if total_elapsed > 0 else 0
@@ -238,7 +238,7 @@ class ProgressTracker:
 
             report = (
                 f"{self.prefix}Progress [{self.level}]: {self.completed}/{self.total} {self.name} "
-                f"({percentage:.1f}%) - Rate: {rate:.1f}/s - "
+                f"({percentage:.1f}%) - Rate: {rate:.1f} {self.name}/s - "
                 f"Elapsed: {elapsed_str} - ETA: {eta_str}"
             )
 
