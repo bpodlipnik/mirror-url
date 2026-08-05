@@ -4,6 +4,38 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.43] - 2026-08-05
+
+### Fixed
+- `setup_shared_logging()` (used whenever `--log-file` is given) built
+  the shared log filename by joining every `--dir-suffix` value with
+  underscores, with no length cap at all. A full month of daily
+  suffixes (e.g. 31 values like `260701`..`260731`) easily pushed the
+  filename past the filesystem's limit (typically 255 bytes),
+  crashing with `OSError: [Errno 36] File name too long` before the
+  run even started -- reported from a real script trying to mirror
+  July's data in one invocation. The existing `--log-path`
+  scratch-dir fallback didn't help here, since that only guards
+  against a bad *directory*, not an overly long *filename* built from
+  this function's own string concatenation.
+
+  Fixed by summarizing instead of blindly truncating once the joined
+  suffix string would push the filename over budget: the first 3
+  suffixes stay in the filename for readability (e.g.
+  `260701_260702_260703`), followed by `_plus28more_` and an 8-char
+  hash of the *full sorted* suffix list, so two different large
+  suffix sets can never collide on the same summarized filename
+  regardless of the order they were passed in. Small suffix lists
+  (the common case) are completely unaffected -- the guard only
+  engages once the budget is actually exceeded.
+
+  4 new tests in `tests/test_log_file_flag.py`: the exact reported
+  31-suffix scenario (confirmed to reproduce the original crash
+  against the pre-fix code), the summarized filename's shape, a
+  same-first-3-different-rest collision check, and a regression guard
+  that small suffix lists still produce the full, unsummarized
+  filename exactly as before.
+
 ## [3.1.42] - 2026-08-04
 
 ### Fixed

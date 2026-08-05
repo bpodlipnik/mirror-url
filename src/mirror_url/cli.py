@@ -9,6 +9,7 @@ guard lives in ``__main__.py`` instead.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
 import shlex
@@ -155,6 +156,38 @@ def setup_shared_logging(args: argparse.Namespace) -> None:
     # Create log filename with suffixes properly separated by underscores
     suffixes_str = "_".join(args.dir_suffix) if args.dir_suffix else "all"
     timestamp = time.strftime("%Y%m%d_%H%M%S")
+
+    # Guard against the constructed filename exceeding the filesystem's
+    # limit (typically 255 bytes) when many --dir-suffix values are
+    # passed -- e.g. a full month of daily suffixes joined with
+    # underscores easily exceeds this, and logging.FileHandler crashes
+    # with OSError: [Errno 36] File name too long before the run even
+    # starts. This is the shared-log *filename* itself; the existing
+    # --log-path scratch-dir fallback (see connection.py/_core/_base.py)
+    # only guards against a bad *directory*, not an overly long
+    # *filename* built from this method's own string concatenation, so
+    # it doesn't help here.
+    #
+    # Fixed overhead in the final filename besides log_file/suffixes_str:
+    # "_" + timestamp ("YYYYMMDD_HHMMSS", 15 chars) + ".log", plus a
+    # margin for safety.
+    fixed_overhead = len(args.log_file) + 1 + len(timestamp) + len(".log") + 10
+    suffix_budget = max(20, MAX_FILENAME_LENGTH - fixed_overhead)
+
+    if len(suffixes_str) > suffix_budget:
+        # Summarize instead of truncating blindly: a short preview of the
+        # first few suffixes stays human-readable in a directory listing,
+        # and a hash of the *full sorted* suffix list guarantees two
+        # different large suffix sets never collide on the same
+        # summarized filename (sorted so the same set of suffixes always
+        # hashes the same way regardless of the order they were passed
+        # in).
+        suffix_hash = hashlib.sha256("_".join(sorted(args.dir_suffix)).encode()).hexdigest()[:8]
+        preview_count = 3
+        preview = "_".join(args.dir_suffix[:preview_count])
+        remaining = len(args.dir_suffix) - preview_count
+        suffixes_str = f"{preview}_plus{remaining}more_{suffix_hash}"
+
     log_filename = f"{args.log_file}_{suffixes_str}_{timestamp}.log"
     log_path = Path(args.log_path) / log_filename
 

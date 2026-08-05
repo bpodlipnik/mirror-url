@@ -226,3 +226,157 @@ def test_without_log_file_uses_default_per_suffix_naming(monkeypatch, tmp_path):
     assert list(logs.glob("*.log")) == []
     config = _CapturingMirrorStub.captured_configs[0]
     assert config.use_shared_log is False
+
+
+def test_many_dir_suffixes_do_not_produce_a_too_long_filename(monkeypatch, tmp_path):
+    """The exact reported crash: a full month of daily --dir-suffix values
+    (31 entries) joined with underscores, plus --log-file, previously
+    produced a filename well over the filesystem's limit (typically 255
+    bytes), crashing with OSError: [Errno 36] File name too long before
+    the run even started. The summarized filename must stay well under
+    that limit and the log file must actually get created."""
+    from mirror_url.constants import MAX_FILENAME_LENGTH
+
+    dest = tmp_path / "dest"
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    july_days = [f"2607{d:02d}" for d in range(1, 32)]  # 31 suffixes, the real scenario
+
+    _run_main(
+        monkeypatch,
+        [
+            "--url",
+            "https://example.test/data/",
+            "--dest-path",
+            str(dest),
+            "--log-path",
+            str(logs),
+            "--dir-suffix",
+            *july_days,
+            "--log-file",
+            "mirror_url_lasco_ql_nrl",
+            "--dry-run",
+        ],
+    )
+
+    log_files = list(logs.glob("*.log"))
+    assert len(log_files) == 1, "log file was never created -- the crash reproduced"
+    name = log_files[0].name
+    assert len(name) <= MAX_FILENAME_LENGTH
+    assert name.startswith("mirror_url_lasco_ql_nrl_")
+
+
+def test_summarized_filename_previews_first_suffixes_and_counts_the_rest(monkeypatch, tmp_path):
+    dest = tmp_path / "dest"
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    july_days = [f"2607{d:02d}" for d in range(1, 32)]
+
+    _run_main(
+        monkeypatch,
+        [
+            "--url",
+            "https://example.test/data/",
+            "--dest-path",
+            str(dest),
+            "--log-path",
+            str(logs),
+            "--dir-suffix",
+            *july_days,
+            "--log-file",
+            "mirror_url_lasco_ql_nrl",
+            "--dry-run",
+        ],
+    )
+
+    name = list(logs.glob("*.log"))[0].name
+    assert "260701_260702_260703" in name  # first 3 suffixes previewed
+    assert "plus28more" in name  # 31 total - 3 previewed = 28 remaining
+    assert "260731" not in name  # the tail of the list is summarized away, not spelled out
+
+
+def test_different_large_suffix_sets_never_collide_on_filename(monkeypatch, tmp_path):
+    """Two different large --dir-suffix sets sharing the same first-3
+    preview must still produce different filenames -- the hash covers
+    the *full* sorted suffix list, not just the previewed prefix."""
+    dest = tmp_path / "dest"
+    logs = tmp_path / "logs"
+    logs.mkdir()
+
+    set_a = [f"2607{d:02d}" for d in range(1, 32)]  # July 1-31
+    set_b = [f"2607{d:02d}" for d in range(1, 31)]  # July 1-30 (one fewer, same first 3)
+
+    _run_main(
+        monkeypatch,
+        [
+            "--url",
+            "https://example.test/data/",
+            "--dest-path",
+            str(dest),
+            "--log-path",
+            str(logs),
+            "--dir-suffix",
+            *set_a,
+            "--log-file",
+            "mirror_url_lasco_ql_nrl",
+            "--dry-run",
+        ],
+    )
+    name_a = list(logs.glob("*.log"))[0].name
+
+    for f in logs.glob("*.log"):
+        f.unlink()
+
+    _run_main(
+        monkeypatch,
+        [
+            "--url",
+            "https://example.test/data/",
+            "--dest-path",
+            str(dest),
+            "--log-path",
+            str(logs),
+            "--dir-suffix",
+            *set_b,
+            "--log-file",
+            "mirror_url_lasco_ql_nrl",
+            "--dry-run",
+        ],
+    )
+    name_b = list(logs.glob("*.log"))[0].name
+
+    assert name_a != name_b
+
+
+def test_small_suffix_lists_are_unaffected_by_the_length_guard(monkeypatch, tmp_path):
+    """Sanity check that the fix is opt-in only when actually needed --
+    a handful of suffixes must still produce the full, unsummarized,
+    human-readable filename exactly as before (see
+    test_multiple_dir_suffixes_all_underscore_joined above)."""
+    dest = tmp_path / "dest"
+    logs = tmp_path / "logs"
+    logs.mkdir()
+
+    _run_main(
+        monkeypatch,
+        [
+            "--url",
+            "https://example.test/data/",
+            "--dest-path",
+            str(dest),
+            "--log-path",
+            str(logs),
+            "--dir-suffix",
+            "260801",
+            "260802",
+            "260803",
+            "--log-file",
+            "mirror_url_lasco_ql_nrl",
+            "--dry-run",
+        ],
+    )
+
+    name = list(logs.glob("*.log"))[0].name
+    assert name.startswith("mirror_url_lasco_ql_nrl_260801_260802_260803_")
+    assert "plus" not in name
+    assert "more" not in name
