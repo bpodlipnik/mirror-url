@@ -51,7 +51,7 @@ dev = [
     "pytest>=7.4",
     "pytest-asyncio>=0.21",
     "pytest-cov>=4.1",
-    "ruff==0.16.0",  # pinned exact: `ruff format` output isn't guaranteed stable
+    "ruff==0.16.1",  # pinned exact: `ruff format` output isn't guaranteed stable
     # across versions, so an unpinned range lets CI drift out of sync with
     # what's actually committed (see CHANGELOG). Bump deliberately, re-run
     # `ruff format .`, and commit the result in the same PR.
