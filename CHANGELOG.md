@@ -4,6 +4,31 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.44] - 2026-08-07
+
+### Added
+- Regression test for `ReportMixin.sync()`'s connection-failure early
+  exit, prompted by a direct question about whether an offline remote
+  server could ever lead to `--cleanup delete` deleting local files.
+  The guarantee already existed and was already correct -- `sync()`
+  returns immediately, before `get_remote_files()` or
+  `clean_obsolete()` are ever called, both when `connection_manager`
+  was never created and when a later check finds `connection_ok`
+  False -- but it had no dedicated test locking it in, unlike the
+  related (but narrower) partial-scan guard covered by
+  `test_cleanup_partial_scan.py` (which protects a scan that starts
+  but fails partway through a specific subdirectory; this covers a
+  scan that never starts at all because the server is unreachable).
+  A future refactor could have silently broken this without any test
+  catching the regression. No production code changed -- this closes
+  a coverage gap, it doesn't fix a bug.
+
+  2 new tests in `tests/test_sync_connection_failure_guard.py`:
+  `connection_manager` missing entirely, and `connection_manager`
+  present but `connection_ok=False`. Both assert `get_remote_files()`
+  and `clean_obsolete()` are never called (via spy stubs that raise
+  if reached), not just that `sync()` returns early.
+
 ## [3.1.43] - 2026-08-05
 
 ### Fixed
