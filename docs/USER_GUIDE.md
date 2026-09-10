@@ -1,6 +1,6 @@
 # MirrorURL — User Guide
 
-MirrorURL is an enterprise-grade command-line tool and Python library for
+MirrorURL is a security-hardened command-line tool and Python library for
 mirroring files behind an HTTP(S) **directory listing** to local disk. It walks
 the remote directory tree, decides which files are new or changed, and downloads
 them efficiently — with adaptive concurrency, resumable/parallel downloads,

@@ -1,4 +1,4 @@
-"""MirrorURL — enterprise-grade remote directory mirroring tool.
+"""MirrorURL — security-hardened remote directory mirroring tool.
 
 This package is the modular successor to the single-file ``mirror_url.py``
 script. During the refactor the monolith remains the runnable source of truth;
