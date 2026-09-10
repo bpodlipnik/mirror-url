@@ -4,7 +4,7 @@
 [![Python](https://img.shields.io/badge/python-3.9%E2%80%933.12-blue)](https://www.python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 
-Enterprise-grade remote directory mirroring tool. MirrorURL recursively
+Security-hardened remote directory mirroring tool. MirrorURL recursively
 discovers files behind an HTTP(S) directory listing and mirrors them locally
 with adaptive concurrency, resumable/partial downloads, integrity verification,
 and an SSRF-hardened transport layer.
