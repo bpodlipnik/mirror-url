@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.45] - 2026-09-10
+
+### Changed
+- Replaced "Enterprise-Grade" with "Security-Hardened" across every
+  user-facing mention (`src/mirror_url/cli.py`'s `--help` banner,
+  `src/mirror_url/__init__.py`'s module docstring, `README.md`,
+  `pyproject.toml`'s package description, `docs/USER_GUIDE.md`, and
+  `docs/USER_GUIDE.html`), including a matching "a"/"an" article fix
+  in the two USER_GUIDE files. The wording landed on `main` in
+  PR #62 without a version bump; this release exists purely to get
+  the corrected wording onto the PyPI package page and into
+  `pip install`ed copies, since PyPI release metadata is immutable
+  once published. Docs-only -- no behavior change.
+
 ## [3.1.44] - 2026-08-07
 
 ### Added
