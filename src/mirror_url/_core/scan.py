@@ -492,6 +492,73 @@ class ScanMixin:
         )
         return True
 
+    def _dir_entry_signature(self, files: List[str], subdirs: List[str]) -> Optional[str]:
+        """Lightweight content signature for a scanned directory.
+
+        Built purely from the basenames of the files/subdirectories
+        `scan_directory_sequential` already returned -- no extra HTTP
+        request. Used as a cheap proxy for "this directory's listing is
+        identical to another one we've already seen", which is the only
+        HTTP-visible symptom a plain Apache-style autoindex gives us for a
+        filesystem symlink: the server transparently resolves the symlink
+        and serves the *target* directory's listing under the *link's* own
+        URL path, with no "this is a symlink" flag anywhere in the HTML.
+        Confirmed against a real example (NASA sohoftp SolarSoft mirror):
+        .../lasco/lasco/ and .../lasco/idl/ return byte-for-byte equivalent
+        entry listings (only the self-referential hrefs differ).
+
+        Callers must not call this for an empty directory (no files and no
+        subdirs) -- every empty directory would collide on the same
+        signature and falsely look like a symlink to the first one seen.
+        """
+        try:
+            file_names = sorted(u.rstrip("/").rsplit("/", 1)[-1] for u in files)
+            dir_names = sorted(u.rstrip("/").rsplit("/", 1)[-1] + "/" for u in subdirs)
+        except Exception:
+            return None
+        combined = "\x00".join(dir_names) + "\x01" + "\x00".join(file_names)
+        return hashlib.sha256(combined.encode("utf-8", errors="replace")).hexdigest()
+
+    def _check_directory_symlink(
+        self,
+        url: str,
+        files: List[str],
+        subdirs: List[str],
+        dir_signatures: Dict[str, str],
+    ) -> Tuple[bool, Optional[str]]:
+        """Detect a likely directory symlink via entry-signature matching.
+
+        Compares this directory's signature against every non-empty
+        directory already scanned earlier in this same BFS run. A match
+        means two different URL paths served byte-for-byte-equivalent
+        listings -- our best available proxy for "one of these is a
+        symlink to the other" given that HTTP exposes no direct signal.
+
+        Returns (is_symlink, target_url). `target_url` is the first URL
+        seen with this signature -- treated as the symlink's target, since
+        BFS discovers it first. This is a heuristic, not ground truth: two
+        genuinely distinct directories that happen to contain identically
+        named entries (e.g. two empty-of-data placeholder dirs) would also
+        match. Restricting detection to non-empty directories (enforced by
+        the caller) keeps that false-positive risk low in practice.
+        """
+        if not files and not subdirs:
+            return False, None
+
+        signature = self._dir_entry_signature(files, subdirs)
+        if signature is None:
+            return False, None
+
+        seen_url = dir_signatures.get(signature)
+        if seen_url is None:
+            dir_signatures[signature] = url
+            return False, None
+
+        if seen_url == url:
+            return False, None
+
+        return True, seen_url
+
     def _discover_directories_bfs(self) -> Generator[str, None, None]:
         """BFS directory discovery - strictly within target scope."""
         if not self.connection_ok:
@@ -510,8 +577,12 @@ class ScanMixin:
 
         logging.debug(f"BFS discovery root: {sanitize_url_for_log(root_url)}")
 
+        prefix = self._get_prefix()
         queue = deque([(root_url, 0)])
         processed_dirs: Set[str] = set()
+        # Directory-level symlink detection state for this run (see
+        # _check_directory_symlink). Signature -> first URL seen with it.
+        dir_signatures: Dict[str, str] = {}
 
         while queue:
             url, depth = queue.popleft()
@@ -525,6 +596,7 @@ class ScanMixin:
                 continue
 
             processed_dirs.add(url)
+            skip_this_dir = False
 
             # A directory is only worth *fetching* (an actual HTTP request)
             # if we still have depth budget left to use its subdirectories
@@ -556,14 +628,91 @@ class ScanMixin:
                     )
                     self.scan_incomplete = True
                     subdirs = []
+                    _files = []
 
-                for subdir in subdirs:
-                    # Only add subdirs that start with root_url
-                    if subdir not in processed_dirs and subdir.startswith(root_url):
-                        if self._is_dir_excluded(subdir):
-                            logging.debug(f"Excluding directory: {sanitize_url_for_log(subdir)}")
-                            continue
-                        queue.append((subdir, depth + 1))
+                # Directory-level symlink detection & handling. Off by
+                # default (--handle-symlinks); when on, every directory is
+                # checked against every other directory's signature seen
+                # so far in this run and, if flagged, reported to the log
+                # unconditionally, then handled per --symlink-mode:
+                #   - target outside the current --url/--dir-suffix scope:
+                #     always ignored (never descended into), regardless of
+                #     --symlink-mode -- this is a safety boundary, not a
+                #     user-tunable one, since a symlink pointing outside
+                #     scope is exactly the "symlink bomb" scenario
+                #     max_symlink_depth/max_symlinks_per_dir/
+                #     symlink_bomb_threshold exist to guard against.
+                #   - target inside scope, mode "follow": mirrored/created
+                #     like a normal directory (this is the common case --
+                #     see e.g. NASA sohoftp's lasco/lasco -> lasco/idl).
+                #   - mode "skip" (default) or "treat-as-file" (directory
+                #     symlinks have no meaningful "treat as a single file"
+                #     reading, so this mode is handled the same as "skip"
+                #     for directories): reported, then ignored.
+                if self.config.handle_symlinks:
+                    is_link, target_url = self._check_directory_symlink(
+                        url, _files, subdirs, dir_signatures
+                    )
+                    if is_link:
+                        self.metrics.increment("symlinks_detected")
+                        in_scope = bool(target_url) and self._is_within_target_scope(target_url)
+                        parent_url = url.rstrip("/").rsplit("/", 1)[0] + "/"
+
+                        if not in_scope:
+                            logging.warning(
+                                f"{prefix}🔗 Symlink detected, target outside scope -- "
+                                f"ignoring: {sanitize_url_for_log(url)} -> "
+                                f"{sanitize_url_for_log(target_url or 'unknown')}"
+                            )
+                            if self.symlink_tracker:
+                                self.symlink_tracker.record_skip(url)
+                            self.metrics.increment("symlinks_skipped")
+                            skip_this_dir = True
+                        elif self.config.symlink_mode in ("skip", "treat-as-file"):
+                            logging.info(
+                                f"{prefix}🔗 Symlink detected (mode={self.config.symlink_mode}) "
+                                f"-- ignoring: {sanitize_url_for_log(url)} -> "
+                                f"{sanitize_url_for_log(target_url)}"
+                            )
+                            if self.symlink_tracker:
+                                self.symlink_tracker.record_skip(url)
+                            self.metrics.increment("symlinks_skipped")
+                            skip_this_dir = True
+                        else:
+                            can_follow = True
+                            reason = None
+                            if self.symlink_tracker:
+                                can_follow, reason = self.symlink_tracker.can_follow(
+                                    url, parent_url, depth
+                                )
+                            if not can_follow:
+                                logging.warning(
+                                    f"{prefix}🔗 Symlink detected but blocked ({reason}) "
+                                    f"-- ignoring: {sanitize_url_for_log(url)} -> "
+                                    f"{sanitize_url_for_log(target_url)}"
+                                )
+                                self.metrics.increment("symlink_loops_detected")
+                                skip_this_dir = True
+                            else:
+                                logging.info(
+                                    f"{prefix}🔗 Symlink detected, target in scope -- "
+                                    f"creating: {sanitize_url_for_log(url)} -> "
+                                    f"{sanitize_url_for_log(target_url)}"
+                                )
+                                if self.symlink_tracker:
+                                    self.symlink_tracker.record_follow(url, parent_url, depth)
+                                self.metrics.increment("symlinks_followed")
+
+                if not skip_this_dir:
+                    for subdir in subdirs:
+                        # Only add subdirs that start with root_url
+                        if subdir not in processed_dirs and subdir.startswith(root_url):
+                            if self._is_dir_excluded(subdir):
+                                logging.debug(
+                                    f"Excluding directory: {sanitize_url_for_log(subdir)}"
+                                )
+                                continue
+                            queue.append((subdir, depth + 1))
 
                 # Rate limiting -- only meaningful right after an actual
                 # request; skip it for the no-fetch branch above, since
@@ -575,7 +724,8 @@ class ScanMixin:
                 except Exception:
                     pass
 
-            yield url
+            if not skip_this_dir:
+                yield url
 
     def _get_local_path_from_url(self, url: str) -> Optional[Path]:
         """

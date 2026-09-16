@@ -4,6 +4,74 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.46] - 2026-09-16
+
+### Added
+- Directory-level symlink detection and handling for `--handle-symlinks`.
+  Previously this flag (and `--symlink-mode`) had no functional effect:
+  `ScanMixin.is_symlink()` never actually determined that a URL was a
+  symlink (it always returned `target_url=None`), so the follow/skip
+  branch that consumed it in `CompareMixin._check_files_async()` was
+  unreachable dead code, and the sync check path
+  (`_check_files_sync()`) never called `is_symlink()` at all. Plain
+  HTTP directory listings (Apache-style autoindex) carry no explicit
+  "this is a symlink" signal -- the server transparently resolves the
+  symlink server-side and serves the target directory's listing under
+  the link's own URL path. Confirmed against a real example: NASA's
+  sohoftp SolarSoft archive has `.../lasco/lasco/` symlinked to
+  `.../lasco/idl/`, and both URLs return byte-for-byte equivalent
+  entry listings with nothing distinguishing one from the other.
+
+  New detection: `ScanMixin._discover_directories_bfs()` now computes a
+  lightweight signature for every scanned directory from the basenames
+  of its immediate files/subdirs (no extra HTTP request -- reuses data
+  `scan_directory_sequential()` already returned) and compares it
+  against every other non-empty directory already scanned in the same
+  run. A match is reported to the log unconditionally, then handled by
+  `--symlink-mode`:
+  - **target outside the current `--url`/`--dir-suffix` scope: always
+    ignored** (never descended into), regardless of `--symlink-mode` --
+    a safety boundary rather than a user-tunable choice, since this is
+    exactly the "symlink bomb" scenario `--max-symlink-depth` /
+    `--max-symlinks-per-dir` / `--symlink-bomb-threshold` exist to
+    guard against.
+  - target inside scope, `--symlink-mode follow`: mirrored/created
+    normally (the common case, e.g. the lasco/lasco example above).
+  - `--symlink-mode skip` (default) or `treat-as-file` (a directory
+    symlink has no meaningful "treat as a single file" reading, so
+    it's handled the same as `skip`): reported, then ignored.
+
+  The existing `SymlinkTracker` loop/bomb-prevention class is now
+  actually wired to real detections (`can_follow`/`record_follow`/
+  `record_skip`), instead of being constructed but never meaningfully
+  consulted.
+
+  This is a heuristic, not ground truth -- two genuinely distinct but
+  identically-named-and-shaped directories would also match.
+  Restricting detection to non-empty directories keeps that
+  false-positive risk low in practice, and it costs one extra
+  already-necessary directory fetch per false positive, not a wrong
+  download.
+
+  **Known limitation, not addressed here:** per-*file* symlink
+  detection (as opposed to directories) remains non-functional --
+  `is_symlink()`/`record_symlink()` in `scan.py` and the dead branch in
+  `compare.py` are unchanged. There's no cheap, content-free way to
+  tell a symlinked individual file from a normal one over plain HTTP
+  the way there is for directories (comparing a full directory
+  listing); doing so would require downloading each file to hash it,
+  defeating the point. Flagged for a future pass if it turns out to
+  matter in practice.
+
+  10 new tests in `tests/test_directory_symlink_detection.py`
+  (signature computation, empty-directory false-positive guard,
+  `--handle-symlinks` off leaves behavior unchanged, `skip`/
+  `treat-as-file`/`follow` modes, out-of-scope-always-ignored, and the
+  bomb-threshold veto). `tests/test_bfs_depth_boundary_scan.py`'s
+  `_StubMirror` gained `handle_symlinks=False` so its existing
+  (unrelated) tests keep exercising the pre-existing off-by-default
+  path unchanged.
+
 ## [3.1.45] - 2026-09-10
 
 ### Changed
