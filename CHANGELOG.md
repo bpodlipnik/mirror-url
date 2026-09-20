@@ -4,6 +4,51 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.50] - 2026-09-20
+
+### Fixed
+- Fixed genuinely misleading symlink counting: a single real symlink was
+  reported as dozens or hundreds of separate detections. Borut caught
+  this against the real sohoftp run: one actual symlink
+  (`lasco/lasco -> lasco/idl`) produced "Symlinks detected: 460", one
+  line per directory in the duplicated subtree. Each of those 460 was a
+  genuine content-signature match, but they weren't 460 distinct
+  relationships -- once `lasco/lasco/` is flagged as a duplicate of
+  `lasco/idl/`, every directory underneath it necessarily duplicates the
+  corresponding one under `idl/` too, which is exactly what "this
+  subtree is served via a symlink" means. Re-detecting and re-logging
+  each descendant independently restated the same fact 460 times instead
+  of reporting the one thing that's actually true: one symlink was
+  found.
+
+  `ScanMixin._discover_directories_bfs()` now tracks the URL prefixes of
+  directories already flagged this run and skips re-running detection
+  (and therefore re-logging/re-counting) for anything underneath an
+  already-flagged prefix. Crawl behavior is completely unchanged --
+  every directory is still visited/yielded exactly as before, for every
+  `--symlink-mode` -- this only suppresses the redundant *reporting* of
+  matches that are already fully implied by an ancestor's detection.
+  Correctly produces "Symlinks detected: 1" for the real
+  `lasco/lasco -> lasco/idl` case.
+
+  Also fixed a real bug in `tests/test_directory_symlink_detection.py`
+  found while adding tests for this: an earlier edit in this same
+  feature branch had clobbered a `def test_symlink_bomb_threshold_
+  blocks_follow(monkeypatch):` line, silently merging that test's body
+  into the end of the preceding test instead of running as its own
+  test -- syntactically valid Python (the orphaned docstring became a
+  no-op statement), so nothing failed, but the test was never actually
+  collected or run on its own since the feature was built. Restored;
+  full suite confirmed at 12 (now 14, with the two new nested-subtree
+  tests below) collected tests in that file instead of 11.
+
+2 new tests directly proving the fix: a synthetic multi-level duplicate
+tree (mirroring the real `lasco`/`idl` shape) asserts exactly 1
+detection where the crawl visits 9 directories, and a `skip`-mode
+sanity check confirms the suppression logic doesn't interact badly with
+existing recursion-stopping behavior. `docs/USER_GUIDE.md`/`.html`
+updated to explain the top-level-only counting.
+
 ## [3.1.49] - 2026-09-20
 
 ### Fixed

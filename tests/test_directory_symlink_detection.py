@@ -118,6 +118,25 @@ def _tree_with_symlinked_sibling():
     }
 
 
+def _tree_with_nested_symlinked_sibling():
+    """ROOT -> {A/, B/}; A and B are identical multi-level trees, mirroring
+    the real lasco/lasco -> lasco/idl case: one symlink at the top, whose
+    entire subtree necessarily duplicates the target's subtree at every
+    level. Detection must flag only the top-level pair (B is a duplicate
+    of A), not every corresponding descendant pair independently."""
+    return {
+        ROOT: ([], [ROOT + "A/", ROOT + "B/"]),
+        ROOT + "A/": ([], [ROOT + "A/sub1/", ROOT + "A/sub2/"]),
+        ROOT + "B/": ([], [ROOT + "B/sub1/", ROOT + "B/sub2/"]),
+        ROOT + "A/sub1/": ([ROOT + "A/sub1/f1.txt"], [ROOT + "A/sub1/deep/"]),
+        ROOT + "B/sub1/": ([ROOT + "B/sub1/f1.txt"], [ROOT + "B/sub1/deep/"]),
+        ROOT + "A/sub1/deep/": ([ROOT + "A/sub1/deep/f2.txt"], []),
+        ROOT + "B/sub1/deep/": ([ROOT + "B/sub1/deep/f2.txt"], []),
+        ROOT + "A/sub2/": ([ROOT + "A/sub2/f3.txt"], []),
+        ROOT + "B/sub2/": ([ROOT + "B/sub2/f3.txt"], []),
+    }
+
+
 # ---------------------------------------------------------------------------
 # _dir_entry_signature / _check_directory_symlink unit tests
 # ---------------------------------------------------------------------------
@@ -302,6 +321,8 @@ def test_symlink_mode_detect_does_not_apply_out_of_scope_safety_skip(monkeypatch
     assert mirror.metrics.counts.get("symlinks_detected") == 1
     assert "symlinks_skipped" not in mirror.metrics.counts
 
+
+def test_symlink_bomb_threshold_blocks_follow(monkeypatch):
     """Even with target in scope and --symlink-mode=follow, the
     SymlinkTracker's bomb/loop guard can still veto following -- it's
     now actually wired to real symlink detections instead of being
@@ -320,3 +341,62 @@ def test_symlink_mode_detect_does_not_apply_out_of_scope_safety_skip(monkeypatch
 
     assert ROOT + "B/" not in yielded
     assert mirror.metrics.counts.get("symlink_loops_detected") == 1
+
+
+def test_nested_duplicate_subtree_is_one_detection_not_one_per_directory():
+    """The real bug Borut hit: a single symlink (B -> A) whose subtree is
+    multiple levels deep produced one 'Symlink detected' event per
+    directory in that subtree (460 for one real symlink), because every
+    descendant's content-signature match was treated as an independent
+    new detection. It isn't -- if B is a duplicate of A, every
+    directory under B necessarily duplicates the corresponding one
+    under A too; that's implied by the top-level match, not new
+    information. Only the top-level B/ should be flagged."""
+    mirror = _StubMirror(
+        ROOT,
+        _tree_with_nested_symlinked_sibling(),
+        handle_symlinks=True,
+        symlink_mode="detect",
+    )
+
+    yielded = list(mirror._discover_directories_bfs())
+
+    # detect mode's crawl behavior is unchanged -- every directory is
+    # still visited/yielded exactly as before this fix.
+    assert sorted(yielded) == sorted(
+        [
+            ROOT,
+            ROOT + "A/",
+            ROOT + "B/",
+            ROOT + "A/sub1/",
+            ROOT + "B/sub1/",
+            ROOT + "A/sub1/deep/",
+            ROOT + "B/sub1/deep/",
+            ROOT + "A/sub2/",
+            ROOT + "B/sub2/",
+        ]
+    )
+    # But only ONE detection is counted/logged -- not one per descendant
+    # (which would be 4: B/, B/sub1/, B/sub1/deep/, B/sub2/).
+    assert mirror.metrics.counts.get("symlinks_detected") == 1
+
+
+def test_nested_duplicate_subtree_skip_mode_still_stops_at_the_top():
+    """Sanity check that the new suppression logic doesn't interfere
+    with skip mode's existing behavior: B/ is flagged and not
+    descended into, so its children are never even reached (and were
+    never the source of the redundant-counting bug in skip mode to
+    begin with -- see this file's module docstring)."""
+    mirror = _StubMirror(
+        ROOT,
+        _tree_with_nested_symlinked_sibling(),
+        handle_symlinks=True,
+        symlink_mode="skip",
+    )
+
+    yielded = list(mirror._discover_directories_bfs())
+
+    assert ROOT + "B/" not in yielded
+    assert ROOT + "B/sub1/" not in yielded
+    assert mirror.metrics.counts.get("symlinks_detected") == 1
+    assert mirror.metrics.counts.get("symlinks_skipped") == 1

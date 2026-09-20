@@ -605,6 +605,20 @@ class ScanMixin:
         # Directory-level symlink detection state for this run (see
         # _check_directory_symlink). Signature -> first URL seen with it.
         dir_signatures: Dict[str, str] = {}
+        # URL prefixes of directories already flagged as a likely symlink
+        # this run. A directory whose path starts with one of these is a
+        # descendant of an already-detected duplicate subtree, and its own
+        # match is therefore implied, not new information: if
+        # lasco/lasco/ is flagged as a duplicate of idl/, then
+        # lasco/lasco/nrleit/data/eit_flat/ necessarily duplicates
+        # idl/nrleit/data/eit_flat/ too -- that's simply what "this whole
+        # subtree is served via a symlink" means, not a second, distinct
+        # relationship. Without this, one real symlink produces one
+        # detection per directory in its subtree (460 log lines for a
+        # single lasco/lasco -> idl symlink in one real run) instead of
+        # one detection for the one thing that's actually true: one
+        # symlink was found.
+        flagged_symlink_prefixes: List[str] = []
 
         while queue:
             url, depth = queue.popleft()
@@ -687,12 +701,15 @@ class ScanMixin:
                 #     symlinks have no meaningful "treat as a single file"
                 #     reading, so this mode is handled the same as "skip"
                 #     for directories): reported, then ignored.
-                if self.config.handle_symlinks:
+                if self.config.handle_symlinks and not any(
+                    url.startswith(p) for p in flagged_symlink_prefixes
+                ):
                     is_link, target_url = self._check_directory_symlink(
                         url, _files, subdirs, dir_signatures
                     )
                     if is_link:
                         self.metrics.increment("symlinks_detected")
+                        flagged_symlink_prefixes.append(url)
 
                         if self.config.symlink_mode == "detect":
                             logging.info(

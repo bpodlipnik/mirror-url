@@ -6,7 +6,7 @@ the remote directory tree, decides which files are new or changed, and downloads
 them efficiently — with adaptive concurrency, resumable/parallel downloads,
 integrity checks, incremental caching, and an SSRF-hardened transport layer.
 
-- **Version:** 3.1.49
+- **Version:** 3.1.50
 - **Python:** 3.9 – 3.12 (pure Python, any OS/architecture)
 - **License:** MIT
 
@@ -81,21 +81,21 @@ On a build machine:
 
 ```bash
 pip install build
-python -m build          # produces dist/mirror_url-3.1.49-py3-none-any.whl
+python -m build          # produces dist/mirror_url-3.1.50-py3-none-any.whl
 ```
 
 Copy the wheel to the target server and install it:
 
 ```bash
 python3 -m venv /opt/mirror-url
-/opt/mirror-url/bin/pip install /tmp/mirror_url-3.1.49-py3-none-any.whl
+/opt/mirror-url/bin/pip install /tmp/mirror_url-3.1.50-py3-none-any.whl
 /opt/mirror-url/bin/mirror-url --help
 ```
 
 To include the optional speed extras:
 
 ```bash
-/opt/mirror-url/bin/pip install "/tmp/mirror_url-3.1.49-py3-none-any.whl[fast]"
+/opt/mirror-url/bin/pip install "/tmp/mirror_url-3.1.50-py3-none-any.whl[fast]"
 ```
 
 Available extras: `fast` (stringzilla + lxml), `progress` (tqdm),
@@ -104,24 +104,24 @@ Available extras: `fast` (stringzilla + lxml), `progress` (tqdm),
 ### From a Git repository
 
 ```bash
-pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.49"
+pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.50"
 # private repo over SSH:
-pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.1.49"
+pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.1.50"
 ```
 
 ### As an isolated CLI with pipx
 
 ```bash
-pipx install /tmp/mirror_url-3.1.49-py3-none-any.whl
-# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.49"
+pipx install /tmp/mirror_url-3.1.50-py3-none-any.whl
+# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.50"
 ```
 
 ### With Docker
 
 ```dockerfile
 FROM python:3.12-slim
-COPY dist/mirror_url-3.1.49-py3-none-any.whl /tmp/
-RUN pip install --no-cache-dir "/tmp/mirror_url-3.1.49-py3-none-any.whl[fast]"
+COPY dist/mirror_url-3.1.50-py3-none-any.whl /tmp/
+RUN pip install --no-cache-dir "/tmp/mirror_url-3.1.50-py3-none-any.whl[fast]"
 ENTRYPOINT ["mirror-url"]
 ```
 
@@ -708,6 +708,15 @@ against every other non-empty directory already scanned earlier in the same
 run. If two different URLs produce an identical fingerprint, the one
 discovered second is reported as a likely symlink to the one discovered
 first.
+
+Only the top-level directory of a duplicated subtree is counted. Once
+`lasco/lasco/` is flagged as a duplicate of `lasco/idl/`, every directory
+*underneath* `lasco/lasco/` necessarily duplicates the corresponding one
+under `lasco/idl/` too — that's just what "this subtree is served via a
+symlink" means, not new information. MirrorURL tracks which URL prefixes
+have already been flagged and skips re-detecting (and re-logging) anything
+underneath them, so one real symlink is reported once, not once per
+directory in its subtree.
 
 This is a heuristic, not ground truth:
 
