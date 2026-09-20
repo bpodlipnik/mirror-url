@@ -4,6 +4,35 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.48] - 2026-09-20
+
+### Fixed
+- `--symlink-mode detect` no longer runs the per-file dry-run compare
+  step after directory discovery finishes. Reported by Borut against a
+  real run (NASA sohoftp SolarSoft archive, 53,900 files, 460 detected
+  symlinks): `detect` mode's entire purpose is directory-level symlink
+  discovery for a later `--exclude-dir` decision, and everything needed
+  for that is already fully known and logged the moment
+  `get_remote_files()` returns -- every directory has been walked and
+  every `🔗 Symlink detected` line already written. `ReportMixin.sync()`
+  was still going on afterward to run the full per-file dry-run compare
+  (`_check_files_sync`/`_check_files_async`, simulating "what would be
+  downloaded" against all 53,900 files) -- a question `detect` mode
+  never asked, since that comparison can't change which directories get
+  excluded. `sync()` now returns immediately after `get_remote_files()`
+  when `handle_symlinks` and `symlink_mode == "detect"`, printing a new
+  `SYMLINK DETECT SUMMARY` (symlinks detected, files found but not
+  checked, duration) in place of the skipped compare/download summary.
+  Only `detect` is affected -- `follow`/`skip` still need the compare
+  step to know what to actually download, so they're unchanged.
+
+3 new tests in `tests/test_symlink_detect_skips_compare.py`, following
+the spy-based stubbing convention of
+`tests/test_sync_connection_failure_guard.py`
+(`test_symlink_mode_detect_skips_per_file_compare` and two negative
+controls proving `skip` mode and `handle_symlinks=False` still reach
+the compare step normally).
+
 ## [3.1.47] - 2026-09-20
 
 ### Added

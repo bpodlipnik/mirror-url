@@ -147,6 +147,38 @@ class ReportMixin:
                 logging.error(f"{prefix}Invalid remote_files type: {type(remote_files)}")
                 return False
 
+            # --symlink-mode detect's entire purpose is directory-level
+            # symlink discovery for a later --exclude-dir decision (or
+            # choosing --symlink-mode follow/skip) -- see
+            # ScanMixin._discover_directories_bfs. Everything needed for
+            # that purpose is already fully known and logged by the time
+            # get_remote_files() returns: every directory has been walked
+            # and every "🔗 Symlink detected" line already written. The
+            # per-file dry-run sync check that would otherwise follow
+            # (comparing all remote_files against local state to report
+            # what "would be downloaded") answers a question detect mode
+            # was never asked -- it doesn't change which directories get
+            # excluded, it just costs a full metadata pass over every
+            # file. Stop here instead.
+            if self.config.handle_symlinks and self.config.symlink_mode == "detect":
+                duration = time.time() - start
+                symlinks_detected = self.metrics.metrics.get("symlinks_detected", 0)
+                logging.info("-" * 50)
+                logging.info(f"{prefix}SYMLINK DETECT SUMMARY:")
+                logging.info(f"{prefix}  Symlinks detected: {symlinks_detected}")
+                logging.info(
+                    f"{prefix}  Remote files found (not checked/downloaded): {len(remote_files)}"
+                )
+                logging.info(f"{prefix}  Duration: {format_duration(duration)}")
+                logging.info(
+                    f"{prefix}  Review the '🔗 Symlink detected' lines above/in the log, "
+                    f"then rerun with --exclude-dir for the ones you want to skip "
+                    f"permanently, or --symlink-mode follow/skip to act on them "
+                    f"every run."
+                )
+                logging.info("-" * 50)
+                return True
+
             # FIX: In dry-run mode, we still need to check which files exist locally
             if self.config.dry_run:
                 logging.info(f"{prefix}DRY RUN MODE - Simulating what would happen")
