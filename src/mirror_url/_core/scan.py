@@ -581,6 +581,43 @@ class ScanMixin:
 
         return True, seen_url
 
+    def _symlink_confidence_note(self, url: str, target_url: Optional[str]) -> str:
+        """Short bracketed note for a symlink-detection log line, using
+        Last-Modified/ETag as corroborating evidence for a basename-match
+        detection -- never as the deciding factor (see
+        _check_directory_symlink's docstring: the basename fingerprint
+        alone still decides whether something is flagged at all; this
+        only characterizes how confident that flag looks).
+
+        The headers come from ScanMixin's dir_response_headers, captured
+        for free from the same GET each directory's listing already
+        required -- see DirectoryScanner._perform_scan. A directory
+        served from cache this run has no entry there (no request was
+        made to read headers from), so this degrades to "no header data"
+        rather than a false confidence signal either way.
+        """
+        if not target_url:
+            return ""
+        headers = getattr(self.scanner, "dir_response_headers", {})
+        url_lm, url_etag = headers.get(url, (None, None))
+        target_lm, target_etag = headers.get(target_url, (None, None))
+
+        if url_lm is None and url_etag is None:
+            return " [no header data captured this run for the newer path]"
+        if target_lm is None and target_etag is None:
+            return " [no header data captured this run for the target path]"
+
+        lm_matches = url_lm is not None and url_lm == target_lm
+        etag_matches = url_etag is not None and url_etag == target_etag
+
+        if lm_matches and etag_matches:
+            return " [high confidence: Last-Modified & ETag both match]"
+        if lm_matches:
+            return " [Last-Modified matches]"
+        if etag_matches:
+            return " [ETag matches]"
+        return " [⚠️ Last-Modified/ETag differ despite matching entries -- worth a manual look]"
+
     def _discover_directories_bfs(self) -> Generator[str, None, None]:
         """BFS directory discovery - strictly within target scope."""
         if not self.connection_ok:
@@ -710,13 +747,14 @@ class ScanMixin:
                     if is_link:
                         self.metrics.increment("symlinks_detected")
                         flagged_symlink_prefixes.append(url)
+                        confidence_note = self._symlink_confidence_note(url, target_url)
 
                         if self.config.symlink_mode == "detect":
                             logging.info(
                                 f"{prefix}🔗 Symlink detected (mode=detect, "
                                 f"observation only, mirroring normally): "
                                 f"{sanitize_url_for_log(url)} -> "
-                                f"{sanitize_url_for_log(target_url)}"
+                                f"{sanitize_url_for_log(target_url)}{confidence_note}"
                             )
                         else:
                             in_scope = bool(target_url) and self._is_within_target_scope(target_url)
@@ -727,6 +765,7 @@ class ScanMixin:
                                     f"{prefix}🔗 Symlink detected, target outside scope -- "
                                     f"ignoring: {sanitize_url_for_log(url)} -> "
                                     f"{sanitize_url_for_log(target_url or 'unknown')}"
+                                    f"{confidence_note}"
                                 )
                                 if self.symlink_tracker:
                                     self.symlink_tracker.record_skip(url)
@@ -737,7 +776,7 @@ class ScanMixin:
                                     f"{prefix}🔗 Symlink detected "
                                     f"(mode={self.config.symlink_mode}) -- ignoring: "
                                     f"{sanitize_url_for_log(url)} -> "
-                                    f"{sanitize_url_for_log(target_url)}"
+                                    f"{sanitize_url_for_log(target_url)}{confidence_note}"
                                 )
                                 if self.symlink_tracker:
                                     self.symlink_tracker.record_skip(url)
@@ -755,7 +794,7 @@ class ScanMixin:
                                         f"{prefix}🔗 Symlink detected but blocked "
                                         f"({reason}) -- ignoring: "
                                         f"{sanitize_url_for_log(url)} -> "
-                                        f"{sanitize_url_for_log(target_url)}"
+                                        f"{sanitize_url_for_log(target_url)}{confidence_note}"
                                     )
                                     self.metrics.increment("symlink_loops_detected")
                                     skip_this_dir = True
@@ -763,7 +802,7 @@ class ScanMixin:
                                     logging.info(
                                         f"{prefix}🔗 Symlink detected, target in scope "
                                         f"-- creating: {sanitize_url_for_log(url)} -> "
-                                        f"{sanitize_url_for_log(target_url)}"
+                                        f"{sanitize_url_for_log(target_url)}{confidence_note}"
                                     )
                                     if self.symlink_tracker:
                                         self.symlink_tracker.record_follow(url, parent_url, depth)

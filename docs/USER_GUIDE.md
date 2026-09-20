@@ -6,7 +6,7 @@ the remote directory tree, decides which files are new or changed, and downloads
 them efficiently — with adaptive concurrency, resumable/parallel downloads,
 integrity checks, incremental caching, and an SSRF-hardened transport layer.
 
-- **Version:** 3.1.50
+- **Version:** 3.1.51
 - **Python:** 3.9 – 3.12 (pure Python, any OS/architecture)
 - **License:** MIT
 
@@ -81,21 +81,21 @@ On a build machine:
 
 ```bash
 pip install build
-python -m build          # produces dist/mirror_url-3.1.50-py3-none-any.whl
+python -m build          # produces dist/mirror_url-3.1.51-py3-none-any.whl
 ```
 
 Copy the wheel to the target server and install it:
 
 ```bash
 python3 -m venv /opt/mirror-url
-/opt/mirror-url/bin/pip install /tmp/mirror_url-3.1.50-py3-none-any.whl
+/opt/mirror-url/bin/pip install /tmp/mirror_url-3.1.51-py3-none-any.whl
 /opt/mirror-url/bin/mirror-url --help
 ```
 
 To include the optional speed extras:
 
 ```bash
-/opt/mirror-url/bin/pip install "/tmp/mirror_url-3.1.50-py3-none-any.whl[fast]"
+/opt/mirror-url/bin/pip install "/tmp/mirror_url-3.1.51-py3-none-any.whl[fast]"
 ```
 
 Available extras: `fast` (stringzilla + lxml), `progress` (tqdm),
@@ -104,24 +104,24 @@ Available extras: `fast` (stringzilla + lxml), `progress` (tqdm),
 ### From a Git repository
 
 ```bash
-pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.50"
+pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.51"
 # private repo over SSH:
-pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.1.50"
+pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.1.51"
 ```
 
 ### As an isolated CLI with pipx
 
 ```bash
-pipx install /tmp/mirror_url-3.1.50-py3-none-any.whl
-# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.50"
+pipx install /tmp/mirror_url-3.1.51-py3-none-any.whl
+# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.51"
 ```
 
 ### With Docker
 
 ```dockerfile
 FROM python:3.12-slim
-COPY dist/mirror_url-3.1.50-py3-none-any.whl /tmp/
-RUN pip install --no-cache-dir "/tmp/mirror_url-3.1.50-py3-none-any.whl[fast]"
+COPY dist/mirror_url-3.1.51-py3-none-any.whl /tmp/
+RUN pip install --no-cache-dir "/tmp/mirror_url-3.1.51-py3-none-any.whl[fast]"
 ENTRYPOINT ["mirror-url"]
 ```
 
@@ -717,6 +717,31 @@ symlink" means, not new information. MirrorURL tracks which URL prefixes
 have already been flagged and skips re-detecting (and re-logging) anything
 underneath them, so one real symlink is reported once, not once per
 directory in its subtree.
+
+**Corroborating signal: Last-Modified and ETag.** The basename fingerprint
+is the sole deciding factor for whether something gets flagged at all, but
+every `🔗 Symlink detected` line also carries a confidence note built from
+the `Last-Modified`/`ETag` response headers of each directory's own listing
+GET — already available at zero extra cost, since it's the same request
+already made to fetch the HTML to parse. Apache's autoindex commonly
+derives a listing's `Last-Modified` from its most-recently-modified entry,
+and a symlinked directory resolves straight through to the same underlying
+files as its target, so the two paths often report an identical value —
+exactly what was observed against the real `lasco`/`idl` example (equal
+Last-Modified on both). Possible notes:
+
+- `[high confidence: Last-Modified & ETag both match]`
+- `[Last-Modified matches]` / `[ETag matches]` (only one header present or
+  matching)
+- `[⚠️ Last-Modified/ETag differ despite matching entries -- worth a manual
+  look]` — the basenames still matched (that's what triggered the flag),
+  but the headers disagree; this is never used to suppress the detection,
+  only to flag it as more likely a coincidence worth checking by hand
+- `[no header data captured this run for the ... path]` — the server sent
+  neither header, or that directory was served from the local HTML cache
+  this run (no request was made, so there was nothing to read headers
+  from); detection falls back to basename-only, same as before this note
+  existed
 
 This is a heuristic, not ground truth:
 

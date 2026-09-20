@@ -46,10 +46,14 @@ ROOT = "https://example.test/data/"
 class _FakeScanner:
     """Returns a canned (files, subdirs) tuple per directory URL."""
 
-    def __init__(self, tree: dict[str, tuple[list[str], list[str]]]):
+    def __init__(self, tree: dict[str, tuple[list[str], list[str]]], headers=None):
         # tree maps a directory URL -> (file URLs, subdir URLs)
         self.tree = tree
         self.calls: list[str] = []
+        # url -> (Last-Modified, ETag), mirroring DirectoryScanner's real
+        # dir_response_headers -- see test_scanner_header_capture.py for
+        # where this actually gets populated in production.
+        self.dir_response_headers: dict[str, tuple] = headers or {}
 
     def scan_directory_sequential(self, url: str):
         self.calls.append(url)
@@ -77,10 +81,11 @@ class _StubMirror(ScanMixin):
         symlink_mode="skip",
         symlink_tracker=None,
         out_of_scope_urls=frozenset(),
+        dir_response_headers=None,
     ):
         self.target_base_url = target_base_url
         self.connection_ok = True
-        self.scanner = _FakeScanner(tree)
+        self.scanner = _FakeScanner(tree, headers=dir_response_headers)
         self.config = SimpleNamespace(
             max_depth=max_depth,
             exclude_dirs=[],
@@ -185,6 +190,66 @@ def test_check_directory_symlink_ignores_empty_directories():
     assert is_link_a is False
     assert is_link_b is False
     assert signatures == {}
+
+
+def test_confidence_note_high_when_both_headers_match():
+    mirror = _StubMirror(
+        ROOT,
+        {},
+        dir_response_headers={
+            ROOT + "A/": ("Fri, 28 Feb 2020 12:00:00 GMT", '"abc"'),
+            ROOT + "B/": ("Fri, 28 Feb 2020 12:00:00 GMT", '"abc"'),
+        },
+    )
+    note = mirror._symlink_confidence_note(ROOT + "B/", ROOT + "A/")
+    assert "high confidence" in note
+    assert "Last-Modified & ETag both match" in note
+
+
+def test_confidence_note_partial_when_only_last_modified_matches():
+    mirror = _StubMirror(
+        ROOT,
+        {},
+        dir_response_headers={
+            ROOT + "A/": ("Fri, 28 Feb 2020 12:00:00 GMT", '"abc"'),
+            ROOT + "B/": ("Fri, 28 Feb 2020 12:00:00 GMT", '"different"'),
+        },
+    )
+    note = mirror._symlink_confidence_note(ROOT + "B/", ROOT + "A/")
+    assert "Last-Modified matches" in note
+    assert "high confidence" not in note
+
+
+def test_confidence_note_warns_when_headers_disagree():
+    """Basenames matched (that's why this function is even called), but
+    if the headers that ARE present flatly disagree, that's worth
+    surfacing -- this never suppresses the detection itself (see the
+    function's docstring: headers are corroboration, not the decision),
+    just flags it for a manual look."""
+    mirror = _StubMirror(
+        ROOT,
+        {},
+        dir_response_headers={
+            ROOT + "A/": ("Fri, 28 Feb 2020 12:00:00 GMT", '"abc"'),
+            ROOT + "B/": ("Mon, 01 Jan 2024 00:00:00 GMT", '"xyz"'),
+        },
+    )
+    note = mirror._symlink_confidence_note(ROOT + "B/", ROOT + "A/")
+    assert "differ" in note
+
+
+def test_confidence_note_empty_string_without_target():
+    mirror = _StubMirror(ROOT, {})
+    assert mirror._symlink_confidence_note(ROOT + "B/", None) == ""
+
+
+def test_confidence_note_reports_missing_header_data():
+    """Neither side has header data (e.g. served from cache this run,
+    so no request happened to read headers from) -- must degrade
+    gracefully, not silently claim a match or crash."""
+    mirror = _StubMirror(ROOT, {})  # no dir_response_headers at all
+    note = mirror._symlink_confidence_note(ROOT + "B/", ROOT + "A/")
+    assert "no header data" in note
 
 
 # ---------------------------------------------------------------------------

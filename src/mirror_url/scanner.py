@@ -8,7 +8,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import time
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urljoin, urlparse
 
 from .compat import LXML_AVAILABLE, XPath, html
@@ -57,6 +57,21 @@ class DirectoryScanner:
         self.cached_signatures: Dict[str, str] = {}
         self.adaptive_manager = None
         self.scan_count = 0
+        # Last-Modified/ETag captured from each directory listing's own
+        # GET response -- zero extra cost, this is the same request
+        # scan_directory_sequential() already makes to get the HTML to
+        # parse for files/subdirs. Used by ScanMixin's symlink detection
+        # as corroborating evidence alongside the basename fingerprint:
+        # two directories a symlink links together are typically served
+        # by Apache resolving straight through to the same underlying
+        # files, so autoindex commonly reports the same Last-Modified
+        # (it's usually derived from the most-recently-modified entry) for
+        # both paths. Only populated on an actual fetch -- a directory
+        # served from parse_cache/html_cache this run has no entry here,
+        # since no request was made to read headers from; detection
+        # degrades gracefully to basename-only in that case, same as
+        # before this existed.
+        self.dir_response_headers: Dict[str, Tuple[Optional[str], Optional[str]]] = {}
 
     def _maybe_cleanup_cache(self) -> None:
         """Periodically clean up cache"""
@@ -124,6 +139,16 @@ class DirectoryScanner:
 
             response = self.client.request(url, method="GET", timeout=30)
             self.metrics.add_request_time(time.time() - start)
+
+            # Captured before the status-code check below so a non-200
+            # doesn't lose these -- harmless either way since the caller
+            # raises ParsingError and never reaches symlink detection for
+            # a failed scan, but keeps this next to the response it came
+            # from rather than duplicated at every early-return point.
+            self.dir_response_headers[url] = (
+                response.headers.get("Last-Modified"),
+                response.headers.get("ETag"),
+            )
 
             if response.status_code != 200:
                 self.metrics.stop_parse_timer()

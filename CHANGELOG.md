@@ -4,6 +4,41 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.51] - 2026-09-20
+
+### Added
+- Symlink detection now captures `Last-Modified`/`ETag` from each
+  directory listing's own GET response (`DirectoryScanner.
+  dir_response_headers`, zero extra request cost -- same response
+  already fetched to parse the HTML) and uses them as corroborating
+  evidence on every `🔗 Symlink detected` log line. Prompted by Borut
+  noticing the real `lasco`/`idl` pair also share an identical
+  Last-Modified timestamp on top of matching directory contents, and
+  asking whether that's a usable signal too -- it is: Apache's autoindex
+  commonly derives a listing's Last-Modified from its most-recently-
+  modified entry, and a symlinked directory resolves straight through to
+  the same underlying files as its target, so the two paths often report
+  the same value.
+
+  The basename fingerprint remains the sole deciding factor for whether
+  something gets flagged at all -- headers are corroboration, appended
+  as a bracketed note, never a veto: `[high confidence: Last-Modified &
+  ETag both match]`, `[Last-Modified matches]` / `[ETag matches]` (one
+  header present or matching), a `[⚠️ ... differ ... worth a manual
+  look]` warning when present headers disagree despite matching
+  basenames, or `[no header data captured this run for the ... path]`
+  when a server sends neither header or a directory was served from the
+  local HTML cache this run (no request made, nothing to read headers
+  from) -- detection falls back to basename-only in that case, same as
+  before this existed.
+
+8 new tests: 3 in `tests/test_scanner_header_capture.py` proving the
+scanner actually captures the headers (including the explicit-`(None,
+None)`-not-a-missing-key case), 5 in
+`tests/test_directory_symlink_detection.py` covering every confidence-
+note branch. `docs/USER_GUIDE.md`/`.html` updated with the full list of
+possible notes and what each means.
+
 ## [3.1.50] - 2026-09-20
 
 ### Fixed
