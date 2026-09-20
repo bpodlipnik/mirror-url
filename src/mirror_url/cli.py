@@ -769,13 +769,63 @@ EXAMPLES:
         "--handle-symlinks",
         action="store_true",
         default=False,
-        help="Enable symlink detection and handling",
+        help=(
+            "Detect directory-level symlinks during the scan and log every one "
+            "found. Off by default -- with this unset, a symlinked directory is "
+            "just crawled and mirrored like any other, with no detection and no "
+            "extra cost. Plain HTTP directory listings (Apache-style autoindex, "
+            "used by most archives this tool targets) give no explicit 'this is "
+            "a symlink' signal: the server transparently resolves the symlink "
+            "and serves the target's listing under the link's own URL path, "
+            "with nothing in the HTML to tell them apart. Detection here is "
+            "therefore a heuristic, not a real symlink check: each scanned "
+            "directory's entries (file/subdir basenames -- no extra request, "
+            "reuses data already fetched) are fingerprinted, and if two "
+            "different URLs in the same run produce the same fingerprint, the "
+            "one discovered second is reported as a likely symlink to the one "
+            "discovered first. Recommended first step: run once with "
+            "--symlink-mode detect and check the log for '🔗 Symlink detected' "
+            "lines, then decide what to do about the ones found -- either "
+            "rerun with --symlink-mode skip/follow, or drop --handle-symlinks "
+            "entirely and permanently exclude the known-duplicate paths with "
+            "--exclude-dir instead. See USER_GUIDE.md for the full writeup, "
+            "worked example, and caveats."
+        ),
     )
     symlink.add_argument(
         "--symlink-mode",
-        choices=["follow", "skip", "treat-as-file"],
+        choices=["detect", "follow", "skip", "treat-as-file"],
         default="skip",
-        help="How to handle symlinks (default: skip)",
+        help=(
+            "What to do with a directory flagged by --handle-symlinks (which "
+            "must also be set -- this option has no effect on its own). Every "
+            "mode logs the detection; they differ in what happens to the "
+            "directory afterward. 'detect' (recommended starting point): purely "
+            "observational -- report it, then crawl and mirror it exactly as if "
+            "--handle-symlinks were unset. Implies --dry-run automatically: "
+            "the scan and detection still run in full, but nothing is "
+            "downloaded or deleted -- otherwise a 'just survey the tree' pass "
+            "would download the very duplicate content you're trying to "
+            "avoid. Use this first to see what's out there before choosing a "
+            "stronger mode. 'skip' (default once "
+            "--handle-symlinks is set): report it, then don't descend into it "
+            "or download anything under it -- avoids re-downloading duplicate "
+            "content, at the cost of one wasted request for the initial "
+            "directory listing that was needed to detect it. 'follow': report "
+            "it, then mirror it like a normal directory -- but ONLY if its "
+            "detected target resolves inside the current --url/--dir-suffix "
+            "scope; a target outside that scope is always skipped instead, "
+            "regardless of this setting -- that safety boundary isn't "
+            "user-tunable, since it's exactly the scenario "
+            "--max-symlink-depth/--max-symlinks-per-dir/"
+            "--symlink-bomb-threshold guard against. 'treat-as-file': accepted "
+            "for forward compatibility but has no distinct meaning for a "
+            "directory symlink (there's no sensible way to save an HTML "
+            "listing 'as a file'), so it currently behaves identically to "
+            "'skip'. Note: this only ever detects directory symlinks -- a "
+            "symlinked individual file can't be told apart from a real one "
+            "without downloading and hashing it, which isn't done here."
+        ),
     )
     symlink.add_argument(
         "--max-symlink-depth",

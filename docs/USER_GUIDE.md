@@ -6,7 +6,7 @@ the remote directory tree, decides which files are new or changed, and downloads
 them efficiently — with adaptive concurrency, resumable/parallel downloads,
 integrity checks, incremental caching, and an SSRF-hardened transport layer.
 
-- **Version:** 3.1.46
+- **Version:** 3.1.47
 - **Python:** 3.9 – 3.12 (pure Python, any OS/architecture)
 - **License:** MIT
 
@@ -25,6 +25,7 @@ integrity checks, incremental caching, and an SSRF-hardened transport layer.
 - [Caching and incremental sync](#caching-and-incremental-sync)
 - [Cleaning up obsolete files](#cleaning-up-obsolete-files)
 - [Security](#security)
+- [Symlink handling](#symlink-handling)
 - [Monitoring and metrics](#monitoring-and-metrics)
 - [Using MirrorURL from Python](#using-mirrorurl-from-python)
 - [Exit codes](#exit-codes)
@@ -80,21 +81,21 @@ On a build machine:
 
 ```bash
 pip install build
-python -m build          # produces dist/mirror_url-3.1.46-py3-none-any.whl
+python -m build          # produces dist/mirror_url-3.1.47-py3-none-any.whl
 ```
 
 Copy the wheel to the target server and install it:
 
 ```bash
 python3 -m venv /opt/mirror-url
-/opt/mirror-url/bin/pip install /tmp/mirror_url-3.1.46-py3-none-any.whl
+/opt/mirror-url/bin/pip install /tmp/mirror_url-3.1.47-py3-none-any.whl
 /opt/mirror-url/bin/mirror-url --help
 ```
 
 To include the optional speed extras:
 
 ```bash
-/opt/mirror-url/bin/pip install "/tmp/mirror_url-3.1.46-py3-none-any.whl[fast]"
+/opt/mirror-url/bin/pip install "/tmp/mirror_url-3.1.47-py3-none-any.whl[fast]"
 ```
 
 Available extras: `fast` (stringzilla + lxml), `progress` (tqdm),
@@ -103,24 +104,24 @@ Available extras: `fast` (stringzilla + lxml), `progress` (tqdm),
 ### From a Git repository
 
 ```bash
-pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.46"
+pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.47"
 # private repo over SSH:
-pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.1.46"
+pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.1.47"
 ```
 
 ### As an isolated CLI with pipx
 
 ```bash
-pipx install /tmp/mirror_url-3.1.46-py3-none-any.whl
-# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.46"
+pipx install /tmp/mirror_url-3.1.47-py3-none-any.whl
+# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.47"
 ```
 
 ### With Docker
 
 ```dockerfile
 FROM python:3.12-slim
-COPY dist/mirror_url-3.1.46-py3-none-any.whl /tmp/
-RUN pip install --no-cache-dir "/tmp/mirror_url-3.1.46-py3-none-any.whl[fast]"
+COPY dist/mirror_url-3.1.47-py3-none-any.whl /tmp/
+RUN pip install --no-cache-dir "/tmp/mirror_url-3.1.47-py3-none-any.whl[fast]"
 ENTRYPOINT ["mirror-url"]
 ```
 
@@ -676,8 +677,104 @@ MirrorURL ships with security protections **enabled by default**:
 > `--no-security-validation` (or `security_validation: false`). Disabling this
 > removes SSRF protection — only do so for trusted, local targets.
 
-Symlink handling is off by default; enable with `--handle-symlinks` (with
-`--symlink-mode`, depth, per-directory, and bomb-threshold limits).
+Symlink handling is off by default; see [Symlink handling](#symlink-handling)
+below for how it works and how to use it.
+
+---
+
+## Symlink handling
+
+Plain HTTP directory listings (Apache-style autoindex, used by most archives
+this tool targets) give **no explicit signal** that a directory entry is a
+symlink. The server transparently resolves the symlink server-side and
+serves the target directory's listing under the link's own URL path — there
+is nothing in the HTML to tell a real directory apart from a symlinked one.
+
+**Real example.** NASA's sohoftp SolarSoft archive has
+`.../lasco/lasco/` symlinked to `.../lasco/idl/` on disk. Both URLs return
+byte-for-byte equivalent directory listings (only the self-referential
+`href`s differ) — fetching either one looks, from the client's side,
+exactly like fetching a normal, independent directory. Without any special
+handling, MirrorURL just crawls and downloads both in full, duplicating the
+entire tree locally under two different names.
+
+### How detection works
+
+`--handle-symlinks` turns on a heuristic, content-signature-based detector:
+for every directory scanned, MirrorURL fingerprints its immediate entries
+(the basenames of its files and subdirectories — no extra HTTP request,
+this reuses data the scan already fetched) and compares that fingerprint
+against every other non-empty directory already scanned earlier in the same
+run. If two different URLs produce an identical fingerprint, the one
+discovered second is reported as a likely symlink to the one discovered
+first.
+
+This is a heuristic, not ground truth:
+
+- It can only compare against directories actually visited in the *same*
+  run — a symlink whose target lies outside the current `--url`/
+  `--dir-suffix` scope (and therefore was never itself scanned) won't
+  produce a match and will just be mirrored as an ordinary directory.
+- "Which one is the real directory and which is the symlink" is inferred
+  purely from *discovery order* (first-seen wins), which usually follows
+  the server's listing order (alphabetical, for a default Apache
+  autoindex — `idl` sorts before `lasco`, matching the real-world example
+  above) but isn't a guarantee in general.
+- Two genuinely distinct directories that happen to contain identically
+  named entries (e.g. two placeholder directories with the same file
+  names) would also be flagged. Empty directories are deliberately
+  excluded from detection for this reason — every empty directory would
+  otherwise collide trivially.
+- Only *directory* symlinks are detected this way. A symlinked individual
+  *file* can't be told apart from a normal one without downloading and
+  hashing its content, which MirrorURL does not do (it would defeat the
+  point of avoiding a redundant download).
+
+Detection has no network cost (it reuses already-fetched listings) and
+negligible CPU/memory cost — well under a millisecond of hashing per
+10,000 directories scanned in practice.
+
+### Recommended workflow
+
+1. **Survey first.** Run once with:
+
+   ```bash
+   --handle-symlinks --symlink-mode detect
+   ```
+
+   `detect` is purely observational: every detection is logged (look for
+   `🔗 Symlink detected` lines), but the crawl proceeds exactly as if
+   `--handle-symlinks` were unset — nothing is skipped or treated
+   differently. It automatically implies `--dry-run` — the scan and
+   detection still run in full, but nothing is downloaded or deleted,
+   since a "just survey the tree" pass shouldn't download the very
+   duplicate content you're trying to avoid in the first place. This
+   lets you see what's actually out there before committing to a
+   behavior change.
+
+2. **Then decide**, based on the log:
+   - **Exclude permanently** (recommended when you don't want the
+     duplicate content at all): drop `--handle-symlinks` from future runs
+     entirely and instead pass the reported symlink paths to `--exclude-dir`
+     (supports exact paths, path suffixes, and simple `*` globs). This is
+     deterministic and has zero ongoing detection overhead.
+   - **Skip on every run**: keep `--handle-symlinks --symlink-mode skip`
+     (the default `--symlink-mode` once `--handle-symlinks` is set) —
+     re-detects and re-ignores the same directories on every run instead
+     of relying on a fixed `--exclude-dir` list.
+   - **Mirror it anyway**: `--handle-symlinks --symlink-mode follow`
+     downloads the detected symlink's content like a normal directory —
+     but only when its target resolves *inside* the current `--url`/
+     `--dir-suffix` scope. A target outside that scope is always ignored
+     regardless of `--symlink-mode`; this safety boundary isn't
+     user-tunable, since a symlink pointing outside the intended scope is
+     exactly the "symlink bomb" scenario `--max-symlink-depth`,
+     `--max-symlinks-per-dir`, and `--symlink-bomb-threshold` exist to
+     guard against.
+
+`--symlink-mode treat-as-file` is accepted for forward compatibility but
+currently behaves identically to `skip` — there's no meaningful way to save
+an HTML directory listing "as a single file".
 
 ---
 

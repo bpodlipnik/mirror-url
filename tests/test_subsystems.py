@@ -277,6 +277,60 @@ def test_config_validate_warnings(tmp_path: Path):
     assert any("MD5" in w for w in warnings)
 
 
+def test_symlink_mode_detect_forces_dry_run(tmp_path: Path):
+    """--symlink-mode detect is purely observational and still fully
+    mirrors whatever a detected symlink points at (see
+    ScanMixin._discover_directories_bfs) -- surveying a tree with it
+    would otherwise download the very duplicate content you're trying
+    to avoid. detect therefore implies --dry-run so the scan (and
+    detection) still runs, but nothing is written to disk."""
+    from mirror_url.config import MirrorConfig
+
+    cfg = MirrorConfig(
+        base_url="https://example.com/x",
+        dest_path=tmp_path / "d",
+        log_path=tmp_path / "l",
+        handle_symlinks=True,
+        symlink_mode="detect",
+        dry_run=False,
+    )
+    assert cfg.dry_run is True
+
+
+def test_symlink_mode_follow_does_not_force_dry_run(tmp_path: Path):
+    """Only 'detect' gets the auto-dry-run treatment -- 'follow'/'skip'
+    are meant to actually change what gets downloaded, so forcing
+    dry-run there would silently defeat the user's request."""
+    from mirror_url.config import MirrorConfig
+
+    cfg = MirrorConfig(
+        base_url="https://example.com/x",
+        dest_path=tmp_path / "d",
+        log_path=tmp_path / "l",
+        handle_symlinks=True,
+        symlink_mode="follow",
+        dry_run=False,
+    )
+    assert cfg.dry_run is False
+
+
+def test_symlink_mode_detect_without_handle_symlinks_does_not_force_dry_run(tmp_path: Path):
+    """symlink_mode is meaningless without handle_symlinks=True (see CLI
+    help), so the coercion shouldn't fire just because someone left
+    symlink_mode at a non-default value with detection off."""
+    from mirror_url.config import MirrorConfig
+
+    cfg = MirrorConfig(
+        base_url="https://example.com/x",
+        dest_path=tmp_path / "d",
+        log_path=tmp_path / "l",
+        handle_symlinks=False,
+        symlink_mode="detect",
+        dry_run=False,
+    )
+    assert cfg.dry_run is False
+
+
 # ---------------------------------------------------------------------------
 # DownloadQueue: priority ordering with a real DownloadTask
 # ---------------------------------------------------------------------------

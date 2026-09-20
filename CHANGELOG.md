@@ -4,6 +4,54 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.47] - 2026-09-20
+
+### Added
+- `--symlink-mode detect`: a purely observational third mode alongside
+  `follow`/`skip`/`treat-as-file`. Every detected symlink is logged
+  exactly like the other modes, but the crawl proceeds unchanged --
+  nothing is skipped, nothing is treated differently -- meant as a
+  survey pass before committing to `follow`, `skip`, or a permanent
+  `--exclude-dir` list. `--handle-symlinks --symlink-mode detect`
+  followed by adding the reported paths to `--exclude-dir` (and then
+  dropping `--handle-symlinks` entirely) is the recommended workflow
+  for a one-time cleanup with zero ongoing detection overhead.
+- `detect` mode automatically forces `dry_run=True` (enforced in
+  `MirrorConfig.validate_and_normalize`, so it applies uniformly to
+  direct CLI args and `--config` YAML/JSON runs). Without this, a
+  "just survey the tree" pass would still fully download whatever
+  duplicate content a detected symlink points at, since `detect` never
+  alters crawl behavior on its own -- directly defeating the point of
+  surveying before downloading. `dry_run` only gates the
+  download/delete/cache-write steps, not directory discovery, so
+  detection still runs to completion; nothing is written to disk.
+- `--handle-symlinks`/`--symlink-mode` `--help` text rewritten from two
+  one-line stubs into a full explanation of the detection heuristic,
+  its limitations, and the recommended survey-then-decide workflow.
+  New "Symlink handling" section in `docs/USER_GUIDE.md`/`.html` with
+  the real-world NASA sohoftp SolarSoft (`lasco/lasco` -> `lasco/idl`)
+  example, the discovery-order caveat, and the false-positive/empty-
+  directory guard, cross-linked from the Security section.
+
+### Fixed
+- `docs/USER_GUIDE.html` regeneration for this release needed two
+  passes: the first introduced mojibake in the page's `<h1>` title
+  (`--metadata` passed inline on the pandoc command line mangled the
+  em dash) and dropped the `<body>` tag entirely. Neither reached a
+  committed state -- caught via before/after anchor-ID diffing against
+  the previous file and a `�` byte scan before finalizing. Fixed by
+  passing title metadata through a UTF-8 `--metadata-file` instead of
+  an inline argument, and by re-adding the `<body>` tag that the
+  head/body splice had been silently dropping in both attempts.
+
+3 new tests (`test_symlink_mode_detect_forces_dry_run`,
+`test_symlink_mode_follow_does_not_force_dry_run`,
+`test_symlink_mode_detect_without_handle_symlinks_does_not_force_dry_run`
+in `tests/test_subsystems.py`) plus 2 more in
+`tests/test_directory_symlink_detection.py`
+(`test_symlink_mode_detect_reports_but_mirrors_normally`,
+`test_symlink_mode_detect_does_not_apply_out_of_scope_safety_skip`).
+
 ## [3.1.46] - 2026-09-16
 
 ### Added

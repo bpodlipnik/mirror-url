@@ -453,6 +453,24 @@ class MirrorConfig(BaseModel):
             except OSError as e:
                 raise ConfigError(f"Cannot check disk space for {check_path}: {e}")
 
+        # 6. --symlink-mode detect is purely observational (see
+        # ScanMixin._discover_directories_bfs docs) -- it reports every
+        # detected symlink but otherwise crawls exactly as if
+        # --handle-symlinks were unset, which means it still fully
+        # downloads whatever duplicate content a symlink points at. That
+        # defeats the point of a "just show me what's there" survey pass,
+        # so detect implies --dry-run: the scan (and therefore detection)
+        # still runs in full, but nothing is actually downloaded or
+        # deleted. Forced here, not just at the CLI layer, so it also
+        # applies to --config YAML/JSON runs.
+        if self.handle_symlinks and self.symlink_mode == "detect" and not self.dry_run:
+            object.__setattr__(self, "dry_run", True)
+            logging.info(
+                "🔗 --symlink-mode detect implies --dry-run -- surveying "
+                "the tree and reporting symlinks, but not downloading or "
+                "deleting anything this run."
+            )
+
         return self
 
     @field_validator("cleanup_policy", mode="before")

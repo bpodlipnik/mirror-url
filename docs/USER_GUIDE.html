@@ -175,6 +175,14 @@ sync</a></li>
 <li><a href="#cleaning-up-obsolete-files"
 id="toc-cleaning-up-obsolete-files">Cleaning up obsolete files</a></li>
 <li><a href="#security" id="toc-security">Security</a></li>
+<li><a href="#symlink-handling" id="toc-symlink-handling">Symlink
+handling</a>
+<ul>
+<li><a href="#how-detection-works" id="toc-how-detection-works">How
+detection works</a></li>
+<li><a href="#recommended-workflow"
+id="toc-recommended-workflow">Recommended workflow</a></li>
+</ul></li>
 <li><a href="#monitoring-and-metrics"
 id="toc-monitoring-and-metrics">Monitoring and metrics</a></li>
 <li><a href="#using-mirrorurl-from-python"
@@ -195,7 +203,7 @@ are new or changed, and downloads them efficiently — with adaptive
 concurrency, resumable/parallel downloads, integrity checks, incremental
 caching, and an SSRF-hardened transport layer.</p>
 <ul>
-<li><strong>Version:</strong> 3.1.46</li>
+<li><strong>Version:</strong> 3.1.47</li>
 <li><strong>Python:</strong> 3.9 – 3.12 (pure Python, any
 OS/architecture)</li>
 <li><strong>License:</strong> MIT</li>
@@ -217,6 +225,7 @@ sync</a></li>
 <li><a href="#cleaning-up-obsolete-files">Cleaning up obsolete
 files</a></li>
 <li><a href="#security">Security</a></li>
+<li><a href="#symlink-handling">Symlink handling</a></li>
 <li><a href="#monitoring-and-metrics">Monitoring and metrics</a></li>
 <li><a href="#using-mirrorurl-from-python">Using MirrorURL from
 Python</a></li>
@@ -273,33 +282,33 @@ class="sourceCode bash"><code class="sourceCode bash"><span id="cb1-1"><a href="
 <p>On a build machine:</p>
 <div class="sourceCode" id="cb2"><pre
 class="sourceCode bash"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> install build</span>
-<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> <span class="at">-m</span> build          <span class="co"># produces dist/mirror_url-3.1.46-py3-none-any.whl</span></span></code></pre></div>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> <span class="at">-m</span> build          <span class="co"># produces dist/mirror_url-3.1.47-py3-none-any.whl</span></span></code></pre></div>
 <p>Copy the wheel to the target server and install it:</p>
 <div class="sourceCode" id="cb3"><pre
 class="sourceCode bash"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="ex">python3</span> <span class="at">-m</span> venv /opt/mirror-url</span>
-<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="ex">/opt/mirror-url/bin/pip</span> install /tmp/mirror_url-3.1.46-py3-none-any.whl</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="ex">/opt/mirror-url/bin/pip</span> install /tmp/mirror_url-3.1.47-py3-none-any.whl</span>
 <span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="ex">/opt/mirror-url/bin/mirror-url</span> <span class="at">--help</span></span></code></pre></div>
 <p>To include the optional speed extras:</p>
 <div class="sourceCode" id="cb4"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="ex">/opt/mirror-url/bin/pip</span> install <span class="st">&quot;/tmp/mirror_url-3.1.46-py3-none-any.whl[fast]&quot;</span></span></code></pre></div>
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="ex">/opt/mirror-url/bin/pip</span> install <span class="st">&quot;/tmp/mirror_url-3.1.47-py3-none-any.whl[fast]&quot;</span></span></code></pre></div>
 <p>Available extras: <code>fast</code> (stringzilla + lxml),
 <code>progress</code> (tqdm), <code>monitor</code> (psutil),
 <code>all</code> (everything), <code>dev</code> (test/lint
 toolchain).</p>
 <h3 id="from-a-git-repository">From a Git repository</h3>
 <div class="sourceCode" id="cb5"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> install <span class="st">&quot;git+https://github.com/bpodlipnik/mirror-url.git@v3.1.46&quot;</span></span>
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> install <span class="st">&quot;git+https://github.com/bpodlipnik/mirror-url.git@v3.1.47&quot;</span></span>
 <span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="co"># private repo over SSH:</span></span>
-<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> install <span class="st">&quot;git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.1.46&quot;</span></span></code></pre></div>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> install <span class="st">&quot;git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.1.47&quot;</span></span></code></pre></div>
 <h3 id="as-an-isolated-cli-with-pipx">As an isolated CLI with pipx</h3>
 <div class="sourceCode" id="cb6"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pipx</span> install /tmp/mirror_url-3.1.46-py3-none-any.whl</span>
-<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="co"># or:  pipx install &quot;git+https://github.com/bpodlipnik/mirror-url.git@v3.1.46&quot;</span></span></code></pre></div>
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pipx</span> install /tmp/mirror_url-3.1.47-py3-none-any.whl</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="co"># or:  pipx install &quot;git+https://github.com/bpodlipnik/mirror-url.git@v3.1.47&quot;</span></span></code></pre></div>
 <h3 id="with-docker">With Docker</h3>
 <div class="sourceCode" id="cb7"><pre
 class="sourceCode dockerfile"><code class="sourceCode dockerfile"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="kw">FROM</span> python:3.12-slim</span>
-<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="kw">COPY</span> dist/mirror_url-3.1.46-py3-none-any.whl /tmp/</span>
-<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a><span class="kw">RUN</span> <span class="ex">pip</span> install <span class="at">--no-cache-dir</span> <span class="st">&quot;/tmp/mirror_url-3.1.46-py3-none-any.whl[fast]&quot;</span></span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="kw">COPY</span> dist/mirror_url-3.1.47-py3-none-any.whl /tmp/</span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a><span class="kw">RUN</span> <span class="ex">pip</span> install <span class="at">--no-cache-dir</span> <span class="st">&quot;/tmp/mirror_url-3.1.47-py3-none-any.whl[fast]&quot;</span></span>
 <span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a><span class="kw">ENTRYPOINT</span> [<span class="st">&quot;mirror-url&quot;</span>]</span></code></pre></div>
 <h3 id="verify-the-install">Verify the install</h3>
 <div class="sourceCode" id="cb8"><pre
@@ -1099,9 +1108,103 @@ explicitly disable validation with <code>--no-security-validation</code>
 (or <code>security_validation: false</code>). Disabling this removes
 SSRF protection — only do so for trusted, local targets.</p>
 </blockquote>
-<p>Symlink handling is off by default; enable with
-<code>--handle-symlinks</code> (with <code>--symlink-mode</code>, depth,
-per-directory, and bomb-threshold limits).</p>
+<p>Symlink handling is off by default; see <a
+href="#symlink-handling">Symlink handling</a> below for how it works and
+how to use it.</p>
+<hr />
+<h2 id="symlink-handling">Symlink handling</h2>
+<p>Plain HTTP directory listings (Apache-style autoindex, used by most
+archives this tool targets) give <strong>no explicit signal</strong>
+that a directory entry is a symlink. The server transparently resolves
+the symlink server-side and serves the target directory’s listing under
+the link’s own URL path — there is nothing in the HTML to tell a real
+directory apart from a symlinked one.</p>
+<p><strong>Real example.</strong> NASA’s sohoftp SolarSoft archive has
+<code>.../lasco/lasco/</code> symlinked to <code>.../lasco/idl/</code>
+on disk. Both URLs return byte-for-byte equivalent directory listings
+(only the self-referential <code>href</code>s differ) — fetching either
+one looks, from the client’s side, exactly like fetching a normal,
+independent directory. Without any special handling, MirrorURL just
+crawls and downloads both in full, duplicating the entire tree locally
+under two different names.</p>
+<h3 id="how-detection-works">How detection works</h3>
+<p><code>--handle-symlinks</code> turns on a heuristic,
+content-signature-based detector: for every directory scanned, MirrorURL
+fingerprints its immediate entries (the basenames of its files and
+subdirectories — no extra HTTP request, this reuses data the scan
+already fetched) and compares that fingerprint against every other
+non-empty directory already scanned earlier in the same run. If two
+different URLs produce an identical fingerprint, the one discovered
+second is reported as a likely symlink to the one discovered first.</p>
+<p>This is a heuristic, not ground truth:</p>
+<ul>
+<li>It can only compare against directories actually visited in the
+<em>same</em> run — a symlink whose target lies outside the current
+<code>--url</code>/ <code>--dir-suffix</code> scope (and therefore was
+never itself scanned) won’t produce a match and will just be mirrored as
+an ordinary directory.</li>
+<li>“Which one is the real directory and which is the symlink” is
+inferred purely from <em>discovery order</em> (first-seen wins), which
+usually follows the server’s listing order (alphabetical, for a default
+Apache autoindex — <code>idl</code> sorts before <code>lasco</code>,
+matching the real-world example above) but isn’t a guarantee in
+general.</li>
+<li>Two genuinely distinct directories that happen to contain
+identically named entries (e.g. two placeholder directories with the
+same file names) would also be flagged. Empty directories are
+deliberately excluded from detection for this reason — every empty
+directory would otherwise collide trivially.</li>
+<li>Only <em>directory</em> symlinks are detected this way. A symlinked
+individual <em>file</em> can’t be told apart from a normal one without
+downloading and hashing its content, which MirrorURL does not do (it
+would defeat the point of avoiding a redundant download).</li>
+</ul>
+<p>Detection has no network cost (it reuses already-fetched listings)
+and negligible CPU/memory cost — well under a millisecond of hashing per
+10,000 directories scanned in practice.</p>
+<h3 id="recommended-workflow">Recommended workflow</h3>
+<ol type="1">
+<li><p><strong>Survey first.</strong> Run once with:</p>
+<div class="sourceCode" id="cb29"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb29-1"><a href="#cb29-1" aria-hidden="true" tabindex="-1"></a><span class="ex">--handle-symlinks</span> <span class="at">--symlink-mode</span> detect</span></code></pre></div>
+<p><code>detect</code> is purely observational: every detection is
+logged (look for <code>🔗 Symlink detected</code> lines), but the crawl
+proceeds exactly as if <code>--handle-symlinks</code> were unset —
+nothing is skipped or treated differently. It automatically implies
+<code>--dry-run</code> — the scan and detection still run in full, but
+nothing is downloaded or deleted, since a “just survey the tree” pass
+shouldn’t download the very duplicate content you’re trying to avoid in
+the first place. This lets you see what’s actually out there before
+committing to a behavior change.</p></li>
+<li><p><strong>Then decide</strong>, based on the log:</p>
+<ul>
+<li><strong>Exclude permanently</strong> (recommended when you don’t
+want the duplicate content at all): drop <code>--handle-symlinks</code>
+from future runs entirely and instead pass the reported symlink paths to
+<code>--exclude-dir</code> (supports exact paths, path suffixes, and
+simple <code>*</code> globs). This is deterministic and has zero ongoing
+detection overhead.</li>
+<li><strong>Skip on every run</strong>: keep
+<code>--handle-symlinks --symlink-mode skip</code> (the default
+<code>--symlink-mode</code> once <code>--handle-symlinks</code> is set)
+— re-detects and re-ignores the same directories on every run instead of
+relying on a fixed <code>--exclude-dir</code> list.</li>
+<li><strong>Mirror it anyway</strong>:
+<code>--handle-symlinks --symlink-mode follow</code> downloads the
+detected symlink’s content like a normal directory — but only when its
+target resolves <em>inside</em> the current <code>--url</code>/
+<code>--dir-suffix</code> scope. A target outside that scope is always
+ignored regardless of <code>--symlink-mode</code>; this safety boundary
+isn’t user-tunable, since a symlink pointing outside the intended scope
+is exactly the “symlink bomb” scenario <code>--max-symlink-depth</code>,
+<code>--max-symlinks-per-dir</code>, and
+<code>--symlink-bomb-threshold</code> exist to guard against.</li>
+</ul></li>
+</ol>
+<p><code>--symlink-mode treat-as-file</code> is accepted for forward
+compatibility but currently behaves identically to <code>skip</code> —
+there’s no meaningful way to save an HTML directory listing “as a single
+file”.</p>
 <hr />
 <h2 id="monitoring-and-metrics">Monitoring and metrics</h2>
 <ul>
@@ -1120,9 +1223,9 @@ metrics summary to JSON (skipped in <code>--dry-run</code>).</li>
 <li><code>GET /metrics</code> → JSON counters (files
 downloaded/failed/skipped, bytes, elapsed).</li>
 </ul>
-<div class="sourceCode" id="cb29"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb29-1"><a href="#cb29-1" aria-hidden="true" tabindex="-1"></a><span class="ex">curl</span> http://localhost:8080/health</span>
-<span id="cb29-2"><a href="#cb29-2" aria-hidden="true" tabindex="-1"></a><span class="ex">curl</span> http://localhost:8080/metrics</span></code></pre></div></li>
+<div class="sourceCode" id="cb30"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb30-1"><a href="#cb30-1" aria-hidden="true" tabindex="-1"></a><span class="ex">curl</span> http://localhost:8080/health</span>
+<span id="cb30-2"><a href="#cb30-2" aria-hidden="true" tabindex="-1"></a><span class="ex">curl</span> http://localhost:8080/metrics</span></code></pre></div></li>
 <li><strong>Logging.</strong> Each run writes a timestamped log under
 <code>--log-path</code>. Use <code>--verbose</code>/<code>--debug</code>
 for more detail, <code>--quiet</code> for less, and
@@ -1131,43 +1234,43 @@ for more detail, <code>--quiet</code> for less, and
 <hr />
 <h2 id="using-mirrorurl-from-python">Using MirrorURL from Python</h2>
 <p>MirrorURL is a library as well as a CLI. The public API:</p>
-<div class="sourceCode" id="cb30"><pre
-class="sourceCode python"><code class="sourceCode python"><span id="cb30-1"><a href="#cb30-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> pathlib <span class="im">import</span> Path</span>
-<span id="cb30-2"><a href="#cb30-2" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> mirror_url <span class="im">import</span> MirrorURL, MirrorConfig</span>
-<span id="cb30-3"><a href="#cb30-3" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb30-4"><a href="#cb30-4" aria-hidden="true" tabindex="-1"></a>config <span class="op">=</span> MirrorConfig(</span>
-<span id="cb30-5"><a href="#cb30-5" aria-hidden="true" tabindex="-1"></a>    base_url<span class="op">=</span><span class="st">&quot;https://archive.example.org/mission/&quot;</span>,</span>
-<span id="cb30-6"><a href="#cb30-6" aria-hidden="true" tabindex="-1"></a>    dest_path<span class="op">=</span>Path(<span class="st">&quot;/data/mission&quot;</span>),</span>
-<span id="cb30-7"><a href="#cb30-7" aria-hidden="true" tabindex="-1"></a>    log_path<span class="op">=</span>Path(<span class="st">&quot;/var/log/mirror&quot;</span>),</span>
-<span id="cb30-8"><a href="#cb30-8" aria-hidden="true" tabindex="-1"></a>    file_filters<span class="op">=</span>[<span class="st">&quot;.fits&quot;</span>],</span>
-<span id="cb30-9"><a href="#cb30-9" aria-hidden="true" tabindex="-1"></a>    parallel_downloads<span class="op">=</span><span class="va">True</span>,</span>
-<span id="cb30-10"><a href="#cb30-10" aria-hidden="true" tabindex="-1"></a>    cache_max_age<span class="op">=</span><span class="dv">7</span>,</span>
-<span id="cb30-11"><a href="#cb30-11" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb30-12"><a href="#cb30-12" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb30-13"><a href="#cb30-13" aria-hidden="true" tabindex="-1"></a><span class="cf">with</span> MirrorURL(config) <span class="im">as</span> mirror:</span>
-<span id="cb30-14"><a href="#cb30-14" aria-hidden="true" tabindex="-1"></a>    ok <span class="op">=</span> mirror.sync()  <span class="co"># returns True on success, False on failure</span></span>
-<span id="cb30-15"><a href="#cb30-15" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb30-16"><a href="#cb30-16" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;sync succeeded&quot;</span> <span class="cf">if</span> ok <span class="cf">else</span> <span class="st">&quot;sync failed&quot;</span>)</span></code></pre></div>
+<div class="sourceCode" id="cb31"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb31-1"><a href="#cb31-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> pathlib <span class="im">import</span> Path</span>
+<span id="cb31-2"><a href="#cb31-2" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> mirror_url <span class="im">import</span> MirrorURL, MirrorConfig</span>
+<span id="cb31-3"><a href="#cb31-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-4"><a href="#cb31-4" aria-hidden="true" tabindex="-1"></a>config <span class="op">=</span> MirrorConfig(</span>
+<span id="cb31-5"><a href="#cb31-5" aria-hidden="true" tabindex="-1"></a>    base_url<span class="op">=</span><span class="st">&quot;https://archive.example.org/mission/&quot;</span>,</span>
+<span id="cb31-6"><a href="#cb31-6" aria-hidden="true" tabindex="-1"></a>    dest_path<span class="op">=</span>Path(<span class="st">&quot;/data/mission&quot;</span>),</span>
+<span id="cb31-7"><a href="#cb31-7" aria-hidden="true" tabindex="-1"></a>    log_path<span class="op">=</span>Path(<span class="st">&quot;/var/log/mirror&quot;</span>),</span>
+<span id="cb31-8"><a href="#cb31-8" aria-hidden="true" tabindex="-1"></a>    file_filters<span class="op">=</span>[<span class="st">&quot;.fits&quot;</span>],</span>
+<span id="cb31-9"><a href="#cb31-9" aria-hidden="true" tabindex="-1"></a>    parallel_downloads<span class="op">=</span><span class="va">True</span>,</span>
+<span id="cb31-10"><a href="#cb31-10" aria-hidden="true" tabindex="-1"></a>    cache_max_age<span class="op">=</span><span class="dv">7</span>,</span>
+<span id="cb31-11"><a href="#cb31-11" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb31-12"><a href="#cb31-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-13"><a href="#cb31-13" aria-hidden="true" tabindex="-1"></a><span class="cf">with</span> MirrorURL(config) <span class="im">as</span> mirror:</span>
+<span id="cb31-14"><a href="#cb31-14" aria-hidden="true" tabindex="-1"></a>    ok <span class="op">=</span> mirror.sync()  <span class="co"># returns True on success, False on failure</span></span>
+<span id="cb31-15"><a href="#cb31-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-16"><a href="#cb31-16" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;sync succeeded&quot;</span> <span class="cf">if</span> ok <span class="cf">else</span> <span class="st">&quot;sync failed&quot;</span>)</span></code></pre></div>
 <p>Using the context manager (<code>with</code>) ensures background
 threads, connection pools, and the health server are cleaned up. Always
 run inside one.</p>
 <p>Load configuration from a YAML/JSON file:</p>
-<div class="sourceCode" id="cb31"><pre
-class="sourceCode python"><code class="sourceCode python"><span id="cb31-1"><a href="#cb31-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> pathlib <span class="im">import</span> Path</span>
-<span id="cb31-2"><a href="#cb31-2" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> mirror_url <span class="im">import</span> MirrorConfig, MirrorURL</span>
-<span id="cb31-3"><a href="#cb31-3" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb31-4"><a href="#cb31-4" aria-hidden="true" tabindex="-1"></a>config <span class="op">=</span> MirrorConfig.from_yaml(Path(<span class="st">&quot;mirror.yaml&quot;</span>))</span>
-<span id="cb31-5"><a href="#cb31-5" aria-hidden="true" tabindex="-1"></a><span class="cf">with</span> MirrorURL(config) <span class="im">as</span> mirror:</span>
-<span id="cb31-6"><a href="#cb31-6" aria-hidden="true" tabindex="-1"></a>    mirror.sync()</span></code></pre></div>
-<p>Handle configuration errors:</p>
 <div class="sourceCode" id="cb32"><pre
-class="sourceCode python"><code class="sourceCode python"><span id="cb32-1"><a href="#cb32-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> mirror_url <span class="im">import</span> MirrorConfig</span>
-<span id="cb32-2"><a href="#cb32-2" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> mirror_url.exceptions <span class="im">import</span> ConfigError</span>
+class="sourceCode python"><code class="sourceCode python"><span id="cb32-1"><a href="#cb32-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> pathlib <span class="im">import</span> Path</span>
+<span id="cb32-2"><a href="#cb32-2" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> mirror_url <span class="im">import</span> MirrorConfig, MirrorURL</span>
 <span id="cb32-3"><a href="#cb32-3" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb32-4"><a href="#cb32-4" aria-hidden="true" tabindex="-1"></a><span class="cf">try</span>:</span>
-<span id="cb32-5"><a href="#cb32-5" aria-hidden="true" tabindex="-1"></a>    cfg <span class="op">=</span> MirrorConfig(base_url<span class="op">=</span><span class="st">&quot;ftp://nope&quot;</span>, dest_path<span class="op">=</span>Path(<span class="st">&quot;d&quot;</span>), log_path<span class="op">=</span>Path(<span class="st">&quot;l&quot;</span>))</span>
-<span id="cb32-6"><a href="#cb32-6" aria-hidden="true" tabindex="-1"></a><span class="cf">except</span> ConfigError <span class="im">as</span> e:</span>
-<span id="cb32-7"><a href="#cb32-7" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(<span class="st">&quot;bad config:&quot;</span>, e)</span></code></pre></div>
+<span id="cb32-4"><a href="#cb32-4" aria-hidden="true" tabindex="-1"></a>config <span class="op">=</span> MirrorConfig.from_yaml(Path(<span class="st">&quot;mirror.yaml&quot;</span>))</span>
+<span id="cb32-5"><a href="#cb32-5" aria-hidden="true" tabindex="-1"></a><span class="cf">with</span> MirrorURL(config) <span class="im">as</span> mirror:</span>
+<span id="cb32-6"><a href="#cb32-6" aria-hidden="true" tabindex="-1"></a>    mirror.sync()</span></code></pre></div>
+<p>Handle configuration errors:</p>
+<div class="sourceCode" id="cb33"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb33-1"><a href="#cb33-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> mirror_url <span class="im">import</span> MirrorConfig</span>
+<span id="cb33-2"><a href="#cb33-2" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> mirror_url.exceptions <span class="im">import</span> ConfigError</span>
+<span id="cb33-3"><a href="#cb33-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb33-4"><a href="#cb33-4" aria-hidden="true" tabindex="-1"></a><span class="cf">try</span>:</span>
+<span id="cb33-5"><a href="#cb33-5" aria-hidden="true" tabindex="-1"></a>    cfg <span class="op">=</span> MirrorConfig(base_url<span class="op">=</span><span class="st">&quot;ftp://nope&quot;</span>, dest_path<span class="op">=</span>Path(<span class="st">&quot;d&quot;</span>), log_path<span class="op">=</span>Path(<span class="st">&quot;l&quot;</span>))</span>
+<span id="cb33-6"><a href="#cb33-6" aria-hidden="true" tabindex="-1"></a><span class="cf">except</span> ConfigError <span class="im">as</span> e:</span>
+<span id="cb33-7"><a href="#cb33-7" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(<span class="st">&quot;bad config:&quot;</span>, e)</span></code></pre></div>
 <p>Useful exported names: <code>MirrorURL</code>,
 <code>MirrorConfig</code>, <code>load_config_from_args</code>,
 <code>main</code>, and the exception types (<code>MirrorError</code>,
@@ -1196,8 +1299,8 @@ class="sourceCode python"><code class="sourceCode python"><span id="cb32-1"><a h
 </table>
 <p>This makes MirrorURL easy to drive from cron, systemd timers, or
 CI:</p>
-<div class="sourceCode" id="cb33"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb33-1"><a href="#cb33-1" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--config</span> mirror.yaml <span class="kw">&amp;&amp;</span> <span class="bu">echo</span> <span class="st">&quot;OK&quot;</span> <span class="kw">||</span> <span class="bu">echo</span> <span class="st">&quot;FAILED (</span><span class="va">$?</span><span class="st">)&quot;</span></span></code></pre></div>
+<div class="sourceCode" id="cb34"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb34-1"><a href="#cb34-1" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--config</span> mirror.yaml <span class="kw">&amp;&amp;</span> <span class="bu">echo</span> <span class="st">&quot;OK&quot;</span> <span class="kw">||</span> <span class="bu">echo</span> <span class="st">&quot;FAILED (</span><span class="va">$?</span><span class="st">)&quot;</span></span></code></pre></div>
 <hr />
 <h2 id="troubleshooting">Troubleshooting</h2>
 <p><strong>“Hostname resolves to private IP” / connection refused to
@@ -1230,10 +1333,10 @@ lives) and you’re not passing <code>--no-cache</code> /
 <code>--refresh-cache</code>.</p>
 <hr />
 <h2 id="uninstalling">Uninstalling</h2>
-<div class="sourceCode" id="cb34"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb34-1"><a href="#cb34-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> uninstall mirror-url</span>
-<span id="cb34-2"><a href="#cb34-2" aria-hidden="true" tabindex="-1"></a><span class="co"># or, if installed with pipx:</span></span>
-<span id="cb34-3"><a href="#cb34-3" aria-hidden="true" tabindex="-1"></a><span class="ex">pipx</span> uninstall mirror-url</span></code></pre></div>
+<div class="sourceCode" id="cb35"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb35-1"><a href="#cb35-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> uninstall mirror-url</span>
+<span id="cb35-2"><a href="#cb35-2" aria-hidden="true" tabindex="-1"></a><span class="co"># or, if installed with pipx:</span></span>
+<span id="cb35-3"><a href="#cb35-3" aria-hidden="true" tabindex="-1"></a><span class="ex">pipx</span> uninstall mirror-url</span></code></pre></div>
 <p>Generated logs, cache files (in your <code>--log-path</code>), and
 mirrored data (in your <code>--dest-path</code>) are left in place —
 remove them manually if desired.</p>

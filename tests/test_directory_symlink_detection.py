@@ -258,7 +258,44 @@ def test_symlink_target_outside_scope_always_ignored_even_in_follow_mode(monkeyp
     assert "symlinks_followed" not in mirror.metrics.counts
 
 
-def test_symlink_bomb_threshold_blocks_follow(monkeypatch):
+def test_symlink_mode_detect_reports_but_mirrors_normally(monkeypatch):
+    """--symlink-mode detect: purely observational. The detected symlink
+    (B) is still mirrored/descended into exactly as if --handle-symlinks
+    were unset, but the detection is still logged and counted -- meant
+    for surveying a tree before choosing --exclude-dir or a stronger
+    --symlink-mode."""
+    _patch_dns(monkeypatch)
+    mirror = _StubMirror(
+        ROOT, _tree_with_symlinked_sibling(), handle_symlinks=True, symlink_mode="detect"
+    )
+
+    yielded = list(mirror._discover_directories_bfs())
+
+    assert sorted(yielded) == sorted([ROOT, ROOT + "A/", ROOT + "B/"])
+    assert mirror.metrics.counts.get("symlinks_detected") == 1
+    assert "symlinks_skipped" not in mirror.metrics.counts
+    assert "symlinks_followed" not in mirror.metrics.counts
+
+
+def test_symlink_mode_detect_does_not_apply_out_of_scope_safety_skip(monkeypatch):
+    """detect mode never alters crawl behavior -- not even the
+    out-of-scope safety boundary that follow mode enforces. It's purely
+    "tell me", not "act for me"."""
+    _patch_dns(monkeypatch)
+    mirror = _StubMirror(
+        ROOT,
+        _tree_with_symlinked_sibling(),
+        handle_symlinks=True,
+        symlink_mode="detect",
+        out_of_scope_urls={ROOT + "A/"},
+    )
+
+    yielded = list(mirror._discover_directories_bfs())
+
+    assert sorted(yielded) == sorted([ROOT, ROOT + "A/", ROOT + "B/"])
+    assert mirror.metrics.counts.get("symlinks_detected") == 1
+    assert "symlinks_skipped" not in mirror.metrics.counts
+
     """Even with target in scope and --symlink-mode=follow, the
     SymlinkTracker's bomb/loop guard can still veto following -- it's
     now actually wired to real symlink detections instead of being

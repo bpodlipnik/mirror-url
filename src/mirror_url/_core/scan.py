@@ -635,13 +635,20 @@ class ScanMixin:
                 # checked against every other directory's signature seen
                 # so far in this run and, if flagged, reported to the log
                 # unconditionally, then handled per --symlink-mode:
+                #   - "detect": purely observational -- reported, then left
+                #     to crawl exactly as if --handle-symlinks were unset
+                #     (used to survey a tree before choosing a stronger mode,
+                #     e.g. then excluding the reported paths permanently with
+                #     --exclude-dir and dropping --handle-symlinks entirely).
                 #   - target outside the current --url/--dir-suffix scope:
                 #     always ignored (never descended into), regardless of
                 #     --symlink-mode -- this is a safety boundary, not a
                 #     user-tunable one, since a symlink pointing outside
                 #     scope is exactly the "symlink bomb" scenario
                 #     max_symlink_depth/max_symlinks_per_dir/
-                #     symlink_bomb_threshold exist to guard against.
+                #     symlink_bomb_threshold exist to guard against. This
+                #     boundary does NOT apply to "detect" mode, which never
+                #     alters crawl behavior.
                 #   - target inside scope, mode "follow": mirrored/created
                 #     like a normal directory (this is the common case --
                 #     see e.g. NASA sohoftp's lasco/lasco -> lasco/idl).
@@ -655,53 +662,64 @@ class ScanMixin:
                     )
                     if is_link:
                         self.metrics.increment("symlinks_detected")
-                        in_scope = bool(target_url) and self._is_within_target_scope(target_url)
-                        parent_url = url.rstrip("/").rsplit("/", 1)[0] + "/"
 
-                        if not in_scope:
-                            logging.warning(
-                                f"{prefix}🔗 Symlink detected, target outside scope -- "
-                                f"ignoring: {sanitize_url_for_log(url)} -> "
-                                f"{sanitize_url_for_log(target_url or 'unknown')}"
-                            )
-                            if self.symlink_tracker:
-                                self.symlink_tracker.record_skip(url)
-                            self.metrics.increment("symlinks_skipped")
-                            skip_this_dir = True
-                        elif self.config.symlink_mode in ("skip", "treat-as-file"):
+                        if self.config.symlink_mode == "detect":
                             logging.info(
-                                f"{prefix}🔗 Symlink detected (mode={self.config.symlink_mode}) "
-                                f"-- ignoring: {sanitize_url_for_log(url)} -> "
+                                f"{prefix}🔗 Symlink detected (mode=detect, "
+                                f"observation only, mirroring normally): "
+                                f"{sanitize_url_for_log(url)} -> "
                                 f"{sanitize_url_for_log(target_url)}"
                             )
-                            if self.symlink_tracker:
-                                self.symlink_tracker.record_skip(url)
-                            self.metrics.increment("symlinks_skipped")
-                            skip_this_dir = True
                         else:
-                            can_follow = True
-                            reason = None
-                            if self.symlink_tracker:
-                                can_follow, reason = self.symlink_tracker.can_follow(
-                                    url, parent_url, depth
-                                )
-                            if not can_follow:
+                            in_scope = bool(target_url) and self._is_within_target_scope(target_url)
+                            parent_url = url.rstrip("/").rsplit("/", 1)[0] + "/"
+
+                            if not in_scope:
                                 logging.warning(
-                                    f"{prefix}🔗 Symlink detected but blocked ({reason}) "
-                                    f"-- ignoring: {sanitize_url_for_log(url)} -> "
-                                    f"{sanitize_url_for_log(target_url)}"
+                                    f"{prefix}🔗 Symlink detected, target outside scope -- "
+                                    f"ignoring: {sanitize_url_for_log(url)} -> "
+                                    f"{sanitize_url_for_log(target_url or 'unknown')}"
                                 )
-                                self.metrics.increment("symlink_loops_detected")
+                                if self.symlink_tracker:
+                                    self.symlink_tracker.record_skip(url)
+                                self.metrics.increment("symlinks_skipped")
                                 skip_this_dir = True
-                            else:
+                            elif self.config.symlink_mode in ("skip", "treat-as-file"):
                                 logging.info(
-                                    f"{prefix}🔗 Symlink detected, target in scope -- "
-                                    f"creating: {sanitize_url_for_log(url)} -> "
+                                    f"{prefix}🔗 Symlink detected "
+                                    f"(mode={self.config.symlink_mode}) -- ignoring: "
+                                    f"{sanitize_url_for_log(url)} -> "
                                     f"{sanitize_url_for_log(target_url)}"
                                 )
                                 if self.symlink_tracker:
-                                    self.symlink_tracker.record_follow(url, parent_url, depth)
-                                self.metrics.increment("symlinks_followed")
+                                    self.symlink_tracker.record_skip(url)
+                                self.metrics.increment("symlinks_skipped")
+                                skip_this_dir = True
+                            else:
+                                can_follow = True
+                                reason = None
+                                if self.symlink_tracker:
+                                    can_follow, reason = self.symlink_tracker.can_follow(
+                                        url, parent_url, depth
+                                    )
+                                if not can_follow:
+                                    logging.warning(
+                                        f"{prefix}🔗 Symlink detected but blocked "
+                                        f"({reason}) -- ignoring: "
+                                        f"{sanitize_url_for_log(url)} -> "
+                                        f"{sanitize_url_for_log(target_url)}"
+                                    )
+                                    self.metrics.increment("symlink_loops_detected")
+                                    skip_this_dir = True
+                                else:
+                                    logging.info(
+                                        f"{prefix}🔗 Symlink detected, target in scope "
+                                        f"-- creating: {sanitize_url_for_log(url)} -> "
+                                        f"{sanitize_url_for_log(target_url)}"
+                                    )
+                                    if self.symlink_tracker:
+                                        self.symlink_tracker.record_follow(url, parent_url, depth)
+                                    self.metrics.increment("symlinks_followed")
 
                 if not skip_this_dir:
                     for subdir in subdirs:
