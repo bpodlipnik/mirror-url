@@ -183,7 +183,13 @@ def test_handle_symlinks_disabled_mirrors_both_dirs_unchanged(monkeypatch):
     yielded = list(mirror._discover_directories_bfs())
 
     assert sorted(yielded) == sorted([ROOT, ROOT + "A/", ROOT + "B/"])
-    assert mirror.metrics.counts == {}
+    # Symlink-specific metrics must stay untouched -- but
+    # files_discovered_during_scan is an always-on, essentially-free
+    # tally (see _discover_directories_bfs's docstring) that runs
+    # regardless of --handle-symlinks, so it's expected here too.
+    assert "symlinks_detected" not in mirror.metrics.counts
+    assert "symlinks_skipped" not in mirror.metrics.counts
+    assert "symlinks_followed" not in mirror.metrics.counts
 
 
 def test_symlink_mode_skip_ignores_the_detected_duplicate(monkeypatch):

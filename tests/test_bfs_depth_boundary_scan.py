@@ -70,6 +70,7 @@ class _StubMirror(ScanMixin):
         self.config = SimpleNamespace(
             max_depth=max_depth, exclude_dirs=exclude_dirs or [], handle_symlinks=False
         )
+        self.metrics = SimpleNamespace(increment=lambda *a, **kw: None)
         self.per_ip_limiter = SimpleNamespace(wait=lambda ip: None)
         self.scan_incomplete = False
 

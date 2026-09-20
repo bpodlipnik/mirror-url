@@ -163,11 +163,12 @@ class ReportMixin:
             if self.config.handle_symlinks and self.config.symlink_mode == "detect":
                 duration = time.time() - start
                 symlinks_detected = self.metrics.metrics.get("symlinks_detected", 0)
+                files_found = self.metrics.metrics.get("files_discovered_during_scan", 0)
                 logging.info("-" * 50)
                 logging.info(f"{prefix}SYMLINK DETECT SUMMARY:")
                 logging.info(f"{prefix}  Symlinks detected: {symlinks_detected}")
                 logging.info(
-                    f"{prefix}  Remote files found (not checked/downloaded): {len(remote_files)}"
+                    f"{prefix}  Remote files found (not checked/downloaded): {files_found}"
                 )
                 logging.info(f"{prefix}  Duration: {format_duration(duration)}")
                 logging.info(

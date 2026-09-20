@@ -198,6 +198,28 @@ class ScanMixin:
 
             logging.info(f"{prefix}Discovered {len(directories)} directories")
 
+            # --symlink-mode detect's entire purpose is the directory-level
+            # symlink survey _discover_directories_bfs() just finished
+            # (every "🔗 Symlink detected" line is already logged at this
+            # point). The per-directory loop below exists to build the
+            # full remote_files list and per-directory content signatures
+            # for the download/compare/cache-save pipeline -- none of
+            # which detect mode uses, since sync() short-circuits right
+            # after this function returns (see ReportMixin.sync()). That
+            # loop re-fetches every directory a SECOND time (BFS already
+            # fetched each one once, for subdirs + symlink detection) --
+            # for a 968-directory tree that's a second multi-minute pass
+            # for information that gets thrown away immediately. Skip it
+            # entirely; the files-found count for the summary comes from
+            # the running tally _discover_directories_bfs() already kept
+            # from data it fetched anyway, at zero extra cost.
+            if self.config.handle_symlinks and self.config.symlink_mode == "detect":
+                logging.info(
+                    f"{prefix}--symlink-mode detect: skipping per-directory file "
+                    f"collection (directory-level symlink survey is already complete)"
+                )
+                return []
+
             all_files: List[str] = []
             dir_signatures: Dict[str, str] = {}
 
@@ -629,6 +651,15 @@ class ScanMixin:
                     self.scan_incomplete = True
                     subdirs = []
                     _files = []
+
+                # Running file-count tally captured here, from data this
+                # scan already fetched -- lets --symlink-mode detect's
+                # short-circuit in get_remote_files() report a files-found
+                # number without needing the second full re-scan pass that
+                # normally builds the complete file list (see the
+                # early-return block right after this generator is
+                # consumed, below).
+                self.metrics.increment("files_discovered_during_scan", len(_files))
 
                 # Directory-level symlink detection & handling. Off by
                 # default (--handle-symlinks); when on, every directory is

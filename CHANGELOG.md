@@ -4,6 +4,46 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.49] - 2026-09-20
+
+### Fixed
+- `--symlink-mode detect` was still slow after 3.1.48's fix, and still
+  for the reason Borut originally flagged: `ScanMixin.get_remote_files()`
+  itself does a **second** full pass over every discovered directory
+  (`for i, url in enumerate(directories): files, subdirs =
+  self.scanner.scan_directory_sequential(url)`) to build the complete
+  `remote_files` list and per-directory content signatures for the
+  download/compare/cache pipeline -- all of it immediately discarded by
+  detect mode, since `sync()` returns right after `get_remote_files()`
+  comes back (the 3.1.48 fix). Every directory was therefore still being
+  fetched twice: once inside `_discover_directories_bfs()` (where
+  symlink detection and the `🔗 Symlink detected` logging happen), and
+  again in this second loop purely to rebuild data detect mode throws
+  away. On the real 968-directory sohoftp tree this meant two
+  multi-minute passes (the second one visible in the log as `[short]
+  [directories] Progress [directories]: N/968` starting back at 0%
+  right after `Discovered 968 directories`) for a mode whose only actual
+  output is the log lines the first pass already produced.
+
+  `get_remote_files()` now returns immediately after directory
+  discovery when `handle_symlinks` + `symlink_mode == "detect"`,
+  skipping the second scan pass, the per-directory signature
+  computation, and the cache save entirely. The files-found count
+  `sync()`'s `SYMLINK DETECT SUMMARY` reports now comes from a running
+  tally (`files_discovered_during_scan`, a metrics counter) kept during
+  the single BFS pass itself, from data it already fetched -- not from
+  re-scanning to rebuild the full list.
+
+  3 new tests in `tests/test_symlink_detect_skips_second_scan.py`,
+  directly counting `scan_directory_sequential()` calls to prove each
+  directory is fetched exactly once in detect mode (was twice) and
+  still twice in normal (non-detect) mode, which is unaffected and
+  still needs the full list. `tests/test_directory_symlink_detection.py`
+  and `tests/test_bfs_depth_boundary_scan.py` updated for the new
+  always-on `files_discovered_during_scan` tally (present regardless of
+  `--handle-symlinks`, since it costs nothing -- the data was already
+  in hand).
+
 ## [3.1.48] - 2026-09-20
 
 ### Fixed
