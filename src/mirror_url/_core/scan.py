@@ -228,7 +228,32 @@ class ScanMixin:
             )
 
             for i, url in enumerate(directories):
-                files, subdirs = self.scanner.scan_directory_sequential(url)
+                try:
+                    files, subdirs = self.scanner.scan_directory_sequential(url)
+                except Exception as e:
+                    # FIX (real data-loss bug, reported by Borut): this loop had
+                    # NO exception handling at all -- a per-directory scan
+                    # failure (timeout, connection reset, non-200) used to
+                    # propagate as ([], []) from scan_directory_sequential
+                    # (now fixed to raise instead, see scanner.py), which this
+                    # loop would have folded straight into all_files as "this
+                    # directory has zero files", indistinguishable from a
+                    # genuinely empty one. Since THIS all_files list is exactly
+                    # what feeds clean_obsolete() afterward, a single flaky
+                    # directory could have caused every locally-mirrored file
+                    # under its subtree to be deleted as "no longer on the
+                    # remote" -- when the remote state was never actually
+                    # confirmed, only unreachable this run. Flag the run
+                    # incomplete (clean_obsolete() already refuses to run
+                    # against one, per the partial-scan guard added earlier)
+                    # and keep going with the rest of the directories rather
+                    # than aborting the whole run over one bad one.
+                    logging.warning(
+                        f"{prefix}Error scanning {sanitize_url_for_log(url)}: {e} -- "
+                        f"directory listing incomplete, cleanup will be skipped this run"
+                    )
+                    self.scan_incomplete = True
+                    files = []
                 all_files.extend(files)
                 sig = self.get_directory_signature(url)
                 dir_signatures[url] = sig

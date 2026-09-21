@@ -4,6 +4,55 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.53] - 2026-09-21
+
+### Fixed
+- **Real data-loss bug, reported by Borut: a per-directory scan that failed
+  (timeout, connection reset, non-200) was silently treated as a confirmed
+  empty directory, and `clean_obsolete()` could then delete every
+  locally-mirrored file under that subtree as "no longer on the remote" --
+  even though the remote state was never actually confirmed, only
+  unreachable that run.** Traced precisely through three layers:
+
+  1. `DirectoryScanner._perform_scan()` correctly classified every failure
+     as `ParsingError` and raised it -- this layer was already correct.
+  2. `scan_directory_sequential()` (`scanner.py`) caught that
+     `ParsingError` and swallowed it, `return [], []` -- the one thing
+     this got right was not caching the failure (preserved); the bug was
+     that the exception never reached either caller.
+  3. Both callers had guards that depended on the exception actually
+     arriving, and it never did:
+     - `_discover_directories_bfs()`'s existing `except Exception:
+       scan_incomplete = True` guard (already correctly written, already
+       correctly checked by `clean_obsolete()`) was dead code for this
+       exact failure mode.
+     - `get_remote_files()`'s second per-directory loop -- the one that
+       builds the `remote_files` list `clean_obsolete()` directly
+       consumes -- had **no exception handling at all**, a second,
+       independent path to the same silent-failure-as-empty problem.
+
+  `scan_directory_sequential()` now re-raises instead of swallowing.
+  `get_remote_files()`'s second loop gained its own try/except mirroring
+  the BFS one: sets `scan_incomplete`, logs a warning, and continues with
+  the remaining directories rather than aborting the whole run over one
+  flaky one.
+
+  This was previously untested at the point of the actual defect: existing
+  coverage (`test_cleanup_partial_scan.py`) correctly proved
+  `clean_obsolete()` respects `scan_incomplete` once it's set, and
+  (`test_bfs_depth_boundary_scan.py`) correctly proved the BFS guard fires
+  *if* an exception reaches it -- but nothing exercised the real
+  `scanner.py`, so nothing caught that the exception never actually got
+  there. 7 new tests in `tests/test_partial_scan_failure_propagation.py`
+  close that gap directly: the real `DirectoryScanner` now provably raises
+  on both a simulated connection failure (the literal "Server disconnected
+  without sending a response" scenario hit against the real NASA archive
+  earlier in this project) and a non-200, the real `_discover_directories_
+  bfs()` now provably sets `scan_incomplete` when a real failure reaches
+  it, and the real `get_remote_files()` now provably does too -- confirmed
+  by temporarily reverting the fix and observing 4 of 7 tests correctly
+  fail before restoring it.
+
 ## [3.1.52] - 2026-09-21
 
 ### Fixed

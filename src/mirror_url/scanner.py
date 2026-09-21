@@ -110,12 +110,28 @@ class DirectoryScanner:
         try:
             files, subdirs = self._perform_scan(url)
         except ParsingError as e:
-            # FIX: scan failed (non-200 or exception). Do NOT cache an empty
-            # result — neither in parse_cache nor the persisted html_cache —
-            # so a transient error doesn't mask real files for the rest of
-            # this run or future runs. Return empty for this call only.
+            # FIX (real data-loss bug, reported by Borut): this used to
+            # swallow the failure and `return [], []` -- correct for NOT
+            # caching a bogus empty result (that part is preserved below),
+            # but it also silently told every caller "this directory has
+            # zero files/subdirs", indistinguishable from a genuinely
+            # empty directory. Both scan.py callers of this method
+            # (_discover_directories_bfs's own try/except, and
+            # get_remote_files()'s per-directory loop) rely on the
+            # exception actually reaching them to set scan_incomplete and
+            # keep clean_obsolete() from running against a partial
+            # listing -- with the failure swallowed here instead, that
+            # guard was dead code for this exact failure mode (a
+            # transient timeout/connection-reset counts as ParsingError
+            # via _perform_scan's own broad `except Exception -> raise
+            # ParsingError`), and a directory that failed to list could
+            # have every one of its locally-mirrored files deleted by
+            # clean_obsolete() as "no longer on the remote", when they
+            # were never actually confirmed absent -- the scan just
+            # failed. Re-raise so the caller can tell "confirmed empty"
+            # apart from "unknown, ask again".
             logging.debug(f"Not caching failed scan for {sanitize_url_for_log(url)}: {e}")
-            return [], []
+            raise
 
         self.parse_cache.put(url, (files, subdirs))
 
