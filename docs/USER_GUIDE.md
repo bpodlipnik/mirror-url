@@ -6,7 +6,7 @@ the remote directory tree, decides which files are new or changed, and downloads
 them efficiently — with adaptive concurrency, resumable/parallel downloads,
 integrity checks, incremental caching, and an SSRF-hardened transport layer.
 
-- **Version:** 3.1.51
+- **Version:** 3.1.52
 - **Python:** 3.9 – 3.12 (pure Python, any OS/architecture)
 - **License:** MIT
 
@@ -81,21 +81,21 @@ On a build machine:
 
 ```bash
 pip install build
-python -m build          # produces dist/mirror_url-3.1.51-py3-none-any.whl
+python -m build          # produces dist/mirror_url-3.1.52-py3-none-any.whl
 ```
 
 Copy the wheel to the target server and install it:
 
 ```bash
 python3 -m venv /opt/mirror-url
-/opt/mirror-url/bin/pip install /tmp/mirror_url-3.1.51-py3-none-any.whl
+/opt/mirror-url/bin/pip install /tmp/mirror_url-3.1.52-py3-none-any.whl
 /opt/mirror-url/bin/mirror-url --help
 ```
 
 To include the optional speed extras:
 
 ```bash
-/opt/mirror-url/bin/pip install "/tmp/mirror_url-3.1.51-py3-none-any.whl[fast]"
+/opt/mirror-url/bin/pip install "/tmp/mirror_url-3.1.52-py3-none-any.whl[fast]"
 ```
 
 Available extras: `fast` (stringzilla + lxml), `progress` (tqdm),
@@ -104,24 +104,24 @@ Available extras: `fast` (stringzilla + lxml), `progress` (tqdm),
 ### From a Git repository
 
 ```bash
-pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.51"
+pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.52"
 # private repo over SSH:
-pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.1.51"
+pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.1.52"
 ```
 
 ### As an isolated CLI with pipx
 
 ```bash
-pipx install /tmp/mirror_url-3.1.51-py3-none-any.whl
-# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.51"
+pipx install /tmp/mirror_url-3.1.52-py3-none-any.whl
+# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.52"
 ```
 
 ### With Docker
 
 ```dockerfile
 FROM python:3.12-slim
-COPY dist/mirror_url-3.1.51-py3-none-any.whl /tmp/
-RUN pip install --no-cache-dir "/tmp/mirror_url-3.1.51-py3-none-any.whl[fast]"
+COPY dist/mirror_url-3.1.52-py3-none-any.whl /tmp/
+RUN pip install --no-cache-dir "/tmp/mirror_url-3.1.52-py3-none-any.whl[fast]"
 ENTRYPOINT ["mirror-url"]
 ```
 
@@ -226,7 +226,7 @@ list of options. The most commonly used options:
 | Option | Description |
 |---|---|
 | `--filter P [P ...]` | Only download matching files. Each pattern is a plain extension (`.fits`) or a regex (`'2024.*\.fits$'`). |
-| `--exclude-dir D [D ...]` | Skip matching directories. |
+| `--exclude-dir D [D ...]` | Skip directories, each matched as an exact path relative to `--url` (not a suffix at any depth — see "Filtering and scope" below). |
 | `--max-depth N` | Maximum directory recursion depth (default 50; `--list-dirs` defaults to 1 instead — see below). |
 | `--list-dirs [N]` | Discover and print the directory tree under `--url`/`--dir-suffix`, then exit — no file scanning, freshness checks, or downloads/deletes. Respects `--exclude-dir`/`--max-depth` (defaults to `1` — the current folder's immediate children only — unless `--max-depth` is given explicitly; every other mode still defaults to 50); `--filter` doesn't apply (files only). With `N`, shows only the last `N` directories overall, sorted **lexicographically by relative path** (a name sort, not a true timestamp sort), with the root (`.`) excluded from that ranking. Always followed by a `# Directories N/total` summary line, including unrestricted runs (`N == total`). Doesn't require `--dest-path`/`--log-path`. |
 | `--list-files [N]` | Discover and print files under `--url`/`--dir-suffix`, then exit — no freshness checks or downloads/deletes. Respects `--exclude-dir`/`--max-depth`/`--filter`. With `N`, shows only the last `N` files *per directory*, sorted **lexicographically by filename** (a name sort, not a true timestamp sort — see "Filtering and scope" below). Doesn't require `--dest-path`/`--log-path`. |
@@ -449,8 +449,20 @@ on by default).
   `N`" ranking, see the callout below `--list-files [N]` about what happens
   when a filter matches more than one filename prefix in the same run.
 
-- **`--exclude-dir`** skips directories by name/path suffix (simple `*` globs
-  supported).
+- **`--exclude-dir`** skips one or more directories, each matched as an
+  **exact path relative to `--url`** — not a suffix match at any depth. `
+  --exclude-dir lasco` excludes only `<root>/lasco/`, never
+  `<root>/setup/lasco/` or any other directory elsewhere in the tree that
+  happens to share that name. `--exclude-dir idl/beta` excludes only that
+  specific two-level path. Pass several to exclude several:
+  `--exclude-dir lasco idl/beta` excludes exactly those two root-relative
+  paths. A pattern containing `*` is the explicit escape hatch for matching
+  at any depth (`--exclude-dir '*/lasco'` also catches `<root>/setup/lasco/`)
+  — opt-in, not the default for a plain pattern. (Earlier versions matched
+  any pattern as a suffix anywhere in the tree; that was a real, silent
+  over-exclusion risk — a short pattern could quietly swallow an unrelated,
+  same-named directory elsewhere with no warning. If you relied on that
+  "anywhere" behavior, add an explicit `*/` prefix to keep it.)
 - **`--dir-suffix`** restricts mirroring to one or more subpaths under the base
   URL and mirrors each in turn.
 - **`--max-depth`** bounds recursion. The crawler also enforces URL-scope checks

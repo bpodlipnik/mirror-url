@@ -4,6 +4,47 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.52] - 2026-09-21
+
+### Fixed
+- **`--exclude-dir` semantics changed: patterns now match an exact path
+  relative to `--url`, never a suffix at any depth in the tree.** This is
+  a deliberate breaking change to a real, demonstrated bug, not an
+  addition: the previous `path.endswith(pattern)` matching meant
+  `--exclude-dir lasco` (intended to exclude one specific
+  `<root>/lasco/`) would also silently match and exclude an entirely
+  unrelated `<root>/setup/lasco/` anywhere else in a large tree, with no
+  warning. Confirmed directly against the code with Borut before this
+  fix -- explicitly flagged as a silent-data-loss risk ("fatal"), worse
+  than a crash because nothing indicates anything was skipped.
+
+  New behavior, exactly per Borut's spec: `--exclude-dir lasco` excludes
+  only `<root>/lasco/`. `--exclude-dir lasco idl/beta` (multiple
+  patterns) excludes exactly `<root>/lasco/` and `<root>/idl/beta/` --
+  each pattern is checked independently against the full path relative
+  to root, nothing more. A pattern containing `*` is the explicit,
+  visible escape hatch for "this name at any depth"
+  (`--exclude-dir '*/lasco'` still matches `<root>/setup/lasco/`) --
+  opt-in per pattern, not silently the default for every plain one.
+  There is no other "match anywhere" fallback: a pattern that doesn't
+  match relative to root simply doesn't exclude anything, which is a
+  visible, harmless no-op -- silently excluding the wrong directory
+  elsewhere in the tree is not.
+
+  `UrlMixin._is_dir_excluded()` rewritten accordingly. Previously
+  entirely untested at the unit level -- the only existing references to
+  it across the test suite were unrelated stub overrides always
+  returning `False`, not real coverage of the matching logic. 11 new
+  tests in `tests/test_exclude_dir_rooted.py`: root-relative exact match
+  (single and multi-segment), the exact `setup/lasco` false-positive
+  scenario that motivated this fix, the root-itself edge case, the glob
+  escape hatch (both the "requires a separator" and "no separator
+  required" cases), multiple patterns together, and a URL outside the
+  scan root failing closed rather than falling back to a broad match.
+  `--exclude-dir` `--help` text and `docs/USER_GUIDE.md`/`.html` rewritten
+  to document the new semantics and the migration note for anyone relying
+  on the old "anywhere" behavior.
+
 ## [3.1.51] - 2026-09-20
 
 ### Added

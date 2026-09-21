@@ -527,7 +527,26 @@ EXAMPLES:
         help="Directory suffixes to mirror (e.g., L1/v1 L2/v2)",
     )
     directory.add_argument(
-        "--exclude-dir", nargs="*", default=[], metavar="DIR", help="Directories to exclude"
+        "--exclude-dir",
+        nargs="*",
+        default=[],
+        metavar="DIR",
+        help=(
+            "Directories to exclude from the crawl, one or more, "
+            "space-separated. Each pattern is matched as an EXACT path "
+            "relative to --url, never a suffix match at any depth: "
+            "'--exclude-dir lasco' excludes only <root>/lasco/, never "
+            "<root>/setup/lasco/ or any other nested directory that "
+            "happens to share that name elsewhere in the tree. "
+            "'--exclude-dir idl/beta' excludes only the specific "
+            "two-level path <root>/idl/beta/. Pass several to exclude "
+            "several: '--exclude-dir lasco idl/beta' excludes exactly "
+            "those two root-relative paths and nothing else. A pattern "
+            "containing '*' is the explicit escape hatch for matching "
+            "at any depth (e.g. '--exclude-dir */lasco' matches "
+            "<root>/setup/lasco/ too) -- opt-in, not the default for a "
+            "plain pattern."
+        ),
     )
     directory.add_argument(
         "--list-dirs",

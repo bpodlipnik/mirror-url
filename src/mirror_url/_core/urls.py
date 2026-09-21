@@ -224,11 +224,35 @@ class UrlMixin:
 
     def _is_dir_excluded(self, url: str) -> bool:
         """
-        Check if a directory URL should be excluded based on exclude_dirs config.
-        Supports:
-        - Exact URL match
-        - Path suffix match (e.g., 'spk/satellites/a_old_versions')
-        - Simple glob patterns with * (basic support)
+        Check if a directory URL should be excluded based on exclude_dirs
+        config.
+
+        Each --exclude-dir pattern is matched as an EXACT path relative to
+        the scan root (--url), never a suffix match against arbitrary
+        depth in the tree. `--exclude-dir lasco` excludes only
+        `<root>/lasco/` -- never `<root>/setup/lasco/`, or any other
+        nested directory that happens to also be named "lasco" somewhere
+        else in a large tree. `--exclude-dir idl/beta` likewise excludes
+        only the specific two-level path `<root>/idl/beta/`, not any
+        "idl/beta" found elsewhere.
+
+        This replaces an earlier suffix-match design (`path.endswith(pattern)`)
+        that silently matched a short pattern anywhere in the crawled
+        tree, at any depth -- a demonstrated, unbounded, silent
+        data-loss risk with no warning when it fired on an unintended
+        directory (see CHANGELOG). There is no "match at any depth"
+        fallback: if a pattern isn't found relative to root, it isn't
+        excluded, full stop -- being unable to exclude something is a
+        visible, harmless no-op; silently excluding the wrong thing
+        elsewhere in the tree is not.
+
+        Escape hatch for genuinely wanting "this name anywhere": a glob
+        pattern is still matched against the full root-relative path
+        (not anchored to being rooted at depth 0 the way a plain pattern
+        is), so `--exclude-dir '*/lasco'` matches `<root>/setup/lasco/`
+        (and `<root>/lasco/` itself, and any other depth) -- opt-in,
+        explicit, and visible in the pattern itself, rather than being
+        every plain pattern's silent default behavior.
 
         Args:
             url: Directory URL to check
@@ -238,25 +262,33 @@ class UrlMixin:
         if not self.config.exclude_dirs:
             return False
 
-        parsed = urlparse(url)
-        path = parsed.path.rstrip("/")
+        root_url = self.target_base_url or ""
+        if root_url and not root_url.endswith("/"):
+            root_url += "/"
+
+        url_normalized = url.rstrip("/") + "/"
+        if not root_url or not url_normalized.startswith(root_url):
+            # Candidate isn't under the scan root at all -- shouldn't
+            # normally happen, since BFS only ever enqueues URLs within
+            # target_base_url, but fail closed: no relative path means
+            # no match, never an accidental broad one.
+            return False
+
+        relative_path = url_normalized[len(root_url) :].rstrip("/")
+        if not relative_path:
+            return False  # the root itself is never excludable this way
 
         for pattern in self.config.exclude_dirs:
-            pattern_clean = pattern.rstrip("/")
+            pattern_clean = pattern.strip("/")
+            if not pattern_clean:
+                continue
 
-            # Exact match
-            if path == pattern_clean or url.rstrip("/") == pattern_clean:
-                return True
-
-            # Path suffix match (most common use case)
-            if path.endswith("/" + pattern_clean) or path.endswith(pattern_clean):
-                return True
-
-            # Simple glob support: convert * to regex
             if "*" in pattern_clean:
                 regex_pattern = re.escape(pattern_clean).replace(r"\*", ".*")
-                if re.search(regex_pattern + r"(/|$)", path):
+                if re.fullmatch(regex_pattern, relative_path):
                     return True
+            elif relative_path == pattern_clean:
+                return True
 
         return False
 
