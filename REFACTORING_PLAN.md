@@ -255,10 +255,14 @@ clean on `src/`.
       `ConnectionManager._is_url_within_scope` read `self.target_parsed` in its
       `check_base=False` branch, which `__init__` never set (the branch was never
       taken in practice — the outer try/except silently swallowed the resulting
-      `AttributeError` and returned `False`). `ConnectionManager.__init__` now
-      explicitly sets `self.target_parsed: Optional[ParseResult] = None`, matching
-      `_MirrorBase`'s pattern, so the branch degrades cleanly instead of relying on
-      exception-swallowing.
+      `AttributeError` and returned `False`). First fixed defensively by having
+      `ConnectionManager.__init__` explicitly set `self.target_parsed: Optional[
+      ParseResult] = None`; on follow-up review that was judged to leave a
+      permanently-dead branch in place (`check_base=False` could never do
+      anything useful in this class — `ConnectionManager` has no notion of a
+      resolved target/dir-suffix scope the way `MirrorURL`/`_MirrorBase` does),
+      so `check_base` and the branch were removed from `_is_url_within_scope`
+      entirely instead, along with the now-unused `self.target_parsed`.
 
 - [x] Two further latent issues, found during review, fixed:
       - `UrlsMixin._parse_url_cached` was `@lru_cache`-decorated on an instance

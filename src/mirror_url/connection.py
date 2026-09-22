@@ -19,7 +19,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import RLock, Semaphore
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
-from urllib.parse import ParseResult, quote, unquote, urljoin, urlparse
+from urllib.parse import quote, unquote, urljoin, urlparse
 
 import httpx
 
@@ -430,13 +430,6 @@ class ConnectionManager:
         self.max_consecutive_failures = 3
         self.base_url = config.base_url
         self.base_parsed = urlparse(str(config.base_url))
-        # ConnectionManager has no notion of a resolved target (dir-suffix)
-        # scope the way MirrorURL/_MirrorBase does -- it only ever validates
-        # against base_url. Set explicitly (rather than leaving it unset) so
-        # the check_base=False branch of _is_url_within_scope below can test
-        # for it directly instead of relying on the outer try/except to swallow
-        # an AttributeError. See REFACTORING_PLAN.md §4.1.
-        self.target_parsed: Optional[ParseResult] = None
         self.circuit_breaker = None  # Deprecated
         self.circuit_breaker_manager = None
         if config.circuit_breaker_enabled:
@@ -466,12 +459,20 @@ class ConnectionManager:
 
         return url_sz[path_start:]
 
-    def _is_url_within_scope(self, url: str, check_base: bool = True) -> bool:
+    def _is_url_within_scope(self, url: str) -> bool:
         """
         Optimized URL scope checking using StringZilla.
 
         Validates that a URL is within the configured base scope.
         Prevents path traversal and ensures security boundaries.
+
+        Always checks against ``base_parsed``. ConnectionManager has no
+        notion of a resolved target (dir-suffix) scope the way MirrorURL/
+        _MirrorBase does, so a ``check_base=False`` mode -- checking against
+        a target scope instead of the base -- doesn't apply here; it
+        previously existed as an unreachable branch (both call sites used
+        the default) that read a ``self.target_parsed`` attribute __init__
+        never set. See REFACTORING_PLAN.md §4.1.
         """
         try:
             # Use the static method from MirrorURL for fast scheme validation
@@ -487,13 +488,7 @@ class ConnectionManager:
                 logging.debug(f"URL scope check failed: no path for {url}")
                 return False
 
-            # Get scope path
-            if check_base:
-                scope_path = self.base_parsed.path
-            else:
-                if not self.target_parsed:
-                    return False
-                scope_path = self.target_parsed.path
+            scope_path = self.base_parsed.path
 
             # Normalize scope path: ensure it's not None and handle root
             if not scope_path:
