@@ -1,8 +1,11 @@
-"""Regression tests for five latent bugs found during code review.
+"""Regression tests for latent bugs found during code review.
 
-Each covers one fix; see REFACTORING_PLAN.md and CHANGELOG.md for the
-narrative. Grouped in one file since none of the five are related in
-implementation, only in how they were discovered (a single review pass).
+Originally covered five fixes; see REFACTORING_PLAN.md and CHANGELOG.md for
+the narrative. Point 1 (ConnectionManager._is_url_within_scope) was later
+hardened further -- the check_base=False branch was removed entirely
+instead of just being made safe -- with tests updated to match. Grouped in
+one file since the fixes aren't related in implementation, only in how they
+were discovered (a single review pass).
 """
 
 from __future__ import annotations
@@ -14,8 +17,13 @@ import time
 import pytest
 
 # ---------------------------------------------------------------------------
-# 1. ConnectionManager._is_url_within_scope(check_base=False) no longer
-#    depends on a self.target_parsed attribute that __init__ never set.
+# 1. ConnectionManager._is_url_within_scope no longer takes a check_base
+#    parameter or depends on self.target_parsed at all -- the check_base=False
+#    branch was unreachable dead code (no caller ever used it) that read a
+#    self.target_parsed attribute __init__ never set. Follow-up to the earlier
+#    defensive fix (which only silenced the AttributeError): removed the
+#    parameter and the branch entirely instead of keeping permanently-dead
+#    code around. See REFACTORING_PLAN.md §4.1.
 # ---------------------------------------------------------------------------
 
 
@@ -33,24 +41,23 @@ def _build_connection_manager():
     return ConnectionManager(config, MetricsCollector())
 
 
-def test_connection_manager_sets_target_parsed_to_none():
+def test_connection_manager_has_no_target_parsed_attribute():
     mgr = _build_connection_manager()
-    # Previously unset entirely; check_base=False would only work by luck of
-    # the outer try/except swallowing the resulting AttributeError.
-    assert mgr.target_parsed is None
+    # There is no target-scope concept in ConnectionManager at all now --
+    # not even set to None -- so nothing should reference it.
+    assert not hasattr(mgr, "target_parsed")
 
 
-def test_is_url_within_scope_check_base_false_no_attribute_error():
+def test_is_url_within_scope_no_longer_accepts_check_base():
     mgr = _build_connection_manager()
-    # Must not raise -- and since no target scope is configured, it correctly
-    # rejects rather than silently falling through an exception handler.
-    assert mgr._is_url_within_scope("https://example.test/data/file.txt", check_base=False) is False
+    with pytest.raises(TypeError):
+        mgr._is_url_within_scope("https://example.test/data/file.txt", check_base=False)
 
 
-def test_is_url_within_scope_check_base_true_still_works():
+def test_is_url_within_scope_checks_base_scope():
     mgr = _build_connection_manager()
-    assert mgr._is_url_within_scope("https://example.test/data/file.txt", check_base=True) is True
-    assert mgr._is_url_within_scope("https://other.test/file.txt", check_base=True) is False
+    assert mgr._is_url_within_scope("https://example.test/data/file.txt") is True
+    assert mgr._is_url_within_scope("https://other.test/file.txt") is False
 
 
 # ---------------------------------------------------------------------------

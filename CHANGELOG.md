@@ -4,6 +4,26 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.55] - 2026-09-22
+
+### Changed
+- Follow-up to 3.1.54's `ConnectionManager._is_url_within_scope` fix, from
+  external review: the earlier fix set `self.target_parsed = None` so the
+  `check_base=False` branch degraded safely instead of hitting an
+  `AttributeError`, but that still left a permanently-dead branch in place
+  -- `ConnectionManager` has no notion of a resolved target/dir-suffix scope
+  the way `MirrorURL`/`_MirrorBase` does, so `check_base=False` could never
+  do anything useful there. Removed `check_base` and the branch from
+  `_is_url_within_scope` entirely (now always checks against `base_parsed`,
+  which is what both call sites already relied on), along with the
+  now-unused `self.target_parsed` attribute and its now-unused
+  `ParseResult` import. `tests/test_five_latent_bugs_fixed.py` updated to
+  match: asserts `ConnectionManager` has no `target_parsed` attribute at
+  all, and that calling `_is_url_within_scope(..., check_base=False)` now
+  raises `TypeError` (parameter no longer exists) rather than returning
+  `False`. 297 passed, 4 skipped (unchanged). ruff check/format clean.
+  mypy: 544 findings, unchanged from 3.1.54.
+
 ## [3.1.54] - 2026-09-22
 
 ### Fixed
