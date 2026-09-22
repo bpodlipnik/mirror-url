@@ -227,3 +227,81 @@ def test_record_skip_does_not_affect_record_follow_counter():
     stats = t.get_stats()
     assert stats["total_followed"] == 1
     assert stats["total_skipped"] == 1
+
+
+# ---------------------------------------------------------------------------
+# 4b. bounded_executor_shutdown: ThreadPoolExecutor.shutdown(wait=True) has
+#    no timeout of its own and blocks indefinitely on a stuck worker.
+#    UnifiedConcurrencyManager.shutdown() and ParallelDownloadManager.shutdown()
+#    both relied on this unconditionally; a single hung worker thread could
+#    silently consume the entire 30s budget the signal handler gives
+#    cleanup() overall. Both now delegate to utils.bounded_executor_shutdown,
+#    which joins the blocking shutdown call in its own thread with a timeout.
+# ---------------------------------------------------------------------------
+
+
+def test_bounded_executor_shutdown_returns_true_when_prompt():
+    from concurrent.futures import ThreadPoolExecutor
+
+    from mirror_url.utils import bounded_executor_shutdown
+
+    executor = ThreadPoolExecutor(max_workers=2)
+    executor.submit(lambda: None)
+
+    result = bounded_executor_shutdown(executor, timeout=5.0, name="test-executor")
+    assert result is True
+
+
+def test_bounded_executor_shutdown_returns_false_and_does_not_block_on_stuck_worker():
+    from concurrent.futures import ThreadPoolExecutor
+
+    from mirror_url.utils import bounded_executor_shutdown
+
+    release = threading.Event()
+    executor = ThreadPoolExecutor(max_workers=1)
+    executor.submit(release.wait)  # blocks until we release it below
+
+    start = time.monotonic()
+    result = bounded_executor_shutdown(executor, timeout=0.2, name="stuck-executor")
+    elapsed = time.monotonic() - start
+
+    assert result is False
+    # The call itself must return promptly (bounded by `timeout`), not hang
+    # until the stuck worker finishes -- this is the actual bug being fixed.
+    assert elapsed < 2.0
+
+    release.set()  # let the background worker (and shutdown thread) finish
+    executor.shutdown(wait=True)
+
+
+def test_parallel_download_manager_shutdown_accepts_timeout():
+    from mirror_url.config import MirrorConfig
+    from mirror_url.connection import ConnectionManager
+    from mirror_url.download import ParallelDownloadManager
+    from mirror_url.metrics import MetricsCollector
+    from mirror_url.rate_limiter import BandwidthLimiter
+
+    config = MirrorConfig(
+        base_url="https://example.test/data/",
+        dest_path="/tmp/does-not-matter",
+        log_path="/tmp/does-not-matter",
+        no_cache=True,
+    )
+    metrics = MetricsCollector()
+    conn = ConnectionManager(config, metrics)
+    mgr = ParallelDownloadManager(
+        config=config,
+        metrics=metrics,
+        connection_manager=conn,
+        bandwidth_limiter=BandwidthLimiter(),
+    )
+    # Must not raise, and must accept the new timeout parameter (previously
+    # shutdown() took no arguments at all).
+    mgr.shutdown(timeout=1.0)
+
+
+def test_unified_concurrency_manager_shutdown_accepts_timeout():
+    from mirror_url.concurrency import UnifiedConcurrencyManager
+
+    mgr = UnifiedConcurrencyManager(max_total_threads=4)
+    mgr.shutdown(timeout=1.0)

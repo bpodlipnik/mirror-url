@@ -284,8 +284,30 @@ clean on `src/`.
         `sys.exit(0)`, reporting success even though shutdown was forced. Both
         paths now call `sys.exit()` explicitly, with a distinct exit code (0 vs
         1) so callers such as cron wrappers can tell a clean shutdown from a
-        forced one. Full cancellation-propagation / non-daemon resource joining
-        for the timeout path is a larger change, left for this refactor pass.
+        forced one.
+
+        Follow-up, from external review: "join non-daemon pools with a hard
+        timeout" was still open. Found the concrete cause: `UnifiedConcurrency
+        Manager.shutdown()` and `ParallelDownloadManager.shutdown()` both called
+        `executor.shutdown(wait=True, ...)` unconditionally — that call has no
+        timeout of its own and blocks until every in-flight worker thread
+        returns, so a single worker stuck on a slow/hung network read could
+        silently consume the entire 30s budget `_signal_handler` gives
+        `cleanup()` overall, before the outer timeout path ever got a chance to
+        log or act. **Fixed**: added `utils.bounded_executor_shutdown()`, which
+        runs the blocking `executor.shutdown()` in its own thread and joins it
+        with a timeout (`ParallelDownloadManager`: 15s, `UnifiedConcurrency
+        Manager`: 10s); both `shutdown()` methods now take an optional
+        `timeout` parameter. **Still open**, and still tracked for this
+        refactor pass: this bounds the *wait*, not the work itself — a stuck
+        worker thread isn't force-cancelled (Python's threading API has no
+        primitive for that) and keeps running to completion in the background;
+        a real fix needs cooperative cancellation checkpoints threaded through
+        the download/async layers, plus reconciling the internal per-step
+        timeouts (async task manager ~15-20s, connection managers ~10s each,
+        now the two thread pools ~10-15s each) against the outer 30s signal-
+        handler deadline they all nest inside, which can theoretically exceed
+        it in a worst case even with every step individually bounded.
 - [ ] `black --check` clean (or use `ruff format`).
 - [ ] CI green on 3.9–3.12.
 - [x] README, LICENSE, CONTRIBUTING, CHANGELOG present and accurate.

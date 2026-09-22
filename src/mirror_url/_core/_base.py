@@ -112,15 +112,30 @@ class _MirrorBase:
             logging.info("Graceful shutdown complete")
             sys.exit(0)
         else:
-            # cleanup_thread is a daemon thread doing best-effort work (health
-            # server, async task manager, connection pools, disk-backed
+            # cleanup_thread is itself a daemon thread doing best-effort work
+            # (health server, async task manager, connection pools, disk-backed
             # caches); it is not joined here, so exiting now can still leave
-            # partial downloads or open handles if it was mid-flight. A full
-            # fix would join non-daemon resources and propagate cancellation
-            # through the async/thread-pool layers -- a larger change, tracked
-            # for the §4.1 refactor. For now, use a distinct non-zero exit
-            # code so callers (e.g. cron wrappers) can tell a forced shutdown
-            # apart from a clean one, instead of the previous exit(0).
+            # partial downloads or open handles if it was mid-flight.
+            #
+            # Within cleanup() itself, the two ThreadPoolExecutor-based steps
+            # (UnifiedConcurrencyManager's shared pool, ParallelDownloadManager's
+            # download executor) now use utils.bounded_executor_shutdown, so a
+            # single stuck worker thread can no longer silently consume this
+            # entire 30s budget by itself -- previously both called
+            # executor.shutdown(wait=True, ...), which has no timeout and
+            # blocks until every in-flight worker returns. The async-side steps
+            # (AsyncTaskManager, Async/AdaptiveAsyncManager __aexit__) already
+            # had their own internal timeouts. What's still not done: none of
+            # this actually cancels in-flight work cooperatively (e.g. an
+            # httpx request mid-read isn't interrupted, just abandoned once its
+            # wrapping wait times out), so a genuinely stuck worker still leaks
+            # as a running background thread rather than being force-stopped
+            # -- Python's threading API has no API for that. A full fix would
+            # need cooperative cancellation checkpoints through the download/
+            # async layers, which is a larger change, tracked for the §4.1
+            # refactor. For now, use a distinct non-zero exit code so callers
+            # (e.g. cron wrappers) can tell a forced shutdown apart from a
+            # clean one, instead of the previous exit(0).
             logging.warning(
                 "Cleanup did not complete within 30s timeout, exiting anyway "
                 "(exit code 1 -- shutdown was forced, resources may not be fully released)"

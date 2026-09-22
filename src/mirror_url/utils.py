@@ -14,6 +14,8 @@ import hashlib
 import logging
 import random
 import sys
+import threading
+from concurrent.futures import Executor
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
@@ -450,6 +452,70 @@ def cleanup_log_files() -> None:
 atexit.register(cleanup_log_files)
 
 
+# ============================================================================
+# BOUNDED EXECUTOR SHUTDOWN (added during the §4.1-adjacent signal-handler
+# review -- see REFACTORING_PLAN.md and CHANGELOG.md)
+# ============================================================================
+# concurrent.futures.Executor.shutdown(wait=True, ...) has no timeout
+# parameter: it blocks until every already-running worker thread returns,
+# however long that takes. Two call sites (UnifiedConcurrencyManager's
+# shared_pool, ParallelDownloadManager's executor) relied on this during
+# MirrorURL.cleanup(), which is itself run with a 30s overall deadline by
+# _signal_handler -- so a single worker stuck in a slow/hung network read
+# could silently swallow the entire shutdown budget before the signal
+# handler's timeout path ever got a chance to log or act. This wraps the
+# blocking shutdown in a joined, timed-out thread so a stuck executor can no
+# longer block cleanup() indefinitely; the executor's own worker threads
+# are not forcibly killed (Python has no API for that), so they keep
+# running to completion in the background as an orphaned daemon-owned
+# thread pool, but the calling cleanup step returns and the rest of
+# cleanup() -- and the signal handler's own deadline -- stay meaningful.
+def bounded_executor_shutdown(
+    executor: Executor,
+    timeout: float,
+    name: str,
+    cancel_futures: bool = True,
+) -> bool:
+    """Shut down ``executor`` without blocking longer than ``timeout``.
+
+    Args:
+        executor: The executor to shut down.
+        timeout: Maximum seconds to wait for in-flight workers to finish.
+        name: Human-readable name for log messages (e.g. "download executor").
+        cancel_futures: Passed through to ``executor.shutdown()`` where
+            supported; cancels queued-but-not-yet-started work immediately.
+
+    Returns:
+        True if the executor finished shutting down within ``timeout``,
+        False if the wait was abandoned (workers may still be running).
+    """
+    shutdown_done = threading.Event()
+
+    def _do_shutdown() -> None:
+        try:
+            try:
+                executor.shutdown(wait=True, cancel_futures=cancel_futures)
+            except TypeError:
+                # Older executor implementations without cancel_futures support
+                executor.shutdown(wait=True)
+        finally:
+            shutdown_done.set()
+
+    shutdown_thread = threading.Thread(target=_do_shutdown, name=f"{name}-shutdown", daemon=True)
+    shutdown_thread.start()
+
+    if shutdown_done.wait(timeout=timeout):
+        logging.debug(f"{name}: shutdown complete")
+        return True
+
+    logging.warning(
+        f"{name}: did not shut down within {timeout}s -- abandoning wait; "
+        "in-flight workers will keep running in the background until they "
+        "finish on their own"
+    )
+    return False
+
+
 __all__ = [
     "exponential_backoff",
     "format_duration",
@@ -462,4 +528,5 @@ __all__ = [
     "is_reserved_windows_filename",
     "normalize_url_path",
     "cleanup_log_files",
+    "bounded_executor_shutdown",
 ]

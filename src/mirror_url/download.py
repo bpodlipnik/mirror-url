@@ -44,7 +44,7 @@ from .enums import DownloadMethod
 from .exceptions import ChunkAssemblyError, ChunkDownloadError
 from .models import ChunkInfo, ParallelFileDownload
 from .rate_limiter import BandwidthLimiter, ChunkAwareRateLimiter
-from .utils import exponential_backoff, format_bytes
+from .utils import bounded_executor_shutdown, exponential_backoff, format_bytes
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, avoids an import cycle
     from .config import MirrorConfig
@@ -1307,8 +1307,17 @@ class ParallelDownloadManager:
                 else {},
             }
 
-    def shutdown(self) -> None:
-        """Shutdown manager with proper cleanup of all resources."""
+    def shutdown(self, timeout: float = 15.0) -> None:
+        """Shutdown manager with proper cleanup of all resources.
+
+        Args:
+            timeout: Max seconds to wait for the download executor's
+                in-flight worker threads to finish. Bounded rather than an
+                unconditional block, since MirrorURL.cleanup() (which calls
+                this from _signal_handler) has its own 30s overall deadline
+                -- a single stuck worker must not be able to consume all of
+                it silently. See utils.bounded_executor_shutdown.
+        """
         # Set shutdown flag first to stop background threads
         self._shutdown = True
         # Wake the cleanup loop immediately instead of leaving it to finish
@@ -1337,15 +1346,13 @@ class ParallelDownloadManager:
             if active_count > 0:
                 logging.info(f"Cancelled {active_count} active parallel downloads")
 
-        # Shutdown the executor with proper waiting
+        # Shutdown the executor with a bounded wait -- executor.shutdown()
+        # has no timeout of its own and would otherwise block indefinitely
+        # if a worker thread is stuck (e.g. a hung network read).
         if hasattr(self, "own_executor") and self.own_executor and self.executor:
             try:
                 logging.debug("Shutting down download executor...")
-                try:
-                    self.executor.shutdown(wait=True, cancel_futures=True)
-                except TypeError:
-                    self.executor.shutdown(wait=True)
-                logging.debug("Download executor shutdown complete")
+                bounded_executor_shutdown(self.executor, timeout, "Download executor")
             except Exception as e:
                 logging.error(f"Error shutting down executor: {e}")
 

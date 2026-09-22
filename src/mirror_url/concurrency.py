@@ -23,6 +23,7 @@ from .constants import (
 )
 from .enums import ConcurrencyType
 from .exceptions import ConcurrencyLimitError
+from .utils import bounded_executor_shutdown
 
 
 class UnifiedConcurrencyManager:
@@ -103,8 +104,14 @@ class UnifiedConcurrencyManager:
             f"max_async={self.max_async_tasks}"
         )
 
-    def shutdown(self) -> None:
-        """Shutdown the concurrency manager with proper resource cleanup."""
+    def shutdown(self, timeout: float = 10.0) -> None:
+        """Shutdown the concurrency manager with proper resource cleanup.
+
+        Args:
+            timeout: Max seconds to wait for the shared thread pool's
+                in-flight workers to finish. Bounded rather than an
+                unconditional block -- see utils.bounded_executor_shutdown.
+        """
         logging.debug("Shutting down UnifiedConcurrencyManager...")
 
         # Set shutdown flags
@@ -123,18 +130,14 @@ class UnifiedConcurrencyManager:
             if self.monitor_thread.is_alive():
                 logging.warning("Monitor thread did not stop within timeout")
 
-        # Shutdown shared thread pool
+        # Shutdown shared thread pool with a bounded wait -- executor.shutdown()
+        # has no timeout of its own and would otherwise block indefinitely
+        # if a worker thread is stuck.
         if self.shared_pool:
             try:
                 logging.debug("Shutting down shared thread pool...")
-                # Cancel pending tasks first
-                try:
-                    self.shared_pool.shutdown(wait=True, cancel_futures=True)
-                except TypeError:
-                    # Python < 3.9 doesn't support cancel_futures
-                    self.shared_pool.shutdown(wait=True)
+                bounded_executor_shutdown(self.shared_pool, timeout, "Shared thread pool")
                 self.shared_pool = None
-                logging.debug("Shared thread pool shutdown complete")
             except Exception as e:
                 logging.error(f"Error shutting down shared pool: {e}")
 
