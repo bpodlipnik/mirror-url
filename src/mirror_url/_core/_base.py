@@ -103,9 +103,29 @@ class _MirrorBase:
         cleanup_thread = threading.Thread(target=do_cleanup, daemon=True)
         cleanup_thread.start()
 
-        if not cleanup_complete.wait(timeout=30):
-            logging.warning("Cleanup did not complete within 30s timeout, exiting anyway")
+        if cleanup_complete.wait(timeout=30):
+            # NOTE: this exit was previously missing entirely -- the handler
+            # returned normally on a completed cleanup, which meant SIGINT/
+            # SIGTERM during a sync only ran cleanup() and then let execution
+            # resume as if nothing had happened; the process never actually
+            # terminated. See REFACTORING_PLAN.md §4.1.
+            logging.info("Graceful shutdown complete")
             sys.exit(0)
+        else:
+            # cleanup_thread is a daemon thread doing best-effort work (health
+            # server, async task manager, connection pools, disk-backed
+            # caches); it is not joined here, so exiting now can still leave
+            # partial downloads or open handles if it was mid-flight. A full
+            # fix would join non-daemon resources and propagate cancellation
+            # through the async/thread-pool layers -- a larger change, tracked
+            # for the §4.1 refactor. For now, use a distinct non-zero exit
+            # code so callers (e.g. cron wrappers) can tell a forced shutdown
+            # apart from a clean one, instead of the previous exit(0).
+            logging.warning(
+                "Cleanup did not complete within 30s timeout, exiting anyway "
+                "(exit code 1 -- shutdown was forced, resources may not be fully released)"
+            )
+            sys.exit(1)
 
     def __init__(self, config: MirrorConfig, suffix_index: int = 0, total_suffixes: int = 1):
         """

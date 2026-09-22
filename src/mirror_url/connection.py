@@ -19,7 +19,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import RLock, Semaphore
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
-from urllib.parse import quote, unquote, urljoin, urlparse
+from urllib.parse import ParseResult, quote, unquote, urljoin, urlparse
 
 import httpx
 
@@ -430,6 +430,13 @@ class ConnectionManager:
         self.max_consecutive_failures = 3
         self.base_url = config.base_url
         self.base_parsed = urlparse(str(config.base_url))
+        # ConnectionManager has no notion of a resolved target (dir-suffix)
+        # scope the way MirrorURL/_MirrorBase does -- it only ever validates
+        # against base_url. Set explicitly (rather than leaving it unset) so
+        # the check_base=False branch of _is_url_within_scope below can test
+        # for it directly instead of relying on the outer try/except to swallow
+        # an AttributeError. See REFACTORING_PLAN.md §4.1.
+        self.target_parsed: Optional[ParseResult] = None
         self.circuit_breaker = None  # Deprecated
         self.circuit_breaker_manager = None
         if config.circuit_breaker_enabled:
@@ -887,7 +894,7 @@ class ConnectionManager:
                                 f"Request failed after {self.config.max_retries} retries: {e}"
                             )
                             self.metrics.add_error(str(e), "request_error")
-                            raise MirrorConnectionError(f"Request failed: {e}")
+                            raise MirrorConnectionError(f"Request failed: {e}") from e
                         wait_time = exponential_backoff(attempt, self.config.retry_delay)
                         logging.warning(
                             f"Request failed (attempt {attempt + 1}), retrying in {wait_time:.1f}s: {e}"

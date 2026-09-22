@@ -44,6 +44,7 @@ class SymlinkTracker:
         self.visited_symlinks: Dict[str, int] = {}
         self.symlinks_per_dir: Dict[str, int] = {}
         self.total_symlinks_followed = 0
+        self.total_symlinks_skipped = 0
         self.lock = RLock()
         self.symlink_chain: List[str] = []
 
@@ -79,15 +80,22 @@ class SymlinkTracker:
                     del self.visited_symlinks[key]
 
     def record_skip(self, symlink_url: str) -> None:
-        """Record that we're skipping a symlink"""
+        """Record that we're skipping a symlink.
+
+        Previously a pure no-op (``total_symlinks_followed += 0``), so
+        skip_mode="skip" runs reported zero skip activity in stats despite
+        this being called from every skip site in scan.py. See
+        REFACTORING_PLAN.md §4.1.
+        """
         with self.lock:
-            self.total_symlinks_followed += 0
+            self.total_symlinks_skipped += 1
 
     def get_stats(self) -> Dict[str, Any]:
         """Get symlink tracking statistics"""
         with self.lock:
             return {
                 "total_followed": self.total_symlinks_followed,
+                "total_skipped": self.total_symlinks_skipped,
                 "unique_symlinks": len(self.visited_symlinks),
                 "directories_with_symlinks": len(self.symlinks_per_dir),
                 "current_chain_length": len(self.symlink_chain),
@@ -187,7 +195,7 @@ class SecurityValidator:
             raise SecurityError(f"All resolved IPs are private/blocked for {hostname}")
 
         except socket.gaierror as e:
-            raise SecurityError(f"Failed to resolve hostname: {hostname}: {e}")
+            raise SecurityError(f"Failed to resolve hostname: {hostname}: {e}") from e
 
     @staticmethod
     def validate_url_security(url: str, base_url: str) -> Tuple[bool, Optional[str]]:

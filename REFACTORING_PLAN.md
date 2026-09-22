@@ -251,10 +251,37 @@ clean on `src/`.
       monolith (Optional-narrowing on runtime-guarded attributes, int/float
       attribute inference) — none are runtime bugs (the 52 passing tests cover
       behavior). A dedicated typing pass is a good follow-up, ideally with §4.1.
-      One finding is a *real* latent issue mypy surfaced and worth fixing during
-      that pass: `ConnectionManager._is_url_within_scope` reads `self.target_parsed`
-      in its `check_base=False` branch, which `__init__` never sets (the branch is
-      never taken today). Preserved verbatim for now.
+      One finding was a *real* latent issue mypy surfaced, **fixed**: previously
+      `ConnectionManager._is_url_within_scope` read `self.target_parsed` in its
+      `check_base=False` branch, which `__init__` never set (the branch was never
+      taken in practice — the outer try/except silently swallowed the resulting
+      `AttributeError` and returned `False`). `ConnectionManager.__init__` now
+      explicitly sets `self.target_parsed: Optional[ParseResult] = None`, matching
+      `_MirrorBase`'s pattern, so the branch degrades cleanly instead of relying on
+      exception-swallowing.
+
+- [x] Two further latent issues, found during review, fixed:
+      - `UrlsMixin._parse_url_cached` was `@lru_cache`-decorated on an instance
+        method; since the cache key included `self`, every `MirrorURL` instance
+        was pinned in the cache for the process lifetime (a real leak under
+        long-running/multi-suffix use — Ruff B019). `urlparse(url)` depends only
+        on `url`, so the cache now lives on a module-level function
+        (`_parse_url_cached_module`) shared correctly across instances; the
+        instance method is a thin delegator.
+      - `SymlinkTracker.record_skip` was a pure no-op (`total_symlinks_followed
+        += 0`) despite being called from three sites in `scan.py`'s skip path —
+        skip-mode runs silently reported zero skip activity. Added a dedicated
+        `total_symlinks_skipped` counter, incremented in `record_skip` and
+        surfaced in `get_stats()`.
+      - `MirrorURL._signal_handler` had two issues: on a *successful* cleanup
+        (within the 30s window) it returned without exiting, so SIGINT/SIGTERM
+        only ran `cleanup()` and then let execution resume as if nothing had
+        happened — the process never actually terminated. On timeout it called
+        `sys.exit(0)`, reporting success even though shutdown was forced. Both
+        paths now call `sys.exit()` explicitly, with a distinct exit code (0 vs
+        1) so callers such as cron wrappers can tell a clean shutdown from a
+        forced one. Full cancellation-propagation / non-daemon resource joining
+        for the timeout path is a larger change, left for this refactor pass.
 - [ ] `black --check` clean (or use `ruff format`).
 - [ ] CI green on 3.9–3.12.
 - [x] README, LICENSE, CONTRIBUTING, CHANGELOG present and accurate.

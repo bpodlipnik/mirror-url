@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mirror-url"
-version = "3.1.53"
+version = "3.1.54"
 description = "Security-hardened remote directory mirroring tool with adaptive concurrency, integrity checks, and SSRF-hardened transport."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -102,14 +102,18 @@ select = ["E", "F", "W", "I", "B", "C4"]
 ignore = [
     "E501",  # line length is handled by the formatter
     "B008",  # function call in argument defaults (intentional in a few places)
-    # The following bugbear rules fire only on code carried over verbatim from
-    # the original single-file script; they are deliberately preserved here so
-    # the port stays behavior-identical. Revisit during the optional core/
-    # mixin refactor (see REFACTORING_PLAN.md §4.1).
-    "B904",  # raise ... from err — only affects traceback chaining, not control flow
+    # The following bugbear rule fires only on code carried over verbatim from
+    # the original single-file script; deliberately preserved so the port
+    # stays behavior-identical. Revisit during the optional core/ mixin
+    # refactor (see REFACTORING_PLAN.md §4.1).
     "B007",  # unused loop control variable
-    "B019",  # lru_cache on a method (MirrorURL._parse_url_cached): a real latent
-             # leak inherited from the monolith — preserved, not silently rewritten
+    # B904 (raise ... from err) and B019 (lru_cache on a method --
+    # MirrorURL._parse_url_cached) were ignored here for the same reason.
+    # Both fixed: all 14 B904 sites now chain (or explicitly `from None`
+    # where the new exception isn't caused by the caught one), and
+    # _parse_url_cached delegates to a module-level cached function instead
+    # of caching (self, url). No B904/B019 findings remain, so both rules
+    # are enabled again.
 ]
 
 [tool.ruff.lint.per-file-ignores]
