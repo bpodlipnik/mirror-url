@@ -175,7 +175,7 @@ class DiskBackedSet:
             test_file.touch()
             test_file.unlink()
         except OSError as e:
-            raise CacheError(f"Cannot create/write to cache directory {temp_dir}: {e}")
+            raise CacheError(f"Cannot create/write to cache directory {temp_dir}: {e}") from e
 
     def add(self, item: str) -> None:
         """Add item to set with batch write optimization.
@@ -360,7 +360,7 @@ class DiskBackedSet:
 
             # If disk is full, raise to upper layer for handling
             if isinstance(e, (OSError, IOError)) and getattr(e, "errno", 0) in (28, 122):  # ENOSPC
-                raise DiskSpaceError(f"No space left on device: {self.temp_dir}")
+                raise DiskSpaceError(f"No space left on device: {self.temp_dir}") from e
 
     def _flush_to_disk(self) -> bool:
         """Flush memory set to disk atomically.

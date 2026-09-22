@@ -4,6 +4,92 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.54] - 2026-09-22
+
+### Fixed
+- **Five latent bugs found during a code review pass, three of which were
+  previously documented (in `pyproject.toml`'s ruff ignores and
+  `REFACTORING_PLAN.md`) as deliberately deferred to the future `core/`
+  mixin/typing refactor (§4.1); all five are now fixed instead, and the
+  deferral notes updated accordingly.**
+
+  1. `ConnectionManager._is_url_within_scope`'s `check_base=False` branch
+     read `self.target_parsed`, an attribute `ConnectionManager.__init__`
+     never set (it only exists on the unrelated `MirrorURL`/`_MirrorBase`
+     classes). The branch was never exercised today (both call sites use
+     the `check_base=True` default), and the outer `try/except` happened to
+     swallow the resulting `AttributeError` and return `False`, so this was
+     silent rather than crashing -- but any future `check_base=False` call
+     would have quietly rejected every URL instead of checking a real
+     target scope. `ConnectionManager.__init__` now explicitly sets
+     `self.target_parsed: Optional[ParseResult] = None`, matching
+     `_MirrorBase`'s own pattern, so the branch degrades cleanly and
+     explicitly instead of relying on exception-swallowing. (mypy already
+     flagged this; see `REFACTORING_PLAN.md`.)
+
+  2. `UrlsMixin._parse_url_cached` was `@lru_cache`-decorated directly on an
+     instance method (ruff B019). Since `urlparse(url)` depends only on
+     `url`, not `self`, but the cache key included `self` anyway, every
+     `MirrorURL` instance was pinned in the cache for the process lifetime
+     -- a real memory leak under long-running or multi-suffix use, and one
+     that also meant the cache was never actually shared where it could
+     have been. Moved to a module-level `_parse_url_cached_module`
+     function so the cache key is the URL string alone; the instance
+     method is now a one-line delegator.
+
+  3. 14 `raise` sites inside `except` blocks across `config.py`,
+     `connection.py`, `download.py`, `security.py`, and `storage.py` were
+     re-raising a new, more specific exception without `raise ... from e`
+     (ruff B904), discarding the original traceback and making failures
+     harder to debug, especially around network/IO and validation errors.
+     All 14 now chain explicitly -- `from e` in 13 cases; one
+     (`download.py`'s post-fallback-move size check) uses `from None`
+     instead, since that failure is not caused by the `OSError` its
+     `except` block is handling (the `shutil.move()` fallback already
+     succeeded by that point) and chaining onto it would misattribute the
+     cause.
+
+  4. `MirrorURL._signal_handler` (SIGINT/SIGTERM) had two issues, the
+     second found only while fixing the first: on a *timeout* (cleanup
+     didn't finish within 30s) it called `sys.exit(0)`, reporting a clean
+     shutdown even though it was forced -- indistinguishable from a real
+     clean shutdown to anything checking the exit code, e.g. a cron
+     wrapper. Worse: on a *successful* cleanup within the 30s window, the
+     handler returned without calling `sys.exit()` at all, so SIGINT/SIGTERM
+     only ran `cleanup()` and execution then resumed as if nothing had
+     happened -- the process never actually terminated. Both paths now
+     call `sys.exit()` explicitly, with distinct codes (`0` clean, `1`
+     forced-by-timeout). Full cancellation-propagation and joining of
+     non-daemon resources (httpx clients, `ThreadPoolExecutor`s,
+     disk-backed sets) on the timeout path is a larger architectural change
+     and is left for the §4.1 refactor; the exit-path/exit-code bug is
+     fixed now.
+
+  5. `SymlinkTracker.record_skip` was a pure no-op
+     (`self.total_symlinks_followed += 0`) despite being called from three
+     sites in `scan.py`'s `symlink_mode="skip"` path -- skip-mode runs
+     silently reported zero skip activity in `get_stats()`. Added a
+     dedicated `total_symlinks_skipped` counter, incremented in
+     `record_skip` and surfaced in `get_stats()` alongside the existing
+     `total_followed`.
+
+  `pyproject.toml`'s `B904`/`B019` ruff ignores (previously justified as
+  "preserved, not silently rewritten" verbatim-port artifacts) are removed
+  now that no findings remain for either rule; `REFACTORING_PLAN.md`'s
+  §4.1 checklist is updated to reflect all three previously-deferred items
+  as fixed.
+
+  10 new regression tests in `tests/test_five_latent_bugs_fixed.py`, one
+  per fix plus paired cases (e.g. both exit codes for #4, both counters
+  for #5). Verified against the pre-fix source: 8 of the 10 fail as
+  expected (the remaining 2, for #1, "happened" not to fail pre-fix only
+  because the swallowed `AttributeError` already produced the same return
+  value by accident -- the explicit `target_parsed is None` assertion is
+  the one that actually catches that bug). 297 passed, 4 skipped
+  (pre-existing/environment-only skips, unchanged) on the full suite.
+  `ruff check` and `ruff format --check` clean; mypy: 544 findings vs. 546
+  before (2 fewer, both from fix #1; no new findings).
+
 ## [3.1.53] - 2026-09-21
 
 ### Fixed

@@ -19,6 +19,18 @@ from ..security import PathSafety
 from ..utils import sanitize_url_for_log
 
 
+@lru_cache(maxsize=10000)
+def _parse_url_cached_module(url: str) -> ParseResult:
+    """Module-level, instance-independent cache for urlparse(url).
+
+    Kept separate from UrlsMixin._parse_url_cached so the cache key is the
+    URL string alone -- not (self, url) -- which would otherwise pin every
+    MirrorURL instance in the cache for the process lifetime. See
+    REFACTORING_PLAN.md §4.1.
+    """
+    return urlparse(url)
+
+
 class UrlMixin:
     @staticmethod
     def _validate_url_scheme(url: str) -> bool:
@@ -292,10 +304,17 @@ class UrlMixin:
 
         return False
 
-    @lru_cache(maxsize=10000)
     def _parse_url_cached(self, url: str) -> ParseResult:
         """
         Cached URL parsing for performance.
+
+        Delegates to a module-level cached function rather than caching on
+        the method directly: urlparse(url) depends only on ``url``, not on
+        ``self``, so an instance-method-level ``@lru_cache`` includes ``self``
+        in the cache key. That pins every instance in the cache indefinitely
+        (each instance is a distinct, never-evicted key) and gains nothing
+        from sharing, since the same URL parses identically regardless of
+        which instance asks. See REFACTORING_PLAN.md §4.1.
 
         Args:
             url: URL to parse
@@ -303,7 +322,7 @@ class UrlMixin:
         Returns:
             Parsed URL result
         """
-        return urlparse(url)
+        return _parse_url_cached_module(url)
 
     def _get_url_path_fast(self, url: str) -> str:
         """Fast path extraction using StringZilla - returns string."""

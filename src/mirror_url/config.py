@@ -381,7 +381,7 @@ class MirrorConfig(BaseModel):
                 try:
                     re.compile(pattern)
                 except re_error as e:
-                    raise ConfigError(f"Invalid regex pattern '{pattern}': {e}")
+                    raise ConfigError(f"Invalid regex pattern '{pattern}': {e}") from e
 
         # Also validate exclude_dirs patterns if they contain regex
         for pattern in self.exclude_dirs:
@@ -389,7 +389,7 @@ class MirrorConfig(BaseModel):
                 try:
                     re.compile(pattern.replace("*", ".*").replace("?", "."))
                 except re_error as e:
-                    raise ConfigError(f"Invalid exclude_dir pattern '{pattern}': {e}")
+                    raise ConfigError(f"Invalid exclude_dir pattern '{pattern}': {e}") from e
 
         # 3. Validate parallel download settings
         if self.parallel_downloads or self.streaming_parallel:
@@ -451,7 +451,7 @@ class MirrorConfig(BaseModel):
                         f"(< {min_free_mb}MB recommended for chunk assembly)"
                     )
             except OSError as e:
-                raise ConfigError(f"Cannot check disk space for {check_path}: {e}")
+                raise ConfigError(f"Cannot check disk space for {check_path}: {e}") from e
 
         # 6. --symlink-mode detect is purely observational (see
         # ScanMixin._discover_directories_bfs docs) -- it reports every
@@ -530,7 +530,7 @@ class MirrorConfig(BaseModel):
                         f"Unsafe symlink in config path: {yaml_path} -> {resolved_target}"
                     )
             except Exception as e:
-                raise ConfigError(f"Cannot resolve symlink {yaml_path}: {e}")
+                raise ConfigError(f"Cannot resolve symlink {yaml_path}: {e}") from e
 
         # 2️⃣ NORMALIZE & VERIFY PATH (OS permissions handle read access)
         yaml_path = yaml_path.resolve()
@@ -562,13 +562,13 @@ class MirrorConfig(BaseModel):
             return cls.from_dict(config_dict, silent=silent)
 
         except yaml.YAMLError as e:
-            raise ConfigError(f"Invalid YAML syntax in {yaml_path}: {e}")
+            raise ConfigError(f"Invalid YAML syntax in {yaml_path}: {e}") from e
         except ConfigError:
             raise  # ✅ Re-raise ConfigErrors as-is (prevents double-wrapping)
         except OSError as e:
-            raise ConfigError(f"OS-level error reading {yaml_path}: {e}")
+            raise ConfigError(f"OS-level error reading {yaml_path}: {e}") from e
         except Exception as e:
-            raise ConfigError(f"Failed to load config from {yaml_path}: {e}")
+            raise ConfigError(f"Failed to load config from {yaml_path}: {e}") from e
 
     @classmethod
     def validate(cls, config: MirrorConfig) -> List[str]:

@@ -603,7 +603,9 @@ class ParallelDownloadManager:
             return bytes_downloaded
 
         except OSError as e:
-            raise ChunkDownloadError(f"Stream write failed after {bytes_downloaded} bytes: {e}")
+            raise ChunkDownloadError(
+                f"Stream write failed after {bytes_downloaded} bytes: {e}"
+            ) from e
 
     def download_chunk_streaming(self, chunk: ChunkInfo) -> bool:
         """Download chunk directly to final file at correct offset.
@@ -723,7 +725,7 @@ class ParallelDownloadManager:
                     if attempt < 2:
                         time.sleep(exponential_backoff(attempt))
                         continue
-                    raise ChunkDownloadError(f"File write failed: {e}")
+                    raise ChunkDownloadError(f"File write failed: {e}") from e
 
             return False
 
@@ -1163,7 +1165,10 @@ class ParallelDownloadManager:
                 temp_file_moved = True
                 # Verify fallback move
                 if download.final_path.stat().st_size != file_size:
-                    raise ChunkAssemblyError("Post-move size verification failed")
+                    # Not caused by the os.replace() failure above (that path
+                    # already succeeded via shutil.move) -- an independent
+                    # condition, so don't chain onto the unrelated `e`.
+                    raise ChunkAssemblyError("Post-move size verification failed") from None
 
             # ====================================================================
             # PHASE 7: UPDATE METRICS AND CACHE (Non-fatal)
