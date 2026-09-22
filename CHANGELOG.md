@@ -4,6 +4,46 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.56] - 2026-09-22
+
+### Fixed
+- Partial follow-up to 3.1.54's signal-handler fix, from external review:
+  "join non-daemon pools with a hard timeout" was still open. Root cause:
+  `UnifiedConcurrencyManager.shutdown()` and `ParallelDownloadManager
+  .shutdown()` both called `executor.shutdown(wait=True, cancel_futures=True)`
+  unconditionally. That call has no timeout of its own -- it blocks until
+  every in-flight worker thread returns, however long that takes. Since both
+  run inside `MirrorURL.cleanup()`, which `_signal_handler` gives an overall
+  30s budget, a single worker stuck on a slow or hung network read could
+  silently consume that entire budget before the signal handler's own
+  timeout path ever got a chance to log or act.
+
+  Added `utils.bounded_executor_shutdown(executor, timeout, name)`: runs the
+  blocking `executor.shutdown()` call in its own thread and joins it with a
+  timeout, returning `False` (and logging a warning) rather than blocking
+  past it. `ParallelDownloadManager.shutdown()` and `UnifiedConcurrency
+  Manager.shutdown()` now both take an optional `timeout` parameter
+  (defaults 15.0s and 10.0s) and delegate to it instead of calling
+  `executor.shutdown(wait=True, ...)` directly.
+
+  **Not fixed, and out of scope for this change** (documented in
+  `REFACTORING_PLAN.md` §4.1 for the future refactor): this bounds the
+  *wait*, not the work -- a stuck worker thread isn't force-cancelled
+  (Python's `threading`/`concurrent.futures` APIs have no primitive for
+  that) and keeps running to completion in the background as an orphaned
+  thread. A real fix needs cooperative cancellation checkpoints threaded
+  through the download/async layers. Also unresolved: the per-step internal
+  timeouts across `cleanup()` (async task manager, both connection
+  managers, and now both thread pools) can, in a worst case, sum to more
+  than the outer 30s signal-handler deadline they all nest inside, even
+  though every individual step is now bounded.
+
+  4 new regression tests in `tests/test_five_latent_bugs_fixed.py`
+  (`bounded_executor_shutdown`'s prompt-return and stuck-worker/timeout
+  cases, plus a smoke test for each `shutdown(timeout=...)` call site). 301
+  passed, 4 skipped (up from 297; no other changes). ruff check/format
+  clean. mypy: 544 findings, unchanged from 3.1.55.
+
 ## [3.1.55] - 2026-09-22
 
 ### Changed
