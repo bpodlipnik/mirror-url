@@ -1,16 +1,12 @@
 """MirrorURL — security-hardened remote directory mirroring tool.
 
-This package is the modular successor to the single-file ``mirror_url.py``
-script. During the refactor the monolith remains the runnable source of truth;
-the submodules here are being populated incrementally (see
-``REFACTORING_PLAN.md``).
+Recursively discovers files behind an HTTP(S) directory listing and mirrors
+them locally with adaptive concurrency, resumable/partial downloads, integrity
+verification, and an SSRF-hardened transport layer.
 
-Public API (intended, once migration completes)::
+Public API::
 
-    from mirror_url import MirrorURL, MirrorConfig, main
-
-The re-exports below are commented out until the corresponding modules are
-populated, so that ``import mirror_url`` succeeds at every step of the migration.
+    from mirror_url import MirrorURL, MirrorConfig, main, load_config_from_args
 """
 
 from __future__ import annotations

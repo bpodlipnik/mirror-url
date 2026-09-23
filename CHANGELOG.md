@@ -4,6 +4,31 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.57] - 2026-09-23
+
+### Changed
+- `src/mirror_url/__init__.py`'s module docstring was a leftover from mid-
+  refactor: it described `import mirror_url` as only working because "the
+  re-exports below are commented out until the corresponding modules are
+  populated" and pointed to `REFACTORING_PLAN.md` as an in-progress migration
+  guide. The refactor completed at v3.1.20 (all re-exports are live, nothing
+  is commented out); replaced with a docstring describing the actual current
+  package.
+- `src/mirror_url/__main__.py` had the same leftover: its `ImportError` guard
+  told users to fall back to `python mirror_url.py ...` -- the single-file
+  monolith script, removed at v3.1.20 and no longer present in the repo at
+  all. That guard was unreachable dead code today (`cli` has always been
+  importable in the current package) advising a broken command; simplified
+  `_run()` down to a plain `from .cli import main; main()`.
+- Swept the rest of `src/`, `docs/`, and the top-level `*.md` files for
+  similar "during the refactor" / "not yet populated" / TODO-style leftovers;
+  none found. (`docs/DEVELOPER_GUIDE.md`'s note about `test_mode` plumbing
+  for the SSRF-guard integration-test bypass is current and accurate --
+  matches the still-skipped `tests/test_integration.py` -- so left as-is.)
+
+301 passed, 4 skipped (unchanged; both edits were doc/dead-code only, no
+behavior change). ruff check/format clean. mypy: 544 findings, unchanged.
+
 ## [3.1.56] - 2026-09-22
 
 ### Fixed
