@@ -4,6 +4,39 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.59] - 2026-09-23
+
+### Fixed
+- Dead ``connection_manager.circuit_breaker`` API and health reporting,
+  from an external code review pass:
+  1. ``ConnectionManager``, ``AsyncConnectionManager``, and
+     ``AdaptiveAsyncManager`` each set ``self.circuit_breaker = None``
+     marked ``# Deprecated``. The live path is ``circuit_breaker_manager``
+     (per-domain). Two call sites still read the old attribute:
+     - ``health.py`` reported ``connection.circuit_breaker`` as always
+       ``"disabled"`` even when the manager was active and domains were
+       OPEN.
+     - ``_core/downloads.py`` had a pre-check against the always-``None``
+       attribute that never tripped (dead guard). Real enforcement remains
+       inside ``ConnectionManager`` request paths via the manager.
+     Removed the deprecated attribute and the dead pre-check.
+  2. ``HealthCheckHandler`` called ``send_response(500)`` after
+     ``end_headers()`` had already been issued for a 200 on the error
+     path -- invalid HTTP. Responses are now built fully before any
+     headers are sent (``_send_json``).
+  3. ``HealthCheckHandler.mirror_instance`` was a class attribute shared
+     across all servers; concurrent MirrorURL / test instances could stomp
+     each other. Mirror is now bound on the ``HTTPServer`` subclass
+     instance.
+  4. ``/metrics`` 429 responses lacked JSON body and ``Retry-After``
+     (inconsistent with ``/health``).
+  5. ``is_healthy()`` compared an ``AtomicCounter`` to an int relying on
+     ``__lt__``; now uses ``.value()`` explicitly and accepts a configurable
+     ``failure_threshold``.
+
+  ``tests/test_review_findings_fixed.py`` extended with 7 new tests for the
+  above. 314 passed, 4 skipped (up from 307). ruff check/format clean.
+
 ## [3.1.58] - 2026-09-23
 
 ### Fixed

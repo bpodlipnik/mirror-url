@@ -54,7 +54,6 @@ class AsyncConnectionManager:
         self.metrics = metrics
         self._client: Optional[httpx.AsyncClient] = None
         self._semaphore: Optional[asyncio.Semaphore] = None
-        self.circuit_breaker = None  # Deprecated
         self.circuit_breaker_manager = None
         if config.circuit_breaker_enabled:
             self.circuit_breaker_manager = CircuitBreakerManager()
@@ -413,7 +412,6 @@ class AdaptiveAsyncManager:
         self._fallback_to_sync = False
         self._profile_complete = False
         self._closed = False
-        self.circuit_breaker = None  # Deprecated
         self.circuit_breaker_manager = None
         if config.circuit_breaker_enabled:
             self.circuit_breaker_manager = CircuitBreakerManager()
