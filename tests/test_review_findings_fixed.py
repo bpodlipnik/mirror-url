@@ -1,11 +1,19 @@
-"""Regression tests for latent bugs found during code review.
+"""Regression tests for latent bugs found during external code review passes.
 
-Originally covered five fixes; see REFACTORING_PLAN.md and CHANGELOG.md for
-the narrative. Point 1 (ConnectionManager._is_url_within_scope) was later
-hardened further -- the check_base=False branch was removed entirely
-instead of just being made safe -- with tests updated to match. Grouped in
-one file since the fixes aren't related in implementation, only in how they
-were discovered (a single review pass).
+Started as five fixes from the first review pass; grew with each follow-up
+review. See CHANGELOG.md for the narrative behind each fix -- filenames
+below roughly track when each section was added:
+  - fix 1-5 (v3.1.54): ConnectionManager.target_parsed, module-level URL
+    parse cache, exception chaining, signal handler exit paths, SymlinkTracker
+    .record_skip
+  - fix 1 follow-up (v3.1.55): check_base=False branch removed entirely
+  - fix 4 follow-up (v3.1.56): bounded_executor_shutdown
+  - LRUCache._timestamps / __contains__ TTL (this section, added alongside
+    the file rename from test_five_latent_bugs_fixed.py -- the "five" no
+    longer fit the name)
+
+Grouped in one file since the fixes aren't related in implementation, only
+in how they were discovered (external review passes on the same codebase).
 """
 
 from __future__ import annotations
@@ -305,3 +313,96 @@ def test_unified_concurrency_manager_shutdown_accepts_timeout():
 
     mgr = UnifiedConcurrencyManager(max_total_threads=4)
     mgr.shutdown(timeout=1.0)
+
+
+# ---------------------------------------------------------------------------
+# 5b. LRUCache._timestamps: a parallel dict duplicating what self.cache
+#    already stores as (value, timestamp) tuples. Written to and popped from
+#    on every put()/put_batch()/shrink_to()/invalidate()/clear(), but never
+#    read by any method -- pure write-only overhead. Removed entirely.
+# ---------------------------------------------------------------------------
+
+
+def test_lru_cache_has_no_timestamps_attribute():
+    from mirror_url.primitives import LRUCache
+
+    cache = LRUCache(maxsize=10, ttl_seconds=60, name="test")
+    cache.put("a", 1)
+    cache.put_batch({"b": 2, "c": 3})
+    assert not hasattr(cache, "_timestamps")
+
+
+def test_lru_cache_still_works_correctly_without_timestamps_dict():
+    from mirror_url.primitives import LRUCache
+
+    cache = LRUCache(maxsize=2, ttl_seconds=60, name="test")
+    cache.put("a", 1)
+    cache.put("b", 2)
+    cache.put("c", 3)  # evicts "a" (LRU, maxsize=2)
+
+    assert cache.get("a") is None
+    assert cache.get("b") == 2
+    assert cache.get("c") == 3
+    assert len(cache) == 2
+
+    cache.invalidate("b")
+    assert cache.get("b") is None
+    assert len(cache) == 1
+
+    cache.clear()
+    assert len(cache) == 0
+
+
+# ---------------------------------------------------------------------------
+# 6. LRUCache.__contains__ previously ignored TTL entirely (`key in
+#    self.cache`, no expiry check), so `key in cache` could be True for an
+#    entry get() would immediately expire and return None for. Now checks
+#    the same expiry condition get() uses, without mutating the cache (pure
+#    query, like `in` on a plain dict -- eviction still happens lazily via
+#    get()/put()).
+# ---------------------------------------------------------------------------
+
+
+def test_contains_true_for_fresh_entry():
+    from mirror_url.primitives import LRUCache
+
+    cache = LRUCache(maxsize=10, ttl_seconds=60, name="test")
+    cache.put("a", 1)
+    assert "a" in cache
+
+
+def test_contains_false_for_missing_entry():
+    from mirror_url.primitives import LRUCache
+
+    cache = LRUCache(maxsize=10, ttl_seconds=60, name="test")
+    assert "nonexistent" not in cache
+
+
+def test_contains_false_for_expired_entry_matching_get():
+    from mirror_url.primitives import LRUCache
+
+    cache = LRUCache(maxsize=10, ttl_seconds=0.05, name="test")
+    cache.put("a", 1)
+    assert "a" in cache
+
+    time.sleep(0.1)  # let it expire
+
+    # The bug: previously `"a" in cache` was True here even though
+    # cache.get("a") already returns None -- inconsistent with get().
+    assert cache.get("a") is None
+    assert "a" not in cache
+
+
+def test_contains_does_not_mutate_or_evict():
+    from mirror_url.primitives import LRUCache
+
+    cache = LRUCache(maxsize=10, ttl_seconds=0.05, name="test")
+    cache.put("a", 1)
+    time.sleep(0.1)
+
+    evictions_before = cache.evictions
+    assert "a" not in cache  # pure query, must not evict as a side effect
+    assert cache.evictions == evictions_before
+    # Entry is still physically present (lazy eviction happens on get()/put()
+    # instead) -- __contains__ just doesn't report it as valid.
+    assert "a" in cache.cache

@@ -4,6 +4,35 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.58] - 2026-09-23
+
+### Fixed
+- Two latent bugs in `LRUCache` (`primitives.py`), from an external code
+  review pass:
+  1. `self._timestamps`, a dict duplicating what `self.cache` already stores
+     as `(value, timestamp)` tuples, written to and popped from on every
+     `put()` / `put_batch()` / `shrink_to()` / `invalidate()` / `clear()` --
+     but never read by any method. Pure write-only overhead left over from
+     an earlier fix (the class docstring already said "timestamps now
+     stored with values, not separately", yet the old duplicate lived on).
+     Removed entirely.
+  2. `LRUCache.__contains__` ignored TTL -- `key in cache` checked only
+     `key in self.cache`, so it could return `True` for an entry `get(key)`
+     would immediately expire and return `None` for. Now checks the same
+     expiry condition `get()` uses. Deliberately does *not* evict as a side
+     effect of the check -- `in` stays a pure query, consistent with a plain
+     `dict`; eviction still happens lazily via `get()`/`put()`. No current
+     call site in the codebase actually uses `in` on an `LRUCache` instance
+     (`html_cache`, `lru_file_cache`, `parse_cache` all use `.get()`), so
+     this was dormant rather than actively wrong today -- fixed so a future
+     `if key in cache:` doesn't silently reintroduce the inconsistency.
+
+  `tests/test_five_latent_bugs_fixed.py` renamed to
+  `tests/test_review_findings_fixed.py` (outgrew "five" several review
+  passes ago) and extended with 6 new tests for both fixes. 307 passed, 4
+  skipped (up from 301). ruff check/format clean. mypy: 544 findings,
+  unchanged.
+
 ## [3.1.57] - 2026-09-23
 
 ### Changed

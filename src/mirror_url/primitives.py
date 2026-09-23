@@ -19,7 +19,8 @@ class LRUCache:
     """
     Thread-safe LRU cache with TTL and memory pressure handling.
 
-    Fixed: Timestamps now stored with values, not separately to prevent memory leak.
+    Timestamps are stored with values in ``self.cache`` (an ``OrderedDict``
+    of ``key -> (value, timestamp)``), not in a separate structure.
     """
 
     def __init__(self, maxsize: int, ttl_seconds: float, name: str = "cache"):
@@ -40,9 +41,6 @@ class LRUCache:
         self.misses = 0
         self.evictions = 0
         self.lock = RLock()
-        self._timestamps: Dict[
-            Any, float
-        ] = {}  # FIX: Add separate timestamp dict for backward compatibility
 
     def set(self, key: Any, value: Any) -> None:
         """Alias for put() for backward compatibility."""
@@ -66,8 +64,6 @@ class LRUCache:
             value, timestamp = self.cache[key]
             if time.time() - timestamp > self.ttl:
                 del self.cache[key]
-                # Also remove from backward compatibility timestamps
-                self._timestamps.pop(key, None)
                 self.evictions += 1
                 self.misses += 1
                 return None
@@ -89,12 +85,10 @@ class LRUCache:
             if key in self.cache:
                 self.cache.move_to_end(key)
             self.cache[key] = (value, now)
-            self._timestamps[key] = now  # For backward compatibility
 
             while len(self.cache) > self.maxsize:
                 oldest = next(iter(self.cache))
                 del self.cache[oldest]
-                self._timestamps.pop(oldest, None)
                 self.evictions += 1
 
     def put_batch(self, items: Dict[Any, Any]) -> None:
@@ -110,12 +104,10 @@ class LRUCache:
                 if key in self.cache:
                     self.cache.move_to_end(key)
                 self.cache[key] = (value, now)
-                self._timestamps[key] = now
 
             while len(self.cache) > self.maxsize:
                 oldest = next(iter(self.cache))
                 del self.cache[oldest]
-                self._timestamps.pop(oldest, None)
                 self.evictions += 1
 
     def shrink_to(self, target_percent: float = 0.5) -> int:
@@ -153,8 +145,6 @@ class LRUCache:
             # Evict oldest items (LRU order)
             for _ in range(evicted):
                 oldest_key, oldest_value = self.cache.popitem(last=False)
-                # Clean up timestamp dict (defensive: use pop with default)
-                self._timestamps.pop(oldest_key, None)
                 self.evictions += 1
 
             # Calculate actual evicted count (in case cache changed during loop? It shouldn't)
@@ -178,13 +168,11 @@ class LRUCache:
         with self.lock:
             if key in self.cache:
                 del self.cache[key]
-                self._timestamps.pop(key, None)
 
     def clear(self) -> None:
         """Clear all cache entries."""
         with self.lock:
             self.cache.clear()
-            self._timestamps.clear()
 
     def get_stats(self) -> Dict[str, Any]:
         """
@@ -208,9 +196,18 @@ class LRUCache:
             }
 
     def __contains__(self, key: Any) -> bool:
-        """Support 'in' operator."""
+        """Support 'in' operator.
+
+        Respects TTL: an expired-but-not-yet-evicted entry is reported as
+        absent, matching what get(key) would return. Does not evict or
+        otherwise mutate the cache -- 'in' is a pure query here, same as on
+        a plain dict; eviction still happens lazily on the next get()/put().
+        """
         with self.lock:
-            return key in self.cache
+            if key not in self.cache:
+                return False
+            _, timestamp = self.cache[key]
+            return time.time() - timestamp <= self.ttl
 
     def __len__(self) -> int:
         """Support len() function."""
