@@ -430,7 +430,10 @@ class ConnectionManager:
         self.max_consecutive_failures = 3
         self.base_url = config.base_url
         self.base_parsed = urlparse(str(config.base_url))
-        self.circuit_breaker = None  # Deprecated
+        # Live path is circuit_breaker_manager only. A previous always-None
+        # ``self.circuit_breaker`` attribute was left as a migration marker;
+        # health.py and _core/downloads.py still read it and either
+        # mis-reported status or never tripped the guard. Removed.
         self.circuit_breaker_manager = None
         if config.circuit_breaker_enabled:
             self.circuit_breaker_manager = CircuitBreakerManager()

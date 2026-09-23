@@ -63,19 +63,11 @@ class DownloadMixin:
         except Exception as e:
             logging.debug(f"Error decoding filename: {e}")
 
-        if (
-            hasattr(self.connection_manager, "circuit_breaker")
-            and self.connection_manager.circuit_breaker
-            and not self.connection_manager.circuit_breaker.can_execute()
-        ):
-            self.metrics.increment("circuit_breaker_trips")
-            logging.error("Download failed: Circuit breaker is open")
-            self.files_failed.increment(1)
-            self.metrics.increment("files_failed")
-            self.performance_monitor.record("download", time.time() - download_start, False)
-            return False
-
-        logging.debug("Circuit breaker check passed, proceeding to partial manager")
+        # Connection-level circuit breaking is enforced inside
+        # ConnectionManager request paths via circuit_breaker_manager
+        # (per-domain). A previous pre-check against the always-None
+        # ``connection_manager.circuit_breaker`` attribute was dead code and
+        # has been removed.
 
         partial_path = self.partial_manager.register_partial(local_path, remote_url)
         logging.debug(f"Partial path: {partial_path}")

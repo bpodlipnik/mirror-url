@@ -8,9 +8,11 @@ below roughly track when each section was added:
     .record_skip
   - fix 1 follow-up (v3.1.55): check_base=False branch removed entirely
   - fix 4 follow-up (v3.1.56): bounded_executor_shutdown
-  - LRUCache._timestamps / __contains__ TTL (this section, added alongside
-    the file rename from test_five_latent_bugs_fixed.py -- the "five" no
-    longer fit the name)
+  - LRUCache._timestamps / __contains__ TTL (v3.1.58, alongside the file
+    rename from test_five_latent_bugs_fixed.py -- the "five" no longer fit)
+  - dead circuit_breaker attr / health reporting (v3.1.59): removed
+    always-None self.circuit_breaker; health reports from
+    circuit_breaker_manager; downloads dead pre-check removed
 
 Grouped in one file since the fixes aren't related in implementation, only
 in how they were discovered (external review passes on the same codebase).
@@ -406,3 +408,171 @@ def test_contains_does_not_mutate_or_evict():
     # Entry is still physically present (lazy eviction happens on get()/put()
     # instead) -- __contains__ just doesn't report it as valid.
     assert "a" in cache.cache
+
+
+# ---------------------------------------------------------------------------
+# 7. Deprecated always-None ``connection_manager.circuit_breaker`` removed.
+#    Live path is ``circuit_breaker_manager``. health.py previously always
+#    reported "disabled"; _core/downloads.py had a dead pre-check.
+# ---------------------------------------------------------------------------
+
+
+def test_connection_manager_has_no_deprecated_circuit_breaker_attr():
+    from mirror_url.connection import ConnectionManager
+    from mirror_url.config import MirrorConfig
+    from mirror_url.metrics import MetricsCollector
+
+    config = MirrorConfig(
+        base_url="https://example.test/data/",
+        dest_path="/tmp/does-not-matter",
+        log_path="/tmp/does-not-matter",
+        no_cache=True,
+        circuit_breaker_enabled=True,
+    )
+    mgr = ConnectionManager(config, MetricsCollector())
+    assert not hasattr(mgr, "circuit_breaker")
+    assert mgr.circuit_breaker_manager is not None
+
+
+def test_async_managers_have_no_deprecated_circuit_breaker_attr():
+    from mirror_url.async_connection import AdaptiveAsyncManager, AsyncConnectionManager
+    from mirror_url.config import MirrorConfig
+    from mirror_url.metrics import MetricsCollector
+
+    config = MirrorConfig(
+        base_url="https://example.test/data/",
+        dest_path="/tmp/does-not-matter",
+        log_path="/tmp/does-not-matter",
+        no_cache=True,
+        circuit_breaker_enabled=True,
+    )
+    metrics = MetricsCollector()
+    async_mgr = AsyncConnectionManager(config, metrics)
+    adaptive = AdaptiveAsyncManager(config, metrics)
+    assert not hasattr(async_mgr, "circuit_breaker")
+    assert not hasattr(adaptive, "circuit_breaker")
+    assert async_mgr.circuit_breaker_manager is not None
+    assert adaptive.circuit_breaker_manager is not None
+
+
+def test_circuit_breaker_summary_disabled_when_no_manager():
+    from mirror_url.health import _circuit_breaker_summary
+
+    class CM:
+        circuit_breaker_manager = None
+
+    assert _circuit_breaker_summary(CM()) == "disabled"
+    assert _circuit_breaker_summary(None) == "disabled"
+
+
+def test_circuit_breaker_summary_closed_open_half_open():
+    from mirror_url.circuit_breaker import CircuitBreakerManager
+    from mirror_url.enums import CircuitBreakerState
+    from mirror_url.health import _circuit_breaker_summary
+
+    class CM:
+        def __init__(self):
+            self.circuit_breaker_manager = CircuitBreakerManager(
+                failure_threshold=2, recovery_timeout=60.0, half_open_limit=2
+            )
+
+    cm = CM()
+    assert _circuit_breaker_summary(cm) == "closed"
+
+    # Trip to OPEN
+    cm.circuit_breaker_manager.record_failure("example.com")
+    cm.circuit_breaker_manager.record_failure("example.com")
+    assert _circuit_breaker_summary(cm) == "open"
+
+    # Force HALF_OPEN on the domain breaker
+    breaker = cm.circuit_breaker_manager.get_breaker("example.com")
+    breaker.state = CircuitBreakerState.HALF_OPEN
+    assert _circuit_breaker_summary(cm) == "half_open"
+
+
+def test_health_checker_reports_manager_state_not_disabled_attr():
+    """get_status().connection['circuit_breaker'] must not be stuck on
+    'disabled' when circuit_breaker_manager is active."""
+    from mirror_url.circuit_breaker import CircuitBreakerManager
+    from mirror_url.health import HealthChecker
+    from mirror_url.primitives import AtomicCounter, AtomicSize
+
+    class FakeCM:
+        circuit_breaker_manager = CircuitBreakerManager(failure_threshold=2)
+
+    class FakeCache:
+        class _LRU:
+            def get_stats(self):
+                return {}
+
+        lru_file_cache = _LRU()
+
+    class FakeMetrics:
+        metrics = {"errors": []}
+
+    class FakeMirror:
+        connection_ok = True
+        base_url = "https://example.com/data/"
+        start_time = time.time()
+        files_processed = AtomicCounter(0)
+        files_failed = AtomicCounter(0)
+        files_skipped = AtomicCounter(0)
+        total_downloaded_size = AtomicSize()
+        connection_manager = FakeCM()
+        cache_manager = FakeCache()
+        metrics = FakeMetrics()
+        memory_monitor = None
+        disk_manager = None
+        performance_monitor = None
+
+    mirror = FakeMirror()
+    checker = HealthChecker(mirror)
+    status = checker.get_status()
+    assert status.connection["circuit_breaker"] == "closed"
+
+    mirror.connection_manager.circuit_breaker_manager.record_failure("example.com")
+    mirror.connection_manager.circuit_breaker_manager.record_failure("example.com")
+    status2 = checker.get_status()
+    assert status2.connection["circuit_breaker"] == "open"
+
+
+def test_is_healthy_uses_counter_value_and_threshold():
+    from mirror_url.health import HealthChecker
+    from mirror_url.primitives import AtomicCounter, AtomicSize
+
+    class FakeMirror:
+        connection_ok = True
+        base_url = "https://example.com/"
+        start_time = time.time()
+        files_processed = AtomicCounter(0)
+        files_failed = AtomicCounter(5)
+        files_skipped = AtomicCounter(0)
+        total_downloaded_size = AtomicSize()
+        connection_manager = None
+        cache_manager = type("C", (), {"lru_file_cache": type("L", (), {"get_stats": lambda self: {}})()})()
+        metrics = type("M", (), {"metrics": {"errors": []}})()
+        memory_monitor = None
+        disk_manager = None
+        performance_monitor = None
+
+    mirror = FakeMirror()
+    assert HealthChecker(mirror, failure_threshold=10).is_healthy() is True
+    assert HealthChecker(mirror, failure_threshold=3).is_healthy() is False
+    mirror.connection_ok = False
+    assert HealthChecker(mirror, failure_threshold=10).is_healthy() is False
+
+
+def test_health_handler_binds_mirror_on_server_not_class():
+    """Mirror must live on the HTTPServer instance, not the handler class."""
+    from mirror_url.health import HealthCheckHandler, HealthCheckServer
+
+    assert not hasattr(HealthCheckHandler, "mirror_instance") or (
+        # property on the class is fine; a plain shared attribute is not
+        isinstance(getattr(HealthCheckHandler, "mirror_instance", None), property)
+        or callable(getattr(HealthCheckHandler, "mirror_instance", None))
+    )
+    # Class attribute that was previously a shared None should be gone as a
+    # simple data attribute used for cross-instance stomp.
+    # HealthCheckServer still stores mirror_instance on itself.
+    server = HealthCheckServer(mirror_instance=object(), port=0)
+    assert server.mirror_instance is not None
