@@ -454,4 +454,90 @@ class CacheManager:
         return freed
 
 
-__all__ = ["CacheManager"]
+class NullCacheManager:
+    """No-op stand-in for CacheManager, used when persistent caching is
+    unavailable (currently: only if constructing the cache file *path*
+    itself raises -- see ``_MirrorBase.__init__``'s ``cache_file`` setup;
+    ``--no-cache`` goes through a real ``CacheManager`` that short-circuits
+    internally instead).
+
+    Implements every method CacheManager exposes -- not just the ones
+    currently called -- so a run that falls back to this path degrades to
+    "no caching" rather than crashing with an AttributeError on whichever
+    method happens to get called first. Previously this was an inline class
+    defined locally inside `_MirrorBase.__init__` that only implemented 6 of
+    CacheManager's 9 public methods; ``load()``, ``save()``, and
+    ``cleanup_stale_metadata()`` were missing, so ``scan.py``'s
+    ``self.cache_manager.load()`` raised on the very first call -- caught by
+    ``get_remote_files()``'s broad ``except Exception``, which made the
+    *entire sync silently abort* ("Failed to get remote files") instead of
+    just running without a cache, which was presumably the actual intent of
+    having a null object here at all.
+
+    Every return value here matches what the real CacheManager already
+    returns in an equivalent "nothing to load / nothing was saved" case
+    (e.g. ``--no-cache`` or no cache file present yet), so callers don't
+    need any null-manager-specific branching -- they already handle these
+    values from the real manager under normal conditions.
+    """
+
+    def __init__(self) -> None:
+        self.lru_file_cache = LRUCache(maxsize=100, ttl_seconds=3600, name="dummy")
+        self.html_cache = LRUCache(maxsize=100, ttl_seconds=3600, name="dummy-html")
+
+    def load(self, *args: Any, **kwargs: Any) -> Tuple[bool, Optional[Dict]]:
+        """Nothing to load. Matches CacheManager.load()'s own
+        no-cache-file-present return value."""
+        return False, None
+
+    def save(self, directories: Dict[str, Any], file_count: int) -> bool:
+        """Nothing persisted. Matches CacheManager.save()'s own
+        --no-cache return value."""
+        return False
+
+    def get_html_cache(self, url: str) -> Optional[Tuple[List[str], List[str]]]:
+        return None
+
+    def set_html_cache(
+        self,
+        url: str,
+        files: List[str],
+        subdirs: List[str],
+        content_hash: Optional[str] = None,
+    ) -> None:
+        pass
+
+    def invalidate_directory(self, dir_url: str, new_signature: str) -> bool:
+        """No directory cache to invalidate. Not currently called by
+        anything (on CacheManager either -- see REFACTORING_PLAN.md), but
+        implemented for interface parity rather than leaving this one gap
+        for a future caller to rediscover the same bug class."""
+        return False
+
+    def get_file_metadata(self, local_path: Path) -> Optional[Dict]:
+        return None
+
+    def save_file_metadata(self, local_path: Path, etag: str, mtime: float, size: int = 0) -> None:
+        pass
+
+    def cleanup_file_metadata(self, local_path: Path) -> None:
+        pass
+
+    def cleanup_stale_metadata(self, expected_files: Set[Path]) -> int:
+        """Nothing tracked, so nothing to remove."""
+        return 0
+
+    def handle_memory_pressure(self, pressure: Any = None, level: Optional[str] = None) -> int:
+        """Still shrinks the two LRU caches this class itself owns (used by
+        get_html_cache/set_html_cache); there's just no on-disk metadata
+        cache underneath to also shrink."""
+        freed = 0
+        if pressure == MemoryPressure.WARNING or level == "warning":
+            freed += self.lru_file_cache.shrink_to(0.7)
+        elif pressure == MemoryPressure.CRITICAL or level == "critical":
+            freed += self.lru_file_cache.shrink_to(0.3)
+            freed += self.html_cache.shrink_to(0.3)
+        return freed
+
+
+__all__ = ["CacheManager", "NullCacheManager"]

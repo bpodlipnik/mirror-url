@@ -4,6 +4,51 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.61] - 2026-09-24
+
+### Fixed
+- **`NullCacheManager` (`cache.py`), replacing the inline `DummyCacheManager`**
+  in `_MirrorBase.__init__` -- the last item from an earlier external code
+  review pass, the other three (dead `circuit_breaker` attribute, the
+  `LRUCache` issues, the `ConnectionManager.target_parsed` bug) fixed in
+  `v3.1.54`-`v3.1.59`.
+
+  The inline fallback used when `cache_file` is `None` (only if constructing
+  the cache file *path* itself raises -- a narrow edge case; `--no-cache`
+  goes through a real `CacheManager` that short-circuits internally instead)
+  implemented 6 of `CacheManager`'s 9 public methods. `load()`, `save()`,
+  and `cleanup_stale_metadata()` were missing, so `scan.py`'s
+  `self.cache_manager.load()` raised `AttributeError` on the very first call
+  of any run that hit this fallback -- caught by `get_remote_files()`'s
+  broad `except Exception`, which made the *entire sync silently abort*
+  ("Failed to get remote files - aborting sync") instead of just running
+  without a cache, which was presumably the actual intent of having a null
+  object here at all.
+
+  `NullCacheManager` implements all 9 public methods (including
+  `invalidate_directory`, not currently called by anything -- on
+  `CacheManager` either -- but implemented for interface parity rather than
+  leaving a gap for a future caller to rediscover this same bug class).
+  Every return value matches what `CacheManager` itself already returns in
+  an equivalent "nothing to load / nothing was saved" case (e.g.
+  `--no-cache`, or no cache file present yet), so `scan.py`/`cleanup.py`
+  don't need any null-manager-specific branching -- they already handle
+  these values correctly for the real manager under normal conditions.
+  `handle_memory_pressure()` still shrinks the two `LRUCache` instances
+  `NullCacheManager` owns itself (used by its `get_html_cache`/
+  `set_html_cache`), matching `CacheManager`'s exact
+  `(pressure=None, level=None)` signature instead of the inline version's
+  positional-only, no-default one.
+
+  7 new tests, including a structural guard (`test_null_cache_manager_
+  implements_every_cache_manager_public_method`) that diffs `dir()` of both
+  classes' public methods -- fails automatically if `CacheManager` ever
+  grows a method `NullCacheManager` doesn't mirror, instead of that gap
+  being silently rediscovered via an `AttributeError` in production again.
+
+325 passed, 4 skipped (up from 318). ruff check/format clean. mypy: 535
+findings, unchanged.
+
 ## [3.1.60] - 2026-09-24
 
 ### Fixed

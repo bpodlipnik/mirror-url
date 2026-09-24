@@ -31,7 +31,7 @@ import httpx
 
 from .._version import __version__
 from ..async_connection import AdaptiveAsyncManager, AsyncConnectionManager, AsyncTaskManager
-from ..cache import CacheManager
+from ..cache import CacheManager, NullCacheManager
 from ..compat import LXML_AVAILABLE, PSUTIL_AVAILABLE, TQDM_AVAILABLE
 from ..concurrency import UnifiedConcurrencyManager
 from ..connection import ConnectionManager
@@ -43,7 +43,7 @@ from ..health import HealthChecker, HealthCheckServer
 from ..metrics import MetricsCollector
 from ..monitoring import DiskSpaceManager, MemoryMonitor, PerformanceMonitor
 from ..parsing import AdaptiveBatchProcessor
-from ..primitives import AtomicCounter, AtomicSize, LRUCache
+from ..primitives import AtomicCounter, AtomicSize
 from ..progress import MultiLevelProgress
 from ..queue import DownloadQueue
 from ..rate_limiter import BandwidthLimiter, PerIPRateLimiter
@@ -355,30 +355,14 @@ class _MirrorBase:
         if self.cache_file:
             self.cache_manager = CacheManager(self.cache_file, config, self.metrics)
         else:
-            # Create a dummy cache manager if cache file is None
-            class DummyCacheManager:
-                def __init__(self):
-                    self.lru_file_cache = LRUCache(maxsize=100, ttl_seconds=3600, name="dummy")
-
-                def get_html_cache(self, url):
-                    return None
-
-                def set_html_cache(self, url, files, subdirs, content_hash=None):
-                    pass
-
-                def get_file_metadata(self, local_path):
-                    return None
-
-                def save_file_metadata(self, local_path, etag, mtime, size=0):
-                    pass
-
-                def cleanup_file_metadata(self, local_path):
-                    pass
-
-                def handle_memory_pressure(self, pressure):
-                    return 0
-
-            self.cache_manager = DummyCacheManager()
+            # cache_file is None only if constructing the path itself raised
+            # (see the try/except above) -- a narrow, low-probability edge
+            # case. Falls back to a full no-op implementation of
+            # CacheManager's interface so the run degrades to "no caching"
+            # instead of crashing with an AttributeError on the first call
+            # that hits a method this fallback doesn't implement. See
+            # cache.NullCacheManager's docstring for the history here.
+            self.cache_manager = NullCacheManager()
 
         # ============================================================================
         # 15a. FILENAME CACHE (Performance optimization)
