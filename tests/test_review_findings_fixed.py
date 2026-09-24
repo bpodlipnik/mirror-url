@@ -418,8 +418,8 @@ def test_contains_does_not_mutate_or_evict():
 
 
 def test_connection_manager_has_no_deprecated_circuit_breaker_attr():
-    from mirror_url.connection import ConnectionManager
     from mirror_url.config import MirrorConfig
+    from mirror_url.connection import ConnectionManager
     from mirror_url.metrics import MetricsCollector
 
     config = MirrorConfig(
@@ -549,7 +549,9 @@ def test_is_healthy_uses_counter_value_and_threshold():
         files_skipped = AtomicCounter(0)
         total_downloaded_size = AtomicSize()
         connection_manager = None
-        cache_manager = type("C", (), {"lru_file_cache": type("L", (), {"get_stats": lambda self: {}})()})()
+        cache_manager = type(
+            "C", (), {"lru_file_cache": type("L", (), {"get_stats": lambda self: {}})()}
+        )()
         metrics = type("M", (), {"metrics": {"errors": []}})()
         memory_monitor = None
         disk_manager = None
@@ -576,3 +578,134 @@ def test_health_handler_binds_mirror_on_server_not_class():
     # HealthCheckServer still stores mirror_instance on itself.
     server = HealthCheckServer(mirror_instance=object(), port=0)
     assert server.mirror_instance is not None
+
+
+# ---------------------------------------------------------------------------
+# 8. HealthCheckHandler._send_json's "build body before headers" fix only
+#    covered json.dumps() failures, not wfile.write() failing *after*
+#    end_headers() (e.g. a client disconnect mid-response) -- the except
+#    handlers in _handle_health/_handle_metrics would retry _send_json,
+#    calling send_response() a second time after headers were already sent:
+#    the same double-response bug one layer deeper. _response_started now
+#    tracks whether headers already went out, and
+#    _send_error_unless_response_started refuses to send a second status
+#    line once they have.
+# ---------------------------------------------------------------------------
+
+
+class _FakeHandler:
+    """Minimal duck-typed stand-in for HealthCheckHandler.
+
+    _send_error_unless_response_started and _send_json only touch
+    self._response_started, self.close_connection, self._send_json (called
+    recursively), send_response/send_header/end_headers, and self.wfile --
+    none of BaseHTTPRequestHandler's socket/request machinery -- so a plain
+    object with those attributes exercises the real, unbound methods.
+    """
+
+    def __init__(self):
+        from types import MethodType
+
+        from mirror_url.health import HealthCheckHandler
+
+        self._response_started = False
+        self.close_connection = False
+        self.sent_responses = []  # (status_code, headers_sent, body)
+        self._pending_status = None
+        self._pending_headers = {}
+        self.wfile = self
+        # Bind the real (unbound) methods under test onto this duck-typed
+        # instance, so _handle_health/_handle_metrics's internal
+        # self._send_json(...) / self._send_error_unless_response_started(...)
+        # calls resolve to the real implementation instead of AttributeError.
+        self._send_json = MethodType(HealthCheckHandler._send_json, self)
+        self._send_error_unless_response_started = MethodType(
+            HealthCheckHandler._send_error_unless_response_started, self
+        )
+
+    def send_response(self, status_code):
+        self._pending_status = status_code
+        self._pending_headers = {}
+
+    def send_header(self, key, value):
+        self._pending_headers[key] = value
+
+    def end_headers(self):
+        pass
+
+    def write(self, body):
+        # Stands in for self.wfile.write in the real handler.
+        self.sent_responses.append((self._pending_status, dict(self._pending_headers), body))
+
+
+def test_send_json_sets_response_started_after_end_headers():
+    from mirror_url.health import HealthCheckHandler
+
+    fake = _FakeHandler()
+    HealthCheckHandler._send_json(fake, 200, {"ok": True})
+    assert fake._response_started is True
+    assert len(fake.sent_responses) == 1
+    assert fake.sent_responses[0][0] == 200
+
+
+def test_send_error_unless_response_started_sends_when_not_started():
+    from mirror_url.health import HealthCheckHandler
+
+    fake = _FakeHandler()
+    assert fake._response_started is False
+    HealthCheckHandler._send_error_unless_response_started(fake, 500, {"status": "error"})
+    assert len(fake.sent_responses) == 1
+    assert fake.sent_responses[0][0] == 500
+    assert fake.close_connection is False
+
+
+def test_send_error_unless_response_started_closes_connection_instead_of_double_send():
+    """The actual regression: once headers are on the wire, a second
+    send_response() would corrupt the HTTP response. Must close the
+    connection instead of sending anything further."""
+    from mirror_url.health import HealthCheckHandler
+
+    fake = _FakeHandler()
+    fake._response_started = True  # simulate end_headers() already having run
+    HealthCheckHandler._send_error_unless_response_started(fake, 500, {"status": "error"})
+    assert fake.sent_responses == []  # no second send_response call
+    assert fake.close_connection is True
+
+
+def test_handle_health_does_not_double_send_when_wfile_write_fails():
+    """End-to-end: a write failure after headers are sent during the
+    success path must not trigger a second send_response() from the
+    except handler."""
+    from mirror_url.health import HealthCheckHandler
+
+    class _FailingWriteHandler(_FakeHandler):
+        def write(self, body):
+            # First call (the 200 response) fails after headers are already
+            # queued; simulates a broken pipe mid-write.
+            self._response_started = True
+            raise ConnectionError("simulated broken pipe")
+
+    class _FakeHealthChecker:
+        def get_status(self):
+            from mirror_url.models import HealthStatus
+
+            return HealthStatus(
+                status="healthy",
+                timestamp="now",
+                metrics={},
+                connection={},
+                cache={},
+                errors=[],
+            )
+
+    class _FakeMirror:
+        health_checker = _FakeHealthChecker()
+
+    fake = _FailingWriteHandler()
+    fake.mirror_instance = _FakeMirror()
+    HealthCheckHandler._handle_health(fake)
+
+    # The write failure must be handled by closing the connection, not by
+    # attempting a second send_response(500) after headers were already sent.
+    assert fake.close_connection is True
+    assert fake.sent_responses == []  # the failed write never actually landed

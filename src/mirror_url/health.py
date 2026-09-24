@@ -8,7 +8,14 @@ Post-migration fixes (circuit-breaker dead API + HTTP protocol + shared state):
 - Report circuit-breaker state from ``circuit_breaker_manager`` (the live
   per-domain path), not the deprecated always-``None`` ``circuit_breaker``.
 - Build the response body *before* sending headers so error paths never call
-  ``send_response`` after ``end_headers``.
+  ``send_response`` after ``end_headers`` for JSON-serialization failures.
+  Follow-up: that alone didn't cover ``wfile.write()`` itself failing after
+  headers were already sent (e.g. a client disconnect mid-response) -- the
+  except handlers in ``_handle_health``/``_handle_metrics`` would retry
+  ``_send_json``, reintroducing the same double-response bug one layer
+  deeper. ``_response_started`` now tracks whether headers already went out,
+  and ``_send_error_unless_response_started`` closes the connection instead
+  of sending a second status line when they have.
 - Bind the mirror instance on the ``HTTPServer`` subclass, not on the handler
   class attribute, so concurrent MirrorURL / test instances do not stomp each
   other.
@@ -57,6 +64,12 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
     _request_times: deque = deque(maxlen=100)
     MAX_REQUESTS_PER_SECOND = 5
 
+    # Class-level default; do_GET() resets this per-request (the same
+    # handler instance serves multiple requests on a keep-alive connection).
+    # Only meaningful as a fallback if _send_json is ever called before
+    # do_GET has run once.
+    _response_started = False
+
     @classmethod
     def check_rate_limit(cls) -> bool:
         """Return True if the request is allowed under the rate limit."""
@@ -84,9 +97,17 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
     ) -> None:
         """Serialize ``payload`` and send a complete HTTP response in one shot.
 
-        Building the body first avoids the previous bug where a mid-write
-        exception tried to call ``send_response(500)`` after ``end_headers()``
-        had already been issued for a 200.
+        Building the body first avoids a mid-write exception trying to call
+        ``send_response(500)`` after ``end_headers()`` had already been
+        issued for a 200 -- but only for failures in ``json.dumps()``, which
+        happens before any header is sent. It does NOT by itself protect
+        against ``self.wfile.write(body)`` failing (e.g. the client
+        disconnecting mid-response) after headers are already on the wire.
+        Callers that wrap a ``_send_json`` call in a try/except and retry
+        with a different status on failure must check ``_response_started``
+        first (see ``_handle_health`` / ``_handle_metrics``) rather than
+        calling ``_send_json`` again unconditionally, or they reintroduce
+        the same double-response bug this docstring describes fixing.
         """
         body = json.dumps(payload, indent=2).encode()
         self.send_response(status_code)
@@ -97,10 +118,38 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
             for key, value in extra_headers.items():
                 self.send_header(key, value)
         self.end_headers()
+        # From here on, any failure (e.g. a broken pipe from wfile.write())
+        # must NOT be followed by another send_response() call -- the status
+        # line and headers are already written to the socket.
+        self._response_started = True
         self.wfile.write(body)
+
+    def _send_error_unless_response_started(
+        self, status_code: int, payload: Dict[str, Any]
+    ) -> None:
+        """Send an error response, unless a response was already started.
+
+        Used from exception handlers that wrap a successful-path
+        ``_send_json`` call: if that call already got past ``end_headers()``
+        before failing (e.g. ``wfile.write`` hit a broken pipe), the status
+        line and headers are already on the wire and a second
+        ``send_response`` would corrupt the HTTP response. In that case we
+        can only give up on this response and close the connection instead
+        of sending a fabricated second one.
+        """
+        if self._response_started:
+            logging.error(
+                "Cannot send %s error response: a response was already "
+                "started for this request; closing connection instead",
+                status_code,
+            )
+            self.close_connection = True
+            return
+        self._send_json(status_code, payload)
 
     def do_GET(self) -> None:
         """Handle GET requests with rate limiting."""
+        self._response_started = False
         if self.path not in ("/health", "/metrics"):
             self.send_response(404)
             self.end_headers()
@@ -151,7 +200,9 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
             self._send_json(200, safe_status)
         except Exception:
             logging.exception("Health check handler failed")
-            self._send_json(500, {"status": "error", "message": "Health check failed"})
+            self._send_error_unless_response_started(
+                500, {"status": "error", "message": "Health check failed"}
+            )
 
     def _handle_metrics(self) -> None:
         mirror = self.mirror_instance
@@ -171,7 +222,9 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
             self._send_json(200, safe_metrics)
         except Exception:
             logging.exception("Metrics handler failed")
-            self._send_json(500, {"status": "error", "message": "Metrics collection failed"})
+            self._send_error_unless_response_started(
+                500, {"status": "error", "message": "Metrics collection failed"}
+            )
 
     def log_message(self, format: str, *args) -> None:
         """Route BaseHTTPRequestHandler logs through the package logger."""
@@ -225,13 +278,9 @@ class HealthCheckServer:
                 self.server.serve_forever()
             except OSError as e:
                 # Most commonly EADDRINUSE.
-                logging.warning(
-                    "Health check server could not start on port %s: %s", self.port, e
-                )
+                logging.warning("Health check server could not start on port %s: %s", self.port, e)
 
-        self.thread = threading.Thread(
-            target=run_server, daemon=True, name="health-check-server"
-        )
+        self.thread = threading.Thread(target=run_server, daemon=True, name="health-check-server")
         self.thread.start()
 
     def stop(self) -> None:
