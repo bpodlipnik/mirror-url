@@ -4,6 +4,60 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.60] - 2026-09-24
+
+### Fixed
+- **`v3.1.59`'s release pipeline never actually published to PyPI**: both its
+  commit message and this CHANGELOG claimed "ruff check/format clean", but
+  that was inaccurate -- `tests/test_review_findings_fixed.py` had an
+  unsorted import (ruff I001) and 2 files hadn't been run through
+  `ruff format`. `release.yml` requires `lint` to pass on the exact release
+  SHA before `build`/`publish-to-pypi` run, so `v3.1.59` never got built,
+  let alone published, regardless of the `PUBLISH_TO_PYPI` variable or
+  Trusted Publisher config -- both of which were red herrings. Fixed with
+  `ruff check --fix .` + `ruff format .`; both clean now, verified on a
+  fresh clone of the exact `v3.1.59` tag before fixing, to rule out a local
+  cache or ruff-version mismatch.
+
+- Found during a follow-up review of `v3.1.59`'s own fix: its "build the
+  response body before sending headers" fix for `HealthCheckHandler
+  ._send_json` (see `v3.1.59` below) only covered `json.dumps()` failing,
+  which happens before any header is sent. It did not cover
+  `self.wfile.write(body)` failing *after* `end_headers()` -- e.g. a client
+  disconnecting mid-response, plausible for a health-check probe with a
+  short timeout. In that case, `_handle_health`'s/`_handle_metrics`'s
+  `except Exception` block retried `_send_json(500, ...)`, calling
+  `send_response()` a second time after the first response's headers were
+  already on the wire: the same double-response bug `v3.1.59` set out to
+  fix, one layer deeper, with a narrower reproduction window.
+
+  Added `_response_started`, set right after `end_headers()` in
+  `_send_json` and reset at the top of `do_GET()` (the same handler
+  instance serves multiple requests on a keep-alive connection, so this
+  can't just be set once in `__init__`). Added
+  `_send_error_unless_response_started()`: closes the connection instead of
+  attempting a second response once headers have already gone out.
+  `_handle_health`/`_handle_metrics` now call it instead of calling
+  `_send_json` directly from their except blocks.
+
+  4 new tests, including an end-to-end one that simulates `wfile.write()`
+  raising mid-response and asserts the connection is closed rather than a
+  second `send_response()` being attempted.
+
+- Also reviewed, no code change needed: `v3.1.59`'s commit message described
+  `is_healthy()`'s old `self.mirror.files_failed < 10` as relying on a
+  broken `AtomicCounter.__lt__` comparison. Verified `AtomicCounter`
+  already implements `__lt__`/`__eq__` correctly via `@total_ordering`, so
+  the old comparison worked fine -- the real, valid improvement in that fix
+  was the new configurable `failure_threshold` parameter, not a broken
+  comparison being fixed. Noted here since the CHANGELOG entry below
+  states it as a bug fix; leaving that entry as-is rather than editing
+  history, correcting the record here instead.
+
+318 passed, 4 skipped (up from 314). ruff check/format clean. mypy: 535
+findings (same baseline `v3.1.59` already established; no new findings
+from this change).
+
 ## [3.1.59] - 2026-09-23
 
 ### Fixed
