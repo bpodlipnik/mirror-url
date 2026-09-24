@@ -709,3 +709,116 @@ def test_handle_health_does_not_double_send_when_wfile_write_fails():
     # attempting a second send_response(500) after headers were already sent.
     assert fake.close_connection is True
     assert fake.sent_responses == []  # the failed write never actually landed
+
+
+# ---------------------------------------------------------------------------
+# 9. NullCacheManager: the fallback used when cache_file is None (only if
+#    constructing the cache file *path* itself raised -- see
+#    _MirrorBase.__init__) was an inline class implementing 6 of
+#    CacheManager's 9 public methods. load(), save(), and
+#    cleanup_stale_metadata() were missing, so scan.py's
+#    self.cache_manager.load() raised AttributeError on the very first call
+#    of any run that hit this fallback -- caught by get_remote_files()'s
+#    broad except, which made the *entire sync silently abort* instead of
+#    just running without a cache. Replaced with a real, fully-implemented
+#    NullCacheManager in cache.py.
+# ---------------------------------------------------------------------------
+
+
+def test_null_cache_manager_implements_every_cache_manager_public_method():
+    """Structural guard against this exact regression class: if
+    CacheManager ever grows a new public method, this fails until
+    NullCacheManager grows a matching one too -- rather than that gap
+    being silently rediscovered via an AttributeError in production."""
+    from mirror_url.cache import CacheManager, NullCacheManager
+
+    real_public_methods = {
+        name
+        for name in dir(CacheManager)
+        if not name.startswith("_") and callable(getattr(CacheManager, name))
+    }
+    null_public_methods = {
+        name
+        for name in dir(NullCacheManager)
+        if not name.startswith("_") and callable(getattr(NullCacheManager, name))
+    }
+    missing = real_public_methods - null_public_methods
+    assert not missing, f"NullCacheManager is missing: {missing}"
+
+
+def test_null_cache_manager_load_matches_real_no_cache_return_value():
+    from mirror_url.cache import NullCacheManager
+
+    ncm = NullCacheManager()
+    # Must not raise, and must match what CacheManager.load() itself
+    # returns for "no cache file present" / "--no-cache" -- callers
+    # (scan.py) already handle this value correctly for the real manager.
+    cache_loaded, cached_signatures = ncm.load()
+    assert cache_loaded is False
+    assert cached_signatures is None
+
+
+def test_null_cache_manager_save_returns_false():
+    from mirror_url.cache import NullCacheManager
+
+    ncm = NullCacheManager()
+    assert ncm.save({"http://example.test/": "sig"}, file_count=1) is False
+
+
+def test_null_cache_manager_cleanup_stale_metadata_returns_zero():
+    from pathlib import Path
+
+    from mirror_url.cache import NullCacheManager
+
+    ncm = NullCacheManager()
+    assert ncm.cleanup_stale_metadata({Path("/tmp/some/file.txt")}) == 0
+
+
+def test_null_cache_manager_get_and_set_are_safe_no_ops():
+    from pathlib import Path
+
+    from mirror_url.cache import NullCacheManager
+
+    ncm = NullCacheManager()
+    assert ncm.get_html_cache("http://example.test/") is None
+    ncm.set_html_cache("http://example.test/", ["a"], ["b"])  # must not raise
+    assert ncm.get_file_metadata(Path("/tmp/x")) is None
+    ncm.save_file_metadata(Path("/tmp/x"), etag="abc", mtime=0.0)  # must not raise
+    ncm.cleanup_file_metadata(Path("/tmp/x"))  # must not raise
+    assert ncm.invalidate_directory("http://example.test/", "sig") is False
+
+
+def test_null_cache_manager_handle_memory_pressure_still_shrinks_its_own_caches():
+    """Not purely a no-op: NullCacheManager owns lru_file_cache/html_cache
+    itself (used by get_html_cache/set_html_cache), and those still need to
+    respond to memory pressure even with no on-disk metadata cache."""
+    from mirror_url.cache import NullCacheManager
+    from mirror_url.enums import MemoryPressure
+
+    ncm = NullCacheManager()
+    for i in range(50):
+        ncm.lru_file_cache.put(f"key{i}", f"value{i}")
+
+    freed = ncm.handle_memory_pressure(pressure=MemoryPressure.CRITICAL)
+    assert freed > 0
+    assert len(ncm.lru_file_cache) < 50
+
+    # Also accepts the string-level calling convention CacheManager
+    # supports ("for test compatibility").
+    ncm2 = NullCacheManager()
+    for i in range(50):
+        ncm2.lru_file_cache.put(f"key{i}", f"value{i}")
+    freed2 = ncm2.handle_memory_pressure(level="critical")
+    assert freed2 > 0
+
+
+def test_null_cache_manager_wired_up_when_cache_file_is_none():
+    """Confirms _MirrorBase actually uses NullCacheManager (not the old
+    inline DummyCacheManager) as its fallback."""
+    import inspect
+
+    from mirror_url._core import _base
+
+    source = inspect.getsource(_base)
+    assert "NullCacheManager" in source
+    assert "DummyCacheManager" not in source
