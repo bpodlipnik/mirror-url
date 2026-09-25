@@ -400,6 +400,58 @@ def test_parallel_download_manager_lifecycle(tmp_path: Path):
 
 
 # ---------------------------------------------------------------------------
+# ParallelDownloadManager: dedicated thread pool sized off max_parallel_chunks,
+# not cpu_count (perf fix -- see CHANGELOG v3.1.63)
+# ---------------------------------------------------------------------------
+def test_dedicated_thread_pool_tracks_max_parallel_chunks_not_cpu_count(
+    tmp_path: Path, monkeypatch
+):
+    """Chunk downloads are I/O-bound and release the GIL while blocked on
+    network reads, so the dedicated executor should be sized off
+    max_parallel_chunks (the real concurrency ceiling, capped at 20 --
+    see ParallelDownloadManager.__init__), not off cpu_count. A pool
+    capped at cpu_count * 2 silently throttled chunk concurrency below
+    what max_parallel_chunks/chunk_semaphore were configured to allow,
+    especially on small/CI machines.
+
+    Pin os.cpu_count() to 1 here (well below max_parallel_chunks) to
+    prove the pool size no longer tracks it.
+    """
+    import mirror_url.download as download_mod
+    from mirror_url.config import MirrorConfig
+    from mirror_url.download import ParallelDownloadManager
+    from mirror_url.metrics import MetricsCollector
+    from mirror_url.rate_limiter import BandwidthLimiter
+
+    monkeypatch.setattr(download_mod.os, "cpu_count", lambda: 1)
+
+    cfg = MirrorConfig(
+        base_url="https://example.com/x",
+        dest_path=tmp_path / "d",
+        log_path=tmp_path / "l",
+        chunk_assembly_dir=tmp_path / "chunks",
+        max_parallel_chunks_total=20,
+    )
+    pdm = ParallelDownloadManager(
+        config=cfg,
+        metrics=MetricsCollector(),
+        connection_manager=None,
+        bandwidth_limiter=BandwidthLimiter(),
+        concurrency_manager=None,
+        mirror=None,
+    )
+    try:
+        assert pdm.own_executor is True
+        assert pdm.max_parallel_chunks == 20
+        # With the old cpu_count-based formula and cpu_count() == 1, this
+        # would have been capped at max(4, 1*2) == 4. It should now equal
+        # max_parallel_chunks regardless of cpu_count.
+        assert pdm.executor._max_workers == pdm.max_parallel_chunks == 20
+    finally:
+        pdm.shutdown()
+
+
+# ---------------------------------------------------------------------------
 # MirrorURL init: log-path fallback must also redirect the cache file
 # ---------------------------------------------------------------------------
 def test_log_path_fallback_also_relocates_cache_file(tmp_path: Path, monkeypatch):

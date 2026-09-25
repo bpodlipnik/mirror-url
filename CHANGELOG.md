@@ -4,6 +4,150 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.64] - 2026-09-25
+
+### Changed
+- **Streaming-mode chunk downloads: consolidated per-chunk `fsync()` into a
+  single whole-file `fsync()` (`download.py`).** Follow-up to `v3.1.62`/
+  `v3.1.63`'s performance fixes, from the same review -- prompted by a
+  closer look at what the per-chunk `fsync()` (added in an earlier fix,
+  still present after `v3.1.62`'s lock-narrowing) was actually protecting.
+
+  It turned out to protect less than the in-code comment claimed. Tracing
+  the resume path: `download_chunk_streaming()` always re-requests the
+  *full* `start_byte..end_byte` range on retry (no partial-byte resume
+  logic), and `create_chunks()` opens the final file `"wb"` +
+  `truncate(file_size)` on every call -- wiping any previously-written
+  bytes, including ones durably fsynced from an earlier interrupted run.
+  So a per-chunk fsync bought **no resume guarantee** in streaming mode,
+  only a post-completion durability guarantee (surviving a crash/power
+  loss immediately after the file is logged as complete) -- and that
+  guarantee needs exactly one disk barrier per file, not one per chunk.
+
+  `download_chunk_streaming()` no longer calls `os.fsync()` (still calls
+  `f.flush()` -- pushes Python's buffer into the OS, effectively free).
+  `download_parallel()`'s streaming-completion branch now does a single
+  `os.fsync()` on the completed file immediately before the "Downloaded:"
+  log line, preserving the same guarantee the removed per-chunk comment
+  described, for one I/O barrier per file instead of one per chunk (e.g.
+  8 on an 8-chunk file). Traditional (non-streaming, temp-file) mode is
+  untouched -- its per-chunk fsync is genuinely load-bearing, since
+  `download_chunk()`'s resume logic does read back
+  `chunk.temp_path.stat().st_size` to resume a partial chunk when
+  `chunk_assembly_dir` is configured to a persistent path.
+
+  Added `test_streaming_download_fsyncs_once_per_file_not_once_per_chunk`
+  in `test_streaming_chunk_concurrency.py`: drives the real
+  `create_chunks()` + `download_parallel()` orchestration (not just
+  `download_chunk_streaming()` directly) end to end against the same real
+  local Range server used by the `v3.1.62` concurrency tests, counts
+  actual `os.fsync()` calls via a counting wrapper, and asserts exactly
+  1. Verified the test detects the regression by temporarily
+  reintroducing the old per-chunk `fsync()` call (fails: 9 calls -- 8
+  chunks + 1 whole-file -- instead of 1) before restoring the fix.
+
+329 passed, 4 skipped (up from 328; the 1 new test above). ruff
+check/format clean. mypy: 12 findings in `download.py`, unchanged from
+baseline.
+
+## [3.1.63] - 2026-09-25
+
+### Changed
+- **`ParallelDownloadManager`'s dedicated download thread pool (`download.py`
+  `__init__`): sized off `max_parallel_chunks` instead of `cpu_count`.**
+  Follow-up to `v3.1.62`'s lock-narrowing fix, from the same external
+  performance review. Chunk downloads are I/O-bound -- threads spend
+  almost all their time blocked on network reads, which release the
+  GIL -- so the worker count should track `max_parallel_chunks` (the
+  concurrency ceiling `chunk_semaphore` already enforces, itself capped
+  at 20), not `cpu_count`. The old formula (`min(max_parallel_chunks,
+  max(cpu_count * 2, 8))`) meant a 2-core box got only 4 dedicated
+  workers regardless of how high `max_parallel_chunks` was configured --
+  the thread pool, not the semaphore, was the unintended real limit on
+  chunk concurrency on smaller machines (including typical small CI
+  runners).
+
+  `max_parallel_chunks` is itself a small, bounded value (hard-capped at
+  20 in this constructor), so sizing the dedicated pool 1:1 with it
+  can't cause thread explosion -- it only removes an extra, unintended
+  cap. The shared-thread-pool path (`use_shared_thread_pool`) is
+  untouched; this only affects the size of the pool
+  `ParallelDownloadManager` creates for itself.
+
+  Added `test_dedicated_thread_pool_tracks_max_parallel_chunks_not_cpu_count`
+  in `test_subsystems.py`: pins `os.cpu_count()` to 1 (monkeypatched) and
+  asserts the constructed executor's `_max_workers` equals
+  `max_parallel_chunks` (20), not the old cpu-derived value (would have
+  been 4). Verified the test detects the regression by temporarily
+  reverting to the old formula (fails: `4 == 20`) before restoring the
+  fix.
+
+  Deliberately left out of this change, as before: batching `fsync` to
+  once per file instead of once per chunk. Still a real tradeoff against
+  the resume guarantee on a mid-download crash, not something to bundle
+  in silently.
+
+328 passed, 4 skipped (up from 327; the 1 new test above). ruff
+check/format clean. mypy: 12 findings in `download.py`, unchanged from
+baseline.
+
+## [3.1.62] - 2026-09-25
+
+### Changed
+- **`ParallelDownloadManager.download_chunk_streaming()` (`download.py`):
+  narrowed the per-file lock so chunks of the same file can actually
+  download concurrently in streaming-parallel mode.** External performance
+  review found the per-file `RLock` acquired for the "create/pre-allocate"
+  race was held for the *entire* chunk lifetime -- the full network read
+  loop and `fsync()` -- not just the create step. Since the lock is keyed
+  per `final_path`, this fully serialized every chunk of a given file:
+  chunk 2 couldn't start its network transfer until chunk 1's transfer +
+  fsync had completely finished, and so on. Different files still
+  downloaded in parallel, but "streaming parallel" mode gave no
+  within-file parallelism at all, silently defeating the feature for any
+  single large file.
+
+  The lock now covers only the original race it was added for (two
+  threads racing to create/truncate the same not-yet-existing file --
+  see the `v3.1.x` "FIX (race condition)" comment already in this
+  function, kept in place). Once the file exists, each chunk writes to a
+  disjoint byte range (`[start_byte, end_byte]`), and concurrent
+  `seek()` + `write()` calls from separate file handles to disjoint
+  ranges of the same file are safe on POSIX without further locking, so
+  the read loop, `flush()`, and `fsync()` now run outside the lock.
+  On-disk behavior (pre-allocation logic, resulting bytes) is unchanged;
+  only the amount of time spent holding the lock changed.
+
+  Added `tests/test_streaming_chunk_concurrency.py`: drives
+  `download_chunk_streaming()` for real, with real concurrent threads and
+  real disk I/O, against a local `http.server` that actually serves
+  `Range` requests (bypassing only the SecureTransport/SSRF-guard seam
+  via `_get_client_for_url`, per `test_integration.py`'s note that no
+  test-mode bypass is wired through config yet -- everything downstream
+  of that, including the lock itself, is the real production code path).
+  Asserts the assembled file is byte-for-byte identical to the source
+  across 10 repeated runs to catch timing-dependent corruption. Sanity-
+  checked the test itself by temporarily reverting to the old full-scope
+  lock (still passes -- old code was correct, just serialized) and by
+  temporarily removing the `f.seek(chunk.start_byte)` call (fails
+  immediately with a byte-offset mismatch), confirming the test actually
+  detects the corruption class this change could introduce if done
+  wrong.
+
+  Two related opportunities from the same review were deliberately left
+  out of this change, since both trade off something rather than being a
+  free win: (1) fsync is still called once per chunk rather than once
+  per file -- batching it would save I/O but weakens the resume
+  guarantee if the process crashes mid-file; (2) the download thread
+  pool is still sized off `cpu_count * 2` rather than off
+  `max_parallel_chunks` -- this is I/O-bound work so more threads than
+  cores would likely help, but raising the cap changes resource usage
+  under load and deserves its own look rather than bundling it in here.
+
+327 passed, 4 skipped (up from 325; the 2 new tests above). ruff
+check/format clean. mypy: 12 findings in `download.py`, unchanged from
+baseline.
+
 ## [3.1.61] - 2026-09-24
 
 ### Fixed

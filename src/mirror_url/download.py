@@ -113,12 +113,20 @@ class ParallelDownloadManager:
         # self.active_downloads: Dict[Path, ParallelFileDownload] = {}
         self.lock = RLock()
 
-        # Thread pool for chunks
-        cpu_count = os.cpu_count() or 4
-        max_chunk_threads = min(self.max_parallel_chunks, max(cpu_count * 2, 8))
-
-        # Single executor creation point with hard cap to prevent thread explosion
-        capped_workers = min(max_chunk_threads, max(4, (os.cpu_count() or 4) * 2))
+        # Thread pool for chunks. Chunk downloads are I/O-bound (blocking
+        # network reads release the GIL), so the worker count should track
+        # max_parallel_chunks -- the actual concurrency ceiling enforced by
+        # chunk_semaphore below -- rather than cpu_count. Previously capped
+        # at cpu_count * 2 (e.g. 8 threads on a 4-core box) even though
+        # max_parallel_chunks allows up to 20: the thread pool itself, not
+        # the semaphore, was the real bottleneck on smaller/CI machines,
+        # silently capping effective chunk concurrency below what the rest
+        # of the download machinery was configured to allow.
+        # max_parallel_chunks is itself a small, bounded value (capped at
+        # 20 above), so sizing the pool 1:1 with it can't cause a thread
+        # explosion -- it only removes an unintended extra cap.
+        max_chunk_threads = self.max_parallel_chunks
+        capped_workers = max_chunk_threads
 
         if (
             self.config.use_shared_thread_pool
@@ -657,33 +665,53 @@ class ParallelDownloadManager:
                     # opening the file. Previously the 'wb' branch opened
                     # (and truncated) the file before locking, so two threads
                     # racing into the create branch would each truncate the
-                    # file and destroy each other's writes. Open + write are
-                    # now serialized per file. _get_file_lock() also closes
-                    # a separate lazy-creation race in the lock dict itself.
+                    # file and destroy each other's writes. _get_file_lock()
+                    # also closes a separate lazy-creation race in the lock
+                    # dict itself.
+                    #
+                    # PERF: only the create/pre-allocate step is serialized
+                    # here. Previously the entire network read loop + fsync
+                    # for every chunk ran inside this lock, which fully
+                    # serialized all chunks of the same file — defeating
+                    # parallel chunk downloading for any single file in
+                    # streaming mode. Each chunk writes to a disjoint byte
+                    # range, so once the file exists, concurrent seek+write
+                    # from different chunks/threads is safe on POSIX without
+                    # further locking; the lock is released before the
+                    # (slow) network transfer + fsync below.
                     with self._get_file_lock(chunk.final_path):
                         # Re-check after acquiring the lock — first writer
                         # creates / pre-allocates, subsequent writers seek.
-                        if chunk.final_path.exists():
-                            mode = "r+b"
-                            need_prealloc = False
-                        else:
-                            mode = "wb"
+                        if not chunk.final_path.exists():
                             need_prealloc = chunk.start_byte > 0
+                            with open(chunk.final_path, "wb") as f:
+                                if need_prealloc:
+                                    # Pre-allocate sparse file so seek(start_byte)
+                                    # below lands inside the file.
+                                    f.seek(chunk.end_byte)
+                                    f.write(b"\0")
 
-                        with open(chunk.final_path, mode) as f:
-                            if need_prealloc:
-                                # Pre-allocate sparse file so seek(start_byte)
-                                # below lands inside the file.
-                                f.seek(chunk.end_byte)
-                                f.write(b"\0")
-                            f.seek(chunk.start_byte)
-                            for data in response.iter_bytes(buffer_size):
-                                f.write(data)
-                                bytes_downloaded += len(data)
-                                if self.bandwidth_limiter:
-                                    self.bandwidth_limiter.throttle(len(data))
-                            f.flush()
-                            os.fsync(f.fileno())
+                    # PERF: no os.fsync() here. It used to run once per
+                    # chunk, but this file has no resume path that reads
+                    # partial chunk bytes back (retries always re-request
+                    # the full start_byte..end_byte range, and create_chunks()
+                    # truncates the final file to zero on every new attempt
+                    # regardless of what was previously fsynced) -- so a
+                    # per-chunk fsync bought no resume guarantee, only a
+                    # post-completion durability guarantee that a single
+                    # whole-file fsync (see download_parallel's streaming
+                    # completion branch) provides equally well for one disk
+                    # barrier instead of N. flush() still runs -- it pushes
+                    # Python's own buffer into the OS and costs essentially
+                    # nothing.
+                    with open(chunk.final_path, "r+b") as f:
+                        f.seek(chunk.start_byte)
+                        for data in response.iter_bytes(buffer_size):
+                            f.write(data)
+                            bytes_downloaded += len(data)
+                            if self.bandwidth_limiter:
+                                self.bandwidth_limiter.throttle(len(data))
+                        f.flush()
 
                     # Verify downloaded size matches expected chunk size
                     if bytes_downloaded != chunk.size:
@@ -831,12 +859,21 @@ class ParallelDownloadManager:
 
         # For streaming mode, we're done - no assembly needed
         if download.status == "streaming":
-            # NOTE: durability is already guaranteed per-chunk in
-            # download_chunk_streaming (f.flush() + os.fsync() inside the
-            # per-file lock). Re-opening the final file 'rb' here and calling
-            # flush()/fsync() on a READ handle is a no-op (nothing is buffered
-            # on a read-only handle), so it was removed. If an extra
-            # whole-file barrier is ever wanted, open in 'r+b' and fsync that.
+            # PERF (v3.1.64): a single whole-file fsync here replaces the
+            # old per-chunk os.fsync() calls in download_chunk_streaming.
+            # Same durability guarantee -- the file is flushed past the OS
+            # page cache before "Downloaded:" is logged below, so a crash
+            # or power loss right after this point can't lose completed
+            # data -- for one disk barrier per file instead of one per
+            # chunk. (There is still no resume path for streaming mode:
+            # a retried/re-attempted download truncates and re-fetches the
+            # whole file via create_chunks(), so this fsync is purely a
+            # post-completion durability barrier, not a resume mechanism.)
+            try:
+                with open(download.final_path, "r+b") as f:
+                    os.fsync(f.fileno())
+            except OSError as e:
+                logging.warning(f"Final fsync failed for {download.final_path}: {e}")
 
             # Update metrics
             self.metrics.increment("chunk_assemblies")
