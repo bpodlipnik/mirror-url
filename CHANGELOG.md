@@ -4,6 +4,63 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.62] - 2026-09-25
+
+### Changed
+- **`ParallelDownloadManager.download_chunk_streaming()` (`download.py`):
+  narrowed the per-file lock so chunks of the same file can actually
+  download concurrently in streaming-parallel mode.** External performance
+  review found the per-file `RLock` acquired for the "create/pre-allocate"
+  race was held for the *entire* chunk lifetime -- the full network read
+  loop and `fsync()` -- not just the create step. Since the lock is keyed
+  per `final_path`, this fully serialized every chunk of a given file:
+  chunk 2 couldn't start its network transfer until chunk 1's transfer +
+  fsync had completely finished, and so on. Different files still
+  downloaded in parallel, but "streaming parallel" mode gave no
+  within-file parallelism at all, silently defeating the feature for any
+  single large file.
+
+  The lock now covers only the original race it was added for (two
+  threads racing to create/truncate the same not-yet-existing file --
+  see the `v3.1.x` "FIX (race condition)" comment already in this
+  function, kept in place). Once the file exists, each chunk writes to a
+  disjoint byte range (`[start_byte, end_byte]`), and concurrent
+  `seek()` + `write()` calls from separate file handles to disjoint
+  ranges of the same file are safe on POSIX without further locking, so
+  the read loop, `flush()`, and `fsync()` now run outside the lock.
+  On-disk behavior (pre-allocation logic, resulting bytes) is unchanged;
+  only the amount of time spent holding the lock changed.
+
+  Added `tests/test_streaming_chunk_concurrency.py`: drives
+  `download_chunk_streaming()` for real, with real concurrent threads and
+  real disk I/O, against a local `http.server` that actually serves
+  `Range` requests (bypassing only the SecureTransport/SSRF-guard seam
+  via `_get_client_for_url`, per `test_integration.py`'s note that no
+  test-mode bypass is wired through config yet -- everything downstream
+  of that, including the lock itself, is the real production code path).
+  Asserts the assembled file is byte-for-byte identical to the source
+  across 10 repeated runs to catch timing-dependent corruption. Sanity-
+  checked the test itself by temporarily reverting to the old full-scope
+  lock (still passes -- old code was correct, just serialized) and by
+  temporarily removing the `f.seek(chunk.start_byte)` call (fails
+  immediately with a byte-offset mismatch), confirming the test actually
+  detects the corruption class this change could introduce if done
+  wrong.
+
+  Two related opportunities from the same review were deliberately left
+  out of this change, since both trade off something rather than being a
+  free win: (1) fsync is still called once per chunk rather than once
+  per file -- batching it would save I/O but weakens the resume
+  guarantee if the process crashes mid-file; (2) the download thread
+  pool is still sized off `cpu_count * 2` rather than off
+  `max_parallel_chunks` -- this is I/O-bound work so more threads than
+  cores would likely help, but raising the cap changes resource usage
+  under load and deserves its own look rather than bundling it in here.
+
+327 passed, 4 skipped (up from 325; the 2 new tests above). ruff
+check/format clean. mypy: 12 findings in `download.py`, unchanged from
+baseline.
+
 ## [3.1.61] - 2026-09-24
 
 ### Fixed

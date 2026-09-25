@@ -657,33 +657,41 @@ class ParallelDownloadManager:
                     # opening the file. Previously the 'wb' branch opened
                     # (and truncated) the file before locking, so two threads
                     # racing into the create branch would each truncate the
-                    # file and destroy each other's writes. Open + write are
-                    # now serialized per file. _get_file_lock() also closes
-                    # a separate lazy-creation race in the lock dict itself.
+                    # file and destroy each other's writes. _get_file_lock()
+                    # also closes a separate lazy-creation race in the lock
+                    # dict itself.
+                    #
+                    # PERF: only the create/pre-allocate step is serialized
+                    # here. Previously the entire network read loop + fsync
+                    # for every chunk ran inside this lock, which fully
+                    # serialized all chunks of the same file — defeating
+                    # parallel chunk downloading for any single file in
+                    # streaming mode. Each chunk writes to a disjoint byte
+                    # range, so once the file exists, concurrent seek+write
+                    # from different chunks/threads is safe on POSIX without
+                    # further locking; the lock is released before the
+                    # (slow) network transfer + fsync below.
                     with self._get_file_lock(chunk.final_path):
                         # Re-check after acquiring the lock — first writer
                         # creates / pre-allocates, subsequent writers seek.
-                        if chunk.final_path.exists():
-                            mode = "r+b"
-                            need_prealloc = False
-                        else:
-                            mode = "wb"
+                        if not chunk.final_path.exists():
                             need_prealloc = chunk.start_byte > 0
+                            with open(chunk.final_path, "wb") as f:
+                                if need_prealloc:
+                                    # Pre-allocate sparse file so seek(start_byte)
+                                    # below lands inside the file.
+                                    f.seek(chunk.end_byte)
+                                    f.write(b"\0")
 
-                        with open(chunk.final_path, mode) as f:
-                            if need_prealloc:
-                                # Pre-allocate sparse file so seek(start_byte)
-                                # below lands inside the file.
-                                f.seek(chunk.end_byte)
-                                f.write(b"\0")
-                            f.seek(chunk.start_byte)
-                            for data in response.iter_bytes(buffer_size):
-                                f.write(data)
-                                bytes_downloaded += len(data)
-                                if self.bandwidth_limiter:
-                                    self.bandwidth_limiter.throttle(len(data))
-                            f.flush()
-                            os.fsync(f.fileno())
+                    with open(chunk.final_path, "r+b") as f:
+                        f.seek(chunk.start_byte)
+                        for data in response.iter_bytes(buffer_size):
+                            f.write(data)
+                            bytes_downloaded += len(data)
+                            if self.bandwidth_limiter:
+                                self.bandwidth_limiter.throttle(len(data))
+                        f.flush()
+                        os.fsync(f.fileno())
 
                     # Verify downloaded size matches expected chunk size
                     if bytes_downloaded != chunk.size:
