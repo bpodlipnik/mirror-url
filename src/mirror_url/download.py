@@ -691,6 +691,19 @@ class ParallelDownloadManager:
                                     f.seek(chunk.end_byte)
                                     f.write(b"\0")
 
+                    # PERF: no os.fsync() here. It used to run once per
+                    # chunk, but this file has no resume path that reads
+                    # partial chunk bytes back (retries always re-request
+                    # the full start_byte..end_byte range, and create_chunks()
+                    # truncates the final file to zero on every new attempt
+                    # regardless of what was previously fsynced) -- so a
+                    # per-chunk fsync bought no resume guarantee, only a
+                    # post-completion durability guarantee that a single
+                    # whole-file fsync (see download_parallel's streaming
+                    # completion branch) provides equally well for one disk
+                    # barrier instead of N. flush() still runs -- it pushes
+                    # Python's own buffer into the OS and costs essentially
+                    # nothing.
                     with open(chunk.final_path, "r+b") as f:
                         f.seek(chunk.start_byte)
                         for data in response.iter_bytes(buffer_size):
@@ -699,7 +712,6 @@ class ParallelDownloadManager:
                             if self.bandwidth_limiter:
                                 self.bandwidth_limiter.throttle(len(data))
                         f.flush()
-                        os.fsync(f.fileno())
 
                     # Verify downloaded size matches expected chunk size
                     if bytes_downloaded != chunk.size:
@@ -847,12 +859,21 @@ class ParallelDownloadManager:
 
         # For streaming mode, we're done - no assembly needed
         if download.status == "streaming":
-            # NOTE: durability is already guaranteed per-chunk in
-            # download_chunk_streaming (f.flush() + os.fsync() inside the
-            # per-file lock). Re-opening the final file 'rb' here and calling
-            # flush()/fsync() on a READ handle is a no-op (nothing is buffered
-            # on a read-only handle), so it was removed. If an extra
-            # whole-file barrier is ever wanted, open in 'r+b' and fsync that.
+            # PERF (v3.1.64): a single whole-file fsync here replaces the
+            # old per-chunk os.fsync() calls in download_chunk_streaming.
+            # Same durability guarantee -- the file is flushed past the OS
+            # page cache before "Downloaded:" is logged below, so a crash
+            # or power loss right after this point can't lose completed
+            # data -- for one disk barrier per file instead of one per
+            # chunk. (There is still no resume path for streaming mode:
+            # a retried/re-attempted download truncates and re-fetches the
+            # whole file via create_chunks(), so this fsync is purely a
+            # post-completion durability barrier, not a resume mechanism.)
+            try:
+                with open(download.final_path, "r+b") as f:
+                    os.fsync(f.fileno())
+            except OSError as e:
+                logging.warning(f"Final fsync failed for {download.final_path}: {e}")
 
             # Update metrics
             self.metrics.increment("chunk_assemblies")

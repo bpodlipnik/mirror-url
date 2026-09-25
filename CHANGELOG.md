@@ -4,6 +4,52 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.64] - 2026-09-25
+
+### Changed
+- **Streaming-mode chunk downloads: consolidated per-chunk `fsync()` into a
+  single whole-file `fsync()` (`download.py`).** Follow-up to `v3.1.62`/
+  `v3.1.63`'s performance fixes, from the same review -- prompted by a
+  closer look at what the per-chunk `fsync()` (added in an earlier fix,
+  still present after `v3.1.62`'s lock-narrowing) was actually protecting.
+
+  It turned out to protect less than the in-code comment claimed. Tracing
+  the resume path: `download_chunk_streaming()` always re-requests the
+  *full* `start_byte..end_byte` range on retry (no partial-byte resume
+  logic), and `create_chunks()` opens the final file `"wb"` +
+  `truncate(file_size)` on every call -- wiping any previously-written
+  bytes, including ones durably fsynced from an earlier interrupted run.
+  So a per-chunk fsync bought **no resume guarantee** in streaming mode,
+  only a post-completion durability guarantee (surviving a crash/power
+  loss immediately after the file is logged as complete) -- and that
+  guarantee needs exactly one disk barrier per file, not one per chunk.
+
+  `download_chunk_streaming()` no longer calls `os.fsync()` (still calls
+  `f.flush()` -- pushes Python's buffer into the OS, effectively free).
+  `download_parallel()`'s streaming-completion branch now does a single
+  `os.fsync()` on the completed file immediately before the "Downloaded:"
+  log line, preserving the same guarantee the removed per-chunk comment
+  described, for one I/O barrier per file instead of one per chunk (e.g.
+  8 on an 8-chunk file). Traditional (non-streaming, temp-file) mode is
+  untouched -- its per-chunk fsync is genuinely load-bearing, since
+  `download_chunk()`'s resume logic does read back
+  `chunk.temp_path.stat().st_size` to resume a partial chunk when
+  `chunk_assembly_dir` is configured to a persistent path.
+
+  Added `test_streaming_download_fsyncs_once_per_file_not_once_per_chunk`
+  in `test_streaming_chunk_concurrency.py`: drives the real
+  `create_chunks()` + `download_parallel()` orchestration (not just
+  `download_chunk_streaming()` directly) end to end against the same real
+  local Range server used by the `v3.1.62` concurrency tests, counts
+  actual `os.fsync()` calls via a counting wrapper, and asserts exactly
+  1. Verified the test detects the regression by temporarily
+  reintroducing the old per-chunk `fsync()` call (fails: 9 calls -- 8
+  chunks + 1 whole-file -- instead of 1) before restoring the fix.
+
+329 passed, 4 skipped (up from 328; the 1 new test above). ruff
+check/format clean. mypy: 12 findings in `download.py`, unchanged from
+baseline.
+
 ## [3.1.63] - 2026-09-25
 
 ### Changed
