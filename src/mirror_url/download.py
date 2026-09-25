@@ -113,12 +113,20 @@ class ParallelDownloadManager:
         # self.active_downloads: Dict[Path, ParallelFileDownload] = {}
         self.lock = RLock()
 
-        # Thread pool for chunks
-        cpu_count = os.cpu_count() or 4
-        max_chunk_threads = min(self.max_parallel_chunks, max(cpu_count * 2, 8))
-
-        # Single executor creation point with hard cap to prevent thread explosion
-        capped_workers = min(max_chunk_threads, max(4, (os.cpu_count() or 4) * 2))
+        # Thread pool for chunks. Chunk downloads are I/O-bound (blocking
+        # network reads release the GIL), so the worker count should track
+        # max_parallel_chunks -- the actual concurrency ceiling enforced by
+        # chunk_semaphore below -- rather than cpu_count. Previously capped
+        # at cpu_count * 2 (e.g. 8 threads on a 4-core box) even though
+        # max_parallel_chunks allows up to 20: the thread pool itself, not
+        # the semaphore, was the real bottleneck on smaller/CI machines,
+        # silently capping effective chunk concurrency below what the rest
+        # of the download machinery was configured to allow.
+        # max_parallel_chunks is itself a small, bounded value (capped at
+        # 20 above), so sizing the pool 1:1 with it can't cause a thread
+        # explosion -- it only removes an unintended extra cap.
+        max_chunk_threads = self.max_parallel_chunks
+        capped_workers = max_chunk_threads
 
         if (
             self.config.use_shared_thread_pool

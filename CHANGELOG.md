@@ -4,6 +4,47 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.63] - 2026-09-25
+
+### Changed
+- **`ParallelDownloadManager`'s dedicated download thread pool (`download.py`
+  `__init__`): sized off `max_parallel_chunks` instead of `cpu_count`.**
+  Follow-up to `v3.1.62`'s lock-narrowing fix, from the same external
+  performance review. Chunk downloads are I/O-bound -- threads spend
+  almost all their time blocked on network reads, which release the
+  GIL -- so the worker count should track `max_parallel_chunks` (the
+  concurrency ceiling `chunk_semaphore` already enforces, itself capped
+  at 20), not `cpu_count`. The old formula (`min(max_parallel_chunks,
+  max(cpu_count * 2, 8))`) meant a 2-core box got only 4 dedicated
+  workers regardless of how high `max_parallel_chunks` was configured --
+  the thread pool, not the semaphore, was the unintended real limit on
+  chunk concurrency on smaller machines (including typical small CI
+  runners).
+
+  `max_parallel_chunks` is itself a small, bounded value (hard-capped at
+  20 in this constructor), so sizing the dedicated pool 1:1 with it
+  can't cause thread explosion -- it only removes an extra, unintended
+  cap. The shared-thread-pool path (`use_shared_thread_pool`) is
+  untouched; this only affects the size of the pool
+  `ParallelDownloadManager` creates for itself.
+
+  Added `test_dedicated_thread_pool_tracks_max_parallel_chunks_not_cpu_count`
+  in `test_subsystems.py`: pins `os.cpu_count()` to 1 (monkeypatched) and
+  asserts the constructed executor's `_max_workers` equals
+  `max_parallel_chunks` (20), not the old cpu-derived value (would have
+  been 4). Verified the test detects the regression by temporarily
+  reverting to the old formula (fails: `4 == 20`) before restoring the
+  fix.
+
+  Deliberately left out of this change, as before: batching `fsync` to
+  once per file instead of once per chunk. Still a real tradeoff against
+  the resume guarantee on a mid-download crash, not something to bundle
+  in silently.
+
+328 passed, 4 skipped (up from 327; the 1 new test above). ruff
+check/format clean. mypy: 12 findings in `download.py`, unchanged from
+baseline.
+
 ## [3.1.62] - 2026-09-25
 
 ### Changed
