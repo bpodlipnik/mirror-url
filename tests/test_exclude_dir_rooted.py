@@ -32,9 +32,19 @@ ROOT = "https://sohoftp.nascom.nasa.gov/solarsoft/soho/lasco/"
 
 
 class _Stub(UrlMixin):
-    def __init__(self, exclude_dirs, root_url=ROOT):
-        self.config = SimpleNamespace(exclude_dirs=exclude_dirs)
-        self.target_base_url = root_url
+    _UNSET = object()
+
+    def __init__(self, exclude_dirs, root_url=ROOT, base_url=_UNSET, target_base_url=None):
+        # base_url models --url (what CHANGELOG.md/USER_GUIDE.md document
+        # --exclude-dir as being relative to); target_base_url models
+        # --url + --dir-suffix appended (see _get_target_base_url). The two
+        # differ whenever --dir-suffix is used -- defaulting base_url to
+        # root_url when not passed keeps every pre-existing test in this
+        # file (which never exercises --dir-suffix) unchanged, while still
+        # letting a test pass an explicit "" to model it being unset.
+        resolved_base_url = root_url if base_url is _Stub._UNSET else base_url
+        self.config = SimpleNamespace(exclude_dirs=exclude_dirs, base_url=resolved_base_url)
+        self.target_base_url = target_base_url or root_url
 
 
 def test_plain_pattern_excludes_only_the_direct_root_relative_path():
@@ -121,3 +131,54 @@ def test_url_outside_root_is_never_excluded():
     matches nothing rather than falling back to a broad match."""
     stub = _Stub(["lasco"])
     assert stub._is_dir_excluded("https://example.test/somewhere-else/lasco/") is False
+
+
+# --- --dir-suffix interaction -------------------------------------------
+#
+# v3.1.52 rooted matching at self.target_base_url, which already has
+# --dir-suffix appended (see UrlMixin._get_target_base_url). CHANGELOG.md
+# and USER_GUIDE.md both document --exclude-dir as relative to --url --
+# never mentioning --dir-suffix -- so a pattern's meaning silently shifted
+# whenever --dir-suffix was in play, exactly the kind of undocumented,
+# unbounded rescoping this whole rewrite was meant to close. Root must be
+# self.config.base_url (--url itself), independent of --dir-suffix.
+
+
+def test_pattern_is_relative_to_url_not_dir_suffix():
+    """With --dir-suffix 20260908, --exclude-dir lasco must still mean
+    <url>/lasco/ (per the docs), not <url>/20260908/lasco/."""
+    stub = _Stub(
+        ["lasco"],
+        base_url=ROOT,
+        target_base_url=ROOT + "20260908/",
+    )
+    assert stub._is_dir_excluded(ROOT + "lasco/") is True
+    assert stub._is_dir_excluded(ROOT + "20260908/lasco/") is False
+
+
+def test_pattern_naming_the_dir_suffix_path_excludes_under_the_suffix():
+    """To exclude something under the suffix, the pattern must spell out
+    the suffix itself, since matching is relative to --url."""
+    stub = _Stub(
+        ["20260908/lasco"],
+        base_url=ROOT,
+        target_base_url=ROOT + "20260908/",
+    )
+    assert stub._is_dir_excluded(ROOT + "20260908/lasco/") is True
+
+
+def test_glob_pattern_still_relative_to_url_with_dir_suffix_active():
+    stub = _Stub(
+        ["*/lasco"],
+        base_url=ROOT,
+        target_base_url=ROOT + "20260908/",
+    )
+    assert stub._is_dir_excluded(ROOT + "20260908/lasco/") is True
+    assert stub._is_dir_excluded(ROOT + "lasco/") is False
+
+
+def test_missing_base_url_fails_closed_rather_than_falling_back():
+    """No self.config.base_url (shouldn't normally happen) must fail
+    closed -- never fall back to target_base_url's broader scope."""
+    stub = _Stub(["lasco"], base_url="", target_base_url=ROOT)
+    assert stub._is_dir_excluded(ROOT + "lasco/") is False

@@ -274,7 +274,15 @@ class UrlMixin:
         if not self.config.exclude_dirs:
             return False
 
-        root_url = self.target_base_url or ""
+        # Root is --url itself, never --url + --dir-suffix. target_base_url
+        # already has --dir-suffix appended (see _get_target_base_url), so
+        # using it here would silently re-root every pattern under the
+        # suffix instead of under the documented root -- e.g. with
+        # --dir-suffix 20260908, --exclude-dir lasco would need to (and
+        # silently start to) mean <root>/20260908/lasco/ instead of the
+        # documented <root>/lasco/, while --url stays what CHANGELOG.md and
+        # USER_GUIDE.md both promise "relative to --url" means.
+        root_url = str(getattr(self.config, "base_url", "") or "")
         if root_url and not root_url.endswith("/"):
             root_url += "/"
 

@@ -4,6 +4,34 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.65] - 2026-09-26
+
+### Fixed
+- **`--exclude-dir` was rooted at `--url` + `--dir-suffix`, not `--url` as
+  `v3.1.52` documented.** `UrlMixin._is_dir_excluded()` computed each
+  pattern's relative path against `self.target_base_url`, which
+  `_get_target_base_url()` builds as `--url` with `--dir-suffix` appended.
+  So with `--dir-suffix 20260908` set, `--exclude-dir lasco` silently
+  meant `<url>/20260908/lasco/`, not the documented `<url>/lasco/` --
+  CHANGELOG.md and USER_GUIDE.md both say "relative to `--url`" and never
+  mention `--dir-suffix` changing that. Same failure mode `v3.1.52` itself
+  fixed (a pattern silently matching a different path than the docs
+  promise), just introduced by that same rewrite instead of predating it.
+
+  Root is now `self.config.base_url` (`--url` itself, independent of
+  `--dir-suffix`) in every case, matching the docs exactly. To exclude a
+  directory that only exists under a given `--dir-suffix`, the pattern
+  now needs to spell out the suffix itself (e.g.
+  `--exclude-dir 20260908/lasco`) -- consistent with `--url` being the
+  one fixed root regardless of which `--dir-suffix` a given run uses.
+
+  5 new tests in `tests/test_exclude_dir_rooted.py` cover the
+  `--dir-suffix` interaction directly: a plain pattern no longer reaching
+  under the suffix, a pattern that spells out the suffix reaching exactly
+  that path, the glob escape hatch staying relative to `--url` with a
+  suffix active, and a missing `base_url` failing closed rather than
+  falling back to the broader `target_base_url` scope.
+
 ## [3.1.64] - 2026-09-25
 
 ### Changed
