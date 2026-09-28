@@ -80,20 +80,6 @@ class UrlMixin:
 
         return False
 
-    @staticmethod
-    def _validate_url_scheme_fallback(url: str) -> bool:
-        """
-        Fallback URL scheme validation using urllib.parse.
-
-        Args:
-            url: URL to validate
-
-        Returns:
-            True if scheme is http or https
-        """
-        parsed = urlparse(url)
-        return parsed.scheme in ["http", "https"]
-
     def _get_last_path_component(self, url: str) -> str:
         """
         Get last path component from URL.

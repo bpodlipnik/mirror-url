@@ -572,49 +572,6 @@ class ParallelDownloadManager:
         finally:
             self.rate_limiter.register_chunk_complete(ip)
 
-    def _write_stream_to_file(
-        self, file_handle, response, buffer_size: int, bytes_downloaded_tracker: List[int]
-    ) -> int:
-        """
-        Write streaming response data to a file handle.
-
-        Args:
-            file_handle: Open file handle for writing
-            response: HTTP response with iter_bytes method
-            buffer_size: Size of read buffer
-            bytes_downloaded_tracker: List containing single int for tracking (mutable)
-
-        Returns:
-            Total bytes downloaded
-
-        Raises:
-            ChunkDownloadError: If write fails
-        """
-        bytes_downloaded = 0
-
-        try:
-            for data in response.iter_bytes(buffer_size):
-                file_handle.write(data)
-                bytes_downloaded += len(data)
-
-                # Apply bandwidth limiting if configured
-                if self.bandwidth_limiter:
-                    self.bandwidth_limiter.throttle(len(data))
-
-            # Ensure data is flushed to disk
-            file_handle.flush()
-
-            # Update the tracker
-            if bytes_downloaded_tracker:
-                bytes_downloaded_tracker[0] = bytes_downloaded
-
-            return bytes_downloaded
-
-        except OSError as e:
-            raise ChunkDownloadError(
-                f"Stream write failed after {bytes_downloaded} bytes: {e}"
-            ) from e
-
     def download_chunk_streaming(self, chunk: ChunkInfo) -> bool:
         """Download chunk directly to final file at correct offset.
 
@@ -1590,18 +1547,6 @@ class ParallelDownloadManager:
             logging.debug(f"Network speed test failed: {e}")
 
         return 100  # Default assumption
-
-    def _check_http2_support(self) -> bool:
-        """Check if server supports HTTP/2."""
-        if not self.mirror or not self.mirror.base_url:
-            return False
-        try:
-            response = self.connection_manager.request(
-                self.mirror.base_url, method="GET", timeout=5
-            )
-            return response.http_version == "HTTP/2"
-        except Exception:
-            return False
 
     def _check_range_support(self, test_url: str) -> bool:
         """Check if server supports Range requests."""

@@ -144,7 +144,7 @@ class LRUCache:
 
             # Evict oldest items (LRU order)
             for _ in range(evicted):
-                oldest_key, oldest_value = self.cache.popitem(last=False)
+                self.cache.popitem(last=False)
                 self.evictions += 1
 
             # Calculate actual evicted count (in case cache changed during loop? It shouldn't)

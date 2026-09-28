@@ -21,7 +21,6 @@ import time
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from email.utils import parsedate_to_datetime
 from pathlib import Path
 from threading import RLock
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
@@ -706,11 +705,6 @@ class _MirrorBase:
             f"cache_file={self.cache_file}, connection_ok={self.connection_ok}"
         )
 
-        # Initialization for _async_speed_samples:
-        self._speed_samples: deque = deque(
-            maxlen=20
-        )  # Keep last 20 samples (already exists, ensure it's there)
-
     def __enter__(self):
         """Context manager entry."""
         return self
@@ -1207,29 +1201,6 @@ class _MirrorBase:
                 if (self._filename_cache_hits + self._filename_cache_misses) > 0
                 else 0,
             }
-
-    def _get_remote_timestamp(self, url: str) -> Optional[float]:
-        """
-        Get remote file timestamp from Last-Modified header.
-
-        Args:
-            url: Remote URL
-
-        Returns:
-            Timestamp as float or None
-        """
-        try:
-            r = self.connection_manager.request(
-                url, method="HEAD", timeout=(15, 30), allow_redirects=True
-            )
-            if r.status_code == 200 and "Last-Modified" in r.headers:
-                dt = parsedate_to_datetime(r.headers["Last-Modified"])
-                return dt.timestamp()
-        except httpx.RequestError as e:
-            logging.debug(f"Failed to get timestamp for {sanitize_url_for_log(url)}: {e}")
-        except Exception as e:
-            logging.debug(f"Error parsing timestamp for {sanitize_url_for_log(url)}: {e}")
-        return None
 
     def _get_file_size(self, url: str) -> Optional[int]:
         """Get file size via HEAD request."""
