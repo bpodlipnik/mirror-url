@@ -517,3 +517,38 @@ def test_cli_overrides_maps_enums_and_paths():
     assert out["cleanup_policy"] is CleanupPolicy.MOVE
     assert out["scan_mode"] is ScanMode.ASYNC
     assert out["base_url"] == "http://x/y"
+
+
+# --------------------------------------------------------------------------
+# 7. load_config_from_args (public API) with a Namespace from the real parser
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "extra, field, expected",
+    [
+        ([], "cleanup_policy", "safe"),
+        (["--cleanup", "delete"], "cleanup_policy", "delete"),
+        (["--hash-algorithm", "sha256"], "hash_algorithm", "sha256"),
+        ([], "max_depth", 50),
+        (["--max-depth", "7"], "max_depth", 7),
+        (["--list-dirs"], "max_depth", 1),
+        (["--no-http2"], "http2", False),
+    ],
+)
+def test_load_config_from_args_accepts_real_parser_namespace(tmp_path, extra, field, expected):
+    """It used to raise AttributeError ('cleanup', because --cleanup uses
+    default=SUPPRESS) or a pydantic error (max_depth=None)."""
+    from mirror_url import load_config_from_args
+
+    base = [
+        "--url",
+        "https://example.com/files/",
+        "--dest-path",
+        str(tmp_path / "d"),
+        "--log-path",
+        str(tmp_path / "l"),
+    ]
+    ns = _parser().parse_args([*base, *extra])
+    cfg = load_config_from_args(ns)
+    assert _plain(getattr(cfg, field)) == expected

@@ -46,6 +46,7 @@ from .constants import (
     DEFAULT_WORKERS,
     FS_CACHE_TTL_SECONDS,
     HTML_CACHE_MAX_AGE_HOURS,
+    LIST_DIRS_DEFAULT_MAX_DEPTH,
     MAX_BATCH_SIZE,
     MAX_CACHE_AGE_DAYS,
     MAX_CHUNKS_PER_FILE,
@@ -644,6 +645,34 @@ class MirrorConfig(BaseModel):
         return warnings
 
 
+def _resolve_cleanup_policy(args: argparse.Namespace) -> Any:
+    """Cleanup policy from a parsed Namespace.
+
+    ``--cleanup`` is declared with ``default=argparse.SUPPRESS`` (so cli.main()
+    can tell "not given"), which means a Namespace from the real parser has no
+    ``cleanup`` attribute unless the option was passed. cli.main() additionally
+    stores the resolved enum as ``args.cleanup_policy``.
+    """
+    return (
+        getattr(args, "cleanup", None)
+        or getattr(args, "cleanup_policy", None)
+        or CleanupPolicy.SAFE_NO_DELETE
+    )
+
+
+def _resolve_max_depth(args: argparse.Namespace) -> int:
+    """``--max-depth`` defaults to ``None`` in the parser; main() resolves it
+    after parsing (``--list-dirs`` gets a shallow default, everything else
+    ``MAX_DIRECTORY_DEPTH``). Apply the same rule here so a Namespace straight
+    from the parser works."""
+    depth = getattr(args, "max_depth", None)
+    if depth is not None:
+        return depth
+    if getattr(args, "list_dirs", None) is not None:
+        return LIST_DIRS_DEFAULT_MAX_DEPTH
+    return MAX_DIRECTORY_DEPTH
+
+
 def load_config_from_args(args: argparse.Namespace, silent: bool = False) -> MirrorConfig:
     """Load configuration from command line arguments"""
     config_dict = {
@@ -661,7 +690,7 @@ def load_config_from_args(args: argparse.Namespace, silent: bool = False) -> Mir
         "dry_run": args.dry_run,
         "file_filters": args.filter if args.filter else [],
         "exclude_dirs": args.exclude_dir or [],
-        "cleanup_policy": args.cleanup,
+        "cleanup_policy": _resolve_cleanup_policy(args),
         "quick": args.quick,
         "no_rget_list": args.no_rget_list,
         "rget_list_max_age": args.rget_list_max_age,
@@ -680,7 +709,7 @@ def load_config_from_args(args: argparse.Namespace, silent: bool = False) -> Mir
         "benchmark": args.benchmark,
         "http2": args.http2,
         "stats": args.stats,
-        "max_depth": args.max_depth,
+        "max_depth": _resolve_max_depth(args),
         "max_filename_len": args.max_filename_len,
         "safe_urls": getattr(args, "safe_urls", True),
         "confirm_delete": getattr(args, "confirm_delete", False),
@@ -750,10 +779,6 @@ def load_config_from_args(args: argparse.Namespace, silent: bool = False) -> Mir
         "streaming_parallel": getattr(args, "streaming_parallel", False),
         "sequential_downloads": getattr(args, "sequential_downloads", False),
     }
-
-    # At the end of config_dict creation in load_config_from_args():
-    if not hasattr(args, "cleanup"):
-        config_dict["cleanup_policy"] = CleanupPolicy.SAFE_NO_DELETE
 
     if hasattr(args, "scan_mode") and args.scan_mode:
         try:
