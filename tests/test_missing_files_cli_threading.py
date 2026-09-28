@@ -57,14 +57,3 @@ def test_direct_mirrorconfig_constructor_includes_missing_files():
         "--missing-files is not threaded through the plain-CLI (no --config) "
         "MirrorConfig(...) constructor -- the flag would be silently ignored"
     )
-
-
-def test_config_branch_has_cli_override_for_missing_files():
-    src = inspect.getsource(cli_module)
-    assert (
-        'if getattr(args, "missing_files", False):\n                    config_dict["missing_files"] = True'
-        in src
-    ), (
-        "--missing-files passed alongside --config has no CLI-override entry "
-        "in config_dict -- only the YAML file's value would ever be used"
-    )

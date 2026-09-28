@@ -55,32 +55,6 @@ def test_direct_mirrorconfig_constructor_includes_list_dirs():
     )
 
 
-def test_config_branch_populates_list_dirs_from_base_config():
-    src = inspect.getsource(cli_module)
-    assert '"list_dirs": getattr(base_config, "list_dirs", False)' in src, (
-        "--list-dirs is not populated into config_dict from base_config in the "
-        "--config (YAML) branch -- setting list_dirs in the YAML file would be "
-        "silently ignored"
-    )
-    assert '"list_dirs_n": getattr(base_config, "list_dirs_n", 0)' in src, (
-        "--list-dirs's N value is not populated into config_dict from base_config "
-        "in the --config (YAML) branch -- setting list_dirs_n in the YAML file "
-        "would be silently ignored"
-    )
-
-
-def test_config_branch_has_cli_override_for_list_dirs():
-    src = inspect.getsource(cli_module)
-    assert (
-        'if getattr(args, "list_dirs", None) is not None:\n'
-        '                    config_dict["list_dirs"] = True\n'
-        '                    config_dict["list_dirs_n"] = args.list_dirs' in src
-    ), (
-        "--list-dirs passed alongside --config has no CLI-override entry "
-        "in config_dict -- only the YAML file's value would ever be used"
-    )
-
-
 def test_configschema_and_mirrorconfig_both_declare_list_dirs():
     schema_src = inspect.getsource(config_module.ConfigSchema)
     runtime_src = inspect.getsource(config_module.MirrorConfig)

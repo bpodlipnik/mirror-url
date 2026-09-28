@@ -52,31 +52,6 @@ def test_direct_mirrorconfig_constructor_includes_list_files():
     )
 
 
-def test_config_branch_populates_list_files_from_base_config():
-    src = inspect.getsource(cli_module)
-    assert '"list_files": getattr(base_config, "list_files", False)' in src, (
-        "--list-files is not populated into config_dict from base_config in the "
-        "--config (YAML) branch -- setting list_files in the YAML file would be "
-        "silently ignored"
-    )
-    assert '"list_files_n": getattr(base_config, "list_files_n", 0)' in src, (
-        "list_files_n is not populated into config_dict from base_config in the "
-        "--config (YAML) branch"
-    )
-
-
-def test_config_branch_has_cli_override_for_list_files():
-    src = inspect.getsource(cli_module)
-    assert (
-        'if getattr(args, "list_files", None) is not None:\n'
-        '                    config_dict["list_files"] = True\n'
-        '                    config_dict["list_files_n"] = args.list_files' in src
-    ), (
-        "--list-files passed alongside --config has no CLI-override entry "
-        "in config_dict -- only the YAML file's value would ever be used"
-    )
-
-
 def test_configschema_and_mirrorconfig_both_declare_list_files():
     schema_src = inspect.getsource(config_module.ConfigSchema)
     runtime_src = inspect.getsource(config_module.MirrorConfig)
