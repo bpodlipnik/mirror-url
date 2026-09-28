@@ -387,7 +387,7 @@ def _cli_overrides(args: argparse.Namespace, explicit: set) -> dict:
             if dest == "url":
                 value = value.rstrip("/")
             elif dest == "filter":
-                value = [f.lower() for f in value]
+                value = list(value)
             elif dest == "cleanup":
                 value = CleanupPolicy(value)
             elif dest == "scan_mode":
@@ -1483,7 +1483,7 @@ EXAMPLES:
                     max_retries=args.max_retries,
                     retry_delay=args.retry_delay,
                     dry_run=args.dry_run,
-                    file_filters=[f.lower() for f in args.filter],
+                    file_filters=list(args.filter),
                     exclude_dirs=args.exclude_dir or [],
                     cleanup_policy=args.cleanup_policy,
                     quick=args.quick,

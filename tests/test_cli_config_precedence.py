@@ -262,9 +262,41 @@ def test_bare_filter_does_not_wipe_yaml_filters(run_main):
     assert cfg.file_filters == [".fits"]
 
 
-def test_filter_is_lowercased_and_replaces_yaml(run_main):
+def test_filter_replaces_yaml_and_keeps_case(run_main):
     cfg = run_main(["--filter", ".FITS", "L1"], "file_filters: ['.png']\n")
-    assert cfg.file_filters == [".fits", "l1"]
+    assert cfg.file_filters == [".FITS", "L1"]
+
+
+@pytest.mark.parametrize("with_config", [False, True], ids=["no-config", "config"])
+@pytest.mark.parametrize(
+    "pattern, name, expected",
+    [
+        (r"^\D+\.fits$", "abc.fits", True),
+        (r"^\D+\.fits$", "abc123.fits", False),
+        (r"\S+_L1\.fits", "x_L1.fits", True),
+        (r"^\w+\.fits\Z", "x.fits", True),
+        (r"^[A-Z]+\.fits$", "ABC.fits", True),
+        (".FITS", "img.fits", True),  # case-insensitive, matcher lowercases both sides
+        ("20260619T073", "a_20260619T073111_b.fts", True),
+    ],
+)
+def test_filter_regex_escapes_are_not_lowercased(run_main, with_config, pattern, name, expected):
+    """main() used to lowercase --filter before storing it, turning the regex
+    escapes ``\\D``/``\\S``/``\\W`` into ``\\d``/``\\s``/``\\w`` (inverting the
+    match) and ``\\Z`` into the invalid ``\\z``. matches_filter() already
+    compares case-insensitively, so the pattern must be stored verbatim."""
+    from mirror_url._core.scan import ScanMixin
+
+    class _Matcher(ScanMixin):
+        def __init__(self, config):
+            self.config = config
+
+        def _get_filename_fast(self, url):
+            return url.rsplit("/", 1)[-1]
+
+    cfg = run_main(["--filter", pattern], "" if with_config else None)
+    assert cfg.file_filters == [pattern]
+    assert _Matcher(cfg).matches_filter("https://e.com/f/" + name) is expected
 
 
 def test_url_from_cli_wins_and_trailing_slash_is_stripped(run_main):
