@@ -126,7 +126,15 @@ ignore = [
 # demanding annotations on every function or descending into untyped bodies.
 # Tightening (disallow_untyped_defs, check_untyped_defs, strict) is a good
 # incremental follow-up, ideally alongside the core/ mixin refactor.
-python_version = "3.9"
+#
+# python_version is the oldest interpreter mypy CHECKS against here, not the
+# oldest one the package RUNS on (that's still requires-python = ">=3.9" in
+# [project] above). mypy dropped the ability to check against a 3.9 target
+# in the 2.x line (it now hard-errors with "Python 3.9 is not supported
+# (must be 3.10 or higher)" instead of just warning), and mypy>=1.8 below has
+# no upper bound, so any environment that installs a current mypy hits this.
+# Bump this again if/when requires-python is bumped past 3.10.
+python_version = "3.10"
 files = ["src/mirror_url"]
 ignore_missing_imports = true   # optional deps (stringzilla, lxml, tqdm, psutil) have no stubs
 follow_imports = "silent"
