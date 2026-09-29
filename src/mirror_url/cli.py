@@ -1,8 +1,8 @@
 """Argument parsing, logging setup, and the ``main()`` entry point.
 
-Migrated verbatim from ``mirror_url.py``:
-``add_parallel_arguments`` (orig. 13956-13992), ``setup_shared_logging`` (orig.
-13993-14126), ``main`` (orig. 14127-15142). The ``if __name__ == "__main__"``
+Originally migrated verbatim from the legacy ``mirror_url.py`` monolith
+(``setup_shared_logging`` orig. 13993-14126, ``main`` orig. 14127-15142); the
+package has since diverged from that source. The ``if __name__ == "__main__"``
 guard lives in ``__main__.py`` instead.
 """
 

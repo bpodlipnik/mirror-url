@@ -197,6 +197,9 @@ list of options. The most commonly used options:
 | `--min-chunk-size MB` | Minimum chunk size in MB (default 10). |
 | `--auto-concurrency` | Tune parallel concurrency from measured throughput. |
 | `--bandwidth-limit MB/S` | Cap total download bandwidth. |
+| `--max-parallel-chunks N` | Max chunks in flight across *all* files at once (default 50; `--max-chunks` above caps chunks *per file*). |
+| `--chunk-assembly-dir DIR` | Directory for temporary chunk files (defaults next to the destination file). |
+| `--chunk-timeout-multiplier MULT` | Scale the per-chunk timeout relative to `--timeout` (default 1.5). |
 
 ### Performance and networking
 
@@ -207,8 +210,15 @@ list of options. The most commonly used options:
 | `--no-async-metadata` | Disable async metadata checks (use on throttled servers). |
 | `--timeout SECS` | Per-request timeout (default 30). |
 | `--max-retries N` | Retries per request (default 3). |
+| `--retry-delay SECS` | Delay between retries (default 2). |
 | `--trusted-server` | Use faster rate limiting (10 ms vs 50 ms between requests). |
 | `--no-http2` | Disable HTTP/2. |
+| `--no-http2-pipelining` | Disable HTTP/2 request pipelining (pipelining is on by default whenever HTTP/2 is). |
+| `--no-connection-pool-prewarm` | Don't pre-warm connection pools at startup. |
+| `--no-circuit-breaker-downloads` | Disable the circuit breaker specifically for file downloads (independent of `--no-circuit-breaker`, which covers metadata/scan requests). |
+| `--adaptive-start-concurrency N` | Starting concurrency for adaptive async scanning (default 5). |
+| `--adaptive-error-threshold RATE` | Error rate (0–1) at which adaptive async concurrency backs off (default 0.05). |
+| `--no-adaptive-async` | Disable adaptive async concurrency; use a fixed `--async-workers` count. |
 
 ### Caching
 
@@ -220,6 +230,13 @@ list of options. The most commonly used options:
 | `--no-etag` | Disable ETag-based change detection. |
 | `--missing-files` | Skip per-file freshness checks for files that already exist locally — only download what's absent. Much faster on large, largely-static datasets, but won't detect a file that changed in place on the server under the same name. Pair with occasional full runs (without this flag) to still catch in-place changes. |
 | `--quick` | Quick mode: refresh the cache timestamp only. |
+| `--no-cache-html` | Disable caching of parsed HTML directory listings (HTML caching is on by default). |
+| `--html-cache-max-age HOURS` | Max age of cached HTML listings before a re-fetch (default 24). |
+| `--hash-algorithm {md5,sha256}` | Hash algorithm used for file-integrity/cache keys (default `md5`). |
+| `--no-rget-list` | Disable use of a server's `RGET-LIST` file, if present, as a shortcut for directory discovery. |
+| `--force-rget-list` | Use an `RGET-LIST` file even if it's older than `--rget-list-max-age`. |
+| `--rget-list-max-age DAYS` | Max age of an `RGET-LIST` file before it's ignored (default 7). |
+| `--no-content-hash` | Skip content hashing for small files (hashing is on by default and is how small, frequently-rewritten files are detected as changed even when size/timestamp look the same). |
 
 ### Filtering and scope
 
@@ -228,6 +245,11 @@ list of options. The most commonly used options:
 | `--filter P [P ...]` | Only download matching files. Each pattern is a plain extension (`.fits`) or a regex (`'2024.*\.fits$'`). |
 | `--exclude-dir D [D ...]` | Skip directories, each matched as an exact path relative to `--url` (not a suffix at any depth — see "Filtering and scope" below). |
 | `--max-depth N` | Maximum directory recursion depth (default 50; `--list-dirs` defaults to 1 instead — see below). |
+| `--scan-mode {adaptive,sequential,async}` | Directory-scan strategy: `adaptive` (default) picks per directory, `sequential` and `async` force one approach throughout. |
+| `--parallel-threshold N` | Directories smaller than this scan sequentially even in `adaptive`/`async` mode (default 10). |
+| `--max-filename-len N` | Truncate filenames longer than this before writing to disk (default 255). |
+| `--download-queue-size N` | Max files buffered between the scanner and the downloader (default 1000). |
+| `--max-symlink-depth N` | With `--handle-symlinks`, how many symlink hops deep to follow before stopping (default 5). |
 | `--list-dirs [N]` | Discover and print the directory tree under `--url`/`--dir-suffix`, then exit — no file scanning, freshness checks, or downloads/deletes. Respects `--exclude-dir`/`--max-depth` (defaults to `1` — the current folder's immediate children only — unless `--max-depth` is given explicitly; every other mode still defaults to 50); `--filter` doesn't apply (files only). With `N`, shows only the last `N` directories overall, sorted **lexicographically by relative path** (a name sort, not a true timestamp sort), with the root (`.`) excluded from that ranking. Always followed by a `# Directories N/total` summary line, including unrestricted runs (`N == total`). Doesn't require `--dest-path`/`--log-path`. |
 | `--list-files [N]` | Discover and print files under `--url`/`--dir-suffix`, then exit — no freshness checks or downloads/deletes. Respects `--exclude-dir`/`--max-depth`/`--filter`. With `N`, shows only the last `N` files *per directory*, sorted **lexicographically by filename** (a name sort, not a true timestamp sort — see "Filtering and scope" below). Doesn't require `--dest-path`/`--log-path`. |
 
@@ -254,6 +276,15 @@ list of options. The most commonly used options:
 | `--quiet` | Warnings and errors only. |
 | `--health-check-port N` | Port for the health/metrics HTTP server (default 8080). |
 | `--version` | Print version and exit. |
+| `--no-adaptive-batch-processing` | Use a fixed batch size instead of adapting it during the run (see the three flags below). |
+| `--initial-batch-size N` | Starting batch size when `--no-adaptive-batch-processing` is *not* set (default 200). |
+| `--max-batch-size N` | Ceiling the adaptive batch size can grow to (default 1000). |
+| `--target-batch-time SECS` | Adaptive batching aims for each batch to take about this long (default 1.0). |
+| `--memory-cache-size N` | Max entries kept in the in-memory metadata cache (default 100000). |
+| `--disk-cache-dir DIR` | Spill the metadata cache to disk under this directory once `--memory-cache-size` is exceeded. |
+| `--no-fast-parsing-fallback` | Disable the fast HTML parser fallback used for very large directory listings. |
+| `--fs-cache-ttl SECS` | How long a filesystem stat lookup is cached before being re-checked (default 5.0). |
+| `--benchmark` | Run a built-in performance benchmark instead of a normal sync. |
 
 Without `--log-file`, each `--dir-suffix` gets its own log file named
 `mirror_url_<suffix>_<timestamp>.log`. With `--log-file NAME`, the filename
@@ -326,8 +357,12 @@ mirror-url --config mirror.yaml \
 ## Configuration files (YAML/JSON)
 
 For repeatable jobs, put settings in a YAML (or JSON) file and run
-`mirror-url --config mirror.yaml`. CLI flags still work and take precedence
-where applicable. Only `base_url`, `dest_path`, and `log_path` are required.
+`mirror-url --config mirror.yaml`. Any CLI flag you actually type on the
+command line overrides the same setting in the file — including a flag whose
+value happens to equal its own default (e.g. `--workers 8` overrides a file's
+`workers: 4` even though 8 is also the built-in default). A flag you don't
+type is left alone at whatever the file says. Only `base_url`, `dest_path`,
+and `log_path` are required.
 
 ```yaml
 # mirror.yaml
@@ -431,7 +466,7 @@ on by default).
   ```bash
   --filter .fits .txt                 # any .fits or .txt
   --filter '.*\.fits$'                # regex: files ending in .fits
-  --filter '2024.*\.fits' .png        # mixed regex + extension
+  --filter '2024.*\.fits$' .png       # mixed regex + extension
   ```
 
   For **AND** (a file must match multiple independent conditions at once —
