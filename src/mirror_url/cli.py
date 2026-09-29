@@ -1,14 +1,15 @@
 """Argument parsing, logging setup, and the ``main()`` entry point.
 
-Migrated verbatim from ``mirror_url.py``:
-``add_parallel_arguments`` (orig. 13956-13992), ``setup_shared_logging`` (orig.
-13993-14126), ``main`` (orig. 14127-15142). The ``if __name__ == "__main__"``
+Originally migrated verbatim from the legacy ``mirror_url.py`` monolith
+(``setup_shared_logging`` orig. 13993-14126, ``main`` orig. 14127-15142); the
+package has since diverged from that source. The ``if __name__ == "__main__"``
 guard lives in ``__main__.py`` instead.
 """
 
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import logging
@@ -61,94 +62,6 @@ from .core import MirrorURL
 from .enums import CleanupPolicy, ScanMode
 from .exceptions import ConfigError, PathTraversalError, URLScopeError
 from .utils import _log_files
-
-
-def add_parallel_arguments(parser: argparse.ArgumentParser) -> None:
-    """Add parallel download arguments to parser"""
-    parallel_grp = parser.add_argument_group("Download Method Options")
-    method_group = parallel_grp.add_mutually_exclusive_group()
-    method_group.add_argument(
-        "--parallel-downloads",
-        action="store_true",
-        help="Enable traditional parallel downloads (temp files, safe)",
-    )
-    method_group.add_argument(
-        "--streaming-parallel",
-        action="store_true",
-        help="Enable streaming parallel downloads (direct write, faster for huge files)",
-    )
-    method_group.add_argument(
-        "--sequential-downloads",
-        action="store_true",
-        help="Force sequential downloads (no parallelism)",
-    )
-
-    parallel_grp.add_argument(
-        "--max-chunks",
-        type=int,
-        default=MAX_CHUNKS_PER_FILE,
-        metavar="N",
-        help=f"Maximum chunks per file (default: {MAX_CHUNKS_PER_FILE})",
-    )
-    parallel_grp.add_argument(
-        "--min-chunk-size",
-        type=int,
-        default=10,
-        metavar="MB",
-        help="Minimum chunk size in MB (default: 10MB)",
-    )
-    parallel_grp.add_argument(
-        "--max-parallel-chunks",
-        type=int,
-        default=MAX_PARALLEL_CHUNKS_TOTAL,
-        metavar="N",
-        help=f"Maximum total parallel chunks (default: {MAX_PARALLEL_CHUNKS_TOTAL})",
-    )
-    parallel_grp.add_argument(
-        "--chunk-assembly-dir",
-        type=Path,
-        metavar="DIR",
-        help="Directory for temporary chunk storage",
-    )
-    parallel_grp.add_argument(
-        "--chunk-timeout-multiplier",
-        type=float,
-        default=CHUNK_TIMEOUT_MULTIPLIER,
-        metavar="MULT",
-        help=f"Timeout multiplier for chunks (default: {CHUNK_TIMEOUT_MULTIPLIER})",
-    )
-    parallel_grp.add_argument(
-        "--auto-concurrency",
-        action="store_true",
-        help="Automatically tune parallel download concurrency based on throughput (v3.0.6)",
-    )
-    # NEW: Auto-selection arguments
-    auto_grp = parser.add_argument_group("Auto-Optimization Options")
-    auto_grp.add_argument(
-        "--auto-select",
-        action="store_true",
-        default=True,
-        help="Automatically select best download method (default: enabled)",
-    )
-    auto_grp.add_argument(
-        "--no-auto-select",
-        action="store_false",
-        dest="auto_select",
-        help="Disable automatic method selection",
-    )
-    auto_grp.add_argument(
-        "--force-method",
-        choices=["sequential", "parallel_files", "streaming", "traditional"],
-        help="Force specific download method",
-    )
-    auto_grp.add_argument(
-        "--force-disk-type",
-        choices=["ssd", "hdd", "nvme"],
-        help="Manually specify disk type for optimization",
-    )
-    auto_grp.add_argument(
-        "--network-speed", type=float, metavar="MBPS", help="Manually specify network speed in Mbps"
-    )
 
 
 def setup_shared_logging(args: argparse.Namespace) -> None:
@@ -324,6 +237,77 @@ def setup_shared_logging(args: argparse.Namespace) -> None:
         logging.info(f"📥 Max concurrent file downloads: {args.max_concurrent_downloads}")
 
     logging.info("=" * 50)
+
+
+# argparse ``dest`` -> ``MirrorConfig`` field, for the options whose dest differs
+# from the field name. Every other option maps by identical name (see
+# ``_cli_overrides``), so a new flag whose dest matches its field needs no entry
+# here -- it is picked up automatically.
+_CLI_DEST_TO_CONFIG_KEY = {
+    "url": "base_url",
+    "filter": "file_filters",
+    "exclude_dir": "exclude_dirs",
+    "cleanup": "cleanup_policy",
+    "max_chunks": "max_chunks_per_file",
+    "min_chunk_size": "min_chunk_size_mb",
+    "max_parallel_chunks": "max_parallel_chunks_total",
+}
+
+# Options that are consumed by main() itself rather than copied into MirrorConfig.
+_CLI_NON_CONFIG_DESTS = frozenset({"config", "dir_suffix", "log_file", "version", "help"})
+
+_DOWNLOAD_MODE_DESTS = ("parallel_downloads", "streaming_parallel", "sequential_downloads")
+
+
+def _explicit_cli_dests(parser: argparse.ArgumentParser, argv: list) -> set:
+    """Return the ``dest`` names the user actually typed on the command line.
+
+    ``args.foo == default`` cannot tell "not given" from "given, and equal to the
+    default", and ``hasattr(args, ...)`` is always true for options with a
+    default. Re-parsing with every default suppressed leaves only the options
+    that were present in ``argv``.
+    """
+    probe = copy.deepcopy(parser)
+    for action in probe._actions:
+        action.default = argparse.SUPPRESS
+    return set(vars(probe.parse_args(argv)))
+
+
+def _cli_overrides(args: argparse.Namespace, explicit: set) -> dict:
+    """Translate explicitly-passed CLI options into ``MirrorConfig`` fields.
+
+    Only options present on the command line are returned, so values from a
+    ``--config`` file are never clobbered by a parser default.
+    """
+    fields = MirrorConfig.model_fields
+    out: dict = {}
+    for dest in sorted(explicit - _CLI_NON_CONFIG_DESTS):
+        value = getattr(args, dest)
+        if dest in ("list_dirs", "list_files"):
+            out[dest] = True
+            out[dest + "_n"] = value or 0
+        elif dest in _DOWNLOAD_MODE_DESTS:
+            # The three modes are mutually exclusive: choosing one on the
+            # command line must also switch off the others set in the file.
+            out.update({mode: mode == dest for mode in _DOWNLOAD_MODE_DESTS})
+        else:
+            key = _CLI_DEST_TO_CONFIG_KEY.get(dest, dest)
+            if key not in fields:
+                continue
+            if isinstance(value, list) and not value:
+                continue  # bare ``--filter`` / ``--exclude-dir`` with no values
+            if dest == "url":
+                value = value.rstrip("/")
+            elif dest == "filter":
+                value = list(value)
+            elif dest == "cleanup":
+                value = CleanupPolicy(value)
+            elif dest == "scan_mode":
+                value = ScanMode(value)
+            elif dest in ("dest_path", "log_path"):
+                value = Path(value)
+            out[key] = value
+    return out
 
 
 def main() -> None:
@@ -1060,6 +1044,7 @@ EXAMPLES:
     )
 
     args = parser.parse_args()
+    explicit_dests = _explicit_cli_dests(parser, sys.argv[1:])
 
     if args.max_depth is None:
         # --max-depth wasn't given explicitly. --list-dirs is almost always
@@ -1163,8 +1148,16 @@ EXAMPLES:
     except ValueError:
         args.cleanup_policy = CleanupPolicy.SAFE_NO_DELETE
 
-    # Check lxml availability
+    # Check lxml availability. --no-fast-parsing-fallback requires lxml;
+    # silently forcing the flag back on undoes an explicit user choice and
+    # made the CLI-precedence tests fail in CI (which installs only [dev],
+    # without the optional lxml extra).
     if not LXML_AVAILABLE and not args.fast_parsing_fallback:
+        if "fast_parsing_fallback" in explicit_dests:
+            parser.error(
+                "--no-fast-parsing-fallback requires lxml "
+                "(install mirror-url[fast] or mirror-url[all])"
+            )
         print("WARNING: lxml not available, falling back to fast parser", file=sys.stderr)
         args.fast_parsing_fallback = True
 
@@ -1384,301 +1377,15 @@ EXAMPLES:
         try:
             if args.config:
                 base_config = MirrorConfig.from_yaml(Path(args.config))
-                # Start with base_config values
+                # Start from *every* field of the file's config (a hand-copied subset
+                # used to drop health_check_port, parallel_optimization_mode, ...),
+                # then layer on only the options that were typed on the command line.
                 config_dict = {
-                    "base_url": base_config.base_url,
-                    "dest_path": base_config.dest_path,
-                    "log_path": base_config.log_path,
-                    "dir_suffix": suf,
-                    "workers": base_config.workers,
-                    "timeout": base_config.timeout,
-                    "max_retries": base_config.max_retries,
-                    "retry_delay": base_config.retry_delay,
-                    "debug": base_config.debug,
-                    "print_logs": base_config.print_logs,
-                    "dry_run": base_config.dry_run,
-                    "file_filters": base_config.file_filters,
-                    "exclude_dirs": base_config.exclude_dirs,
-                    "cleanup_policy": base_config.cleanup_policy,
-                    "quick": base_config.quick,
-                    "no_rget_list": base_config.no_rget_list,
-                    "rget_list_max_age": base_config.rget_list_max_age,
-                    "force_rget_list": base_config.force_rget_list,
-                    "no_cache": base_config.no_cache,
-                    "refresh_cache": base_config.refresh_cache,
-                    "cache_max_age": base_config.cache_max_age,
-                    "no_etag": getattr(base_config, "no_etag", False),
-                    "missing_files": getattr(base_config, "missing_files", False),
-                    "list_dirs": getattr(base_config, "list_dirs", False),
-                    "list_dirs_n": getattr(base_config, "list_dirs_n", 0),
-                    "list_files": getattr(base_config, "list_files", False),
-                    "list_files_n": getattr(base_config, "list_files_n", 0),
-                    "hash_algorithm": getattr(base_config, "hash_algorithm", "md5"),
-                    "use_shared_log": use_shared,
-                    "scan_mode": base_config.scan_mode,
-                    "parallel_threshold": base_config.parallel_threshold,
-                    "benchmark": base_config.benchmark,
-                    "http2": base_config.http2,
-                    "stats": base_config.stats,
-                    "max_depth": base_config.max_depth,
-                    "max_filename_len": base_config.max_filename_len,
-                    "safe_urls": getattr(base_config, "safe_urls", True),
-                    "confirm_delete": getattr(base_config, "confirm_delete", False),
-                    "quiet": getattr(base_config, "quiet", False),
-                    "verbose": getattr(base_config, "verbose", False),
-                    "metrics_json": getattr(base_config, "metrics_json", None),
-                    "progress_bar": getattr(base_config, "progress_bar", False),
-                    "async_metadata": getattr(base_config, "async_metadata", True),
-                    "async_workers": getattr(base_config, "async_workers", DEFAULT_ASYNC_WORKERS),
-                    "content_hash_small_files": getattr(
-                        base_config, "content_hash_small_files", True
-                    ),
-                    "trusted_server": getattr(base_config, "trusted_server", False),
-                    "request_delay": getattr(base_config, "request_delay", REQUEST_DELAY),
-                    "cache_html": getattr(base_config, "cache_html", True),
-                    "html_cache_max_age": getattr(
-                        base_config, "html_cache_max_age", HTML_CACHE_MAX_AGE_HOURS
-                    ),
-                    "adaptive_async": getattr(
-                        base_config, "adaptive_async", ADAPTIVE_ASYNC_ENABLED
-                    ),
-                    "adaptive_error_threshold": getattr(
-                        base_config, "adaptive_error_threshold", ADAPTIVE_ERROR_THRESHOLD
-                    ),
-                    "adaptive_start_concurrency": getattr(
-                        base_config, "adaptive_start_concurrency", ADAPTIVE_START_CONCURRENCY
-                    ),
-                    "security_validation": getattr(base_config, "security_validation", True),
-                    "circuit_breaker_enabled": getattr(
-                        base_config, "circuit_breaker_enabled", True
-                    ),
-                    "bandwidth_limit": getattr(base_config, "bandwidth_limit", None),
-                    "enable_resume": getattr(base_config, "enable_resume", True),
-                    "max_concurrent_downloads": getattr(
-                        base_config, "max_concurrent_downloads", 10
-                    ),
-                    "download_queue_size": getattr(base_config, "download_queue_size", 1000),
-                    "handle_symlinks": getattr(base_config, "handle_symlinks", False),
-                    "symlink_mode": getattr(base_config, "symlink_mode", "skip"),
-                    "circuit_breaker_downloads": getattr(
-                        base_config, "circuit_breaker_downloads", True
-                    ),
-                    "max_symlink_depth": getattr(
-                        base_config, "max_symlink_depth", MAX_SYMLINK_DEPTH
-                    ),
-                    "max_symlinks_per_dir": getattr(
-                        base_config, "max_symlinks_per_dir", MAX_SYMLINKS_PER_DIR
-                    ),
-                    "symlink_bomb_threshold": getattr(
-                        base_config, "symlink_bomb_threshold", SYMLINK_BOMB_THRESHOLD
-                    ),
-                    "adaptive_batch_processing": getattr(
-                        base_config, "adaptive_batch_processing", True
-                    ),
-                    "initial_batch_size": getattr(base_config, "initial_batch_size", BATCH_SIZE),
-                    "max_batch_size": getattr(base_config, "max_batch_size", MAX_BATCH_SIZE),
-                    "target_batch_time": getattr(
-                        base_config, "target_batch_time", TARGET_BATCH_TIME_SECONDS
-                    ),
-                    "memory_cache_size": getattr(
-                        base_config, "memory_cache_size", MEMORY_CACHE_MAX_SIZE
-                    ),
-                    "use_disk_backed_sets": getattr(base_config, "use_disk_backed_sets", False),
-                    "disk_cache_dir": getattr(base_config, "disk_cache_dir", None),
-                    "fast_parsing_fallback": getattr(base_config, "fast_parsing_fallback", True),
-                    "http2_pipelining": getattr(base_config, "http2_pipelining", True),
-                    "connection_pool_prewarm": getattr(
-                        base_config, "connection_pool_prewarm", True
-                    ),
-                    "fs_cache_ttl": getattr(base_config, "fs_cache_ttl", FS_CACHE_TTL_SECONDS),
-                    # NEW v3.0.0 arguments from base_config
-                    "parallel_downloads": getattr(base_config, "parallel_downloads", False),
-                    "streaming_parallel": getattr(base_config, "streaming_parallel", False),
-                    "sequential_downloads": getattr(base_config, "sequential_downloads", False),
-                    "max_chunks_per_file": getattr(
-                        base_config, "max_chunks_per_file", MAX_CHUNKS_PER_FILE
-                    ),
-                    "min_chunk_size_mb": getattr(base_config, "min_chunk_size_mb", 10),
-                    "max_parallel_chunks_total": getattr(
-                        base_config, "max_parallel_chunks_total", MAX_PARALLEL_CHUNKS_TOTAL
-                    ),
-                    "chunk_assembly_dir": getattr(base_config, "chunk_assembly_dir", None),
-                    "chunk_timeout_multiplier": getattr(
-                        base_config, "chunk_timeout_multiplier", CHUNK_TIMEOUT_MULTIPLIER
-                    ),
-                    "auto_concurrency": getattr(
-                        base_config, "auto_concurrency", AUTO_CONCURRENCY_ENABLED
-                    ),
-                    # Auto-selection fields from base_config
-                    "auto_select_method": getattr(base_config, "auto_select_method", True),
-                    "force_method": getattr(base_config, "force_method", None),
-                    "force_disk_type": getattr(base_config, "force_disk_type", None),
-                    "manual_network_speed_mbps": getattr(
-                        base_config, "manual_network_speed_mbps", None
-                    ),
-                    "streaming_min_file_size_mb": getattr(
-                        base_config, "streaming_min_file_size_mb", STREAMING_MIN_FILE_SIZE_MB
-                    ),
-                    "parallel_files_min_files": getattr(base_config, "parallel_files_min_files", 3),
-                    "streaming_min_files": getattr(base_config, "streaming_min_files", 4),
-                    "traditional_min_files": getattr(base_config, "traditional_min_files", 3),
+                    name: getattr(base_config, name) for name in MirrorConfig.model_fields
                 }
-
-                # Override with command line arguments if provided
-                if args.url:
-                    config_dict["base_url"] = args.url.rstrip("/")
-                if args.dest_path:
-                    config_dict["dest_path"] = Path(args.dest_path)
-                if args.log_path:
-                    config_dict["log_path"] = Path(args.log_path)
-                if args.print_logs:
-                    config_dict["print_logs"] = True
-                if args.quiet:
-                    config_dict["quiet"] = True
-                if args.verbose:
-                    config_dict["verbose"] = True
-                if args.debug:
-                    config_dict["debug"] = True
-                if args.workers != DEFAULT_WORKERS:
-                    config_dict["workers"] = args.workers
-                if args.timeout != DEFAULT_TIMEOUT:
-                    config_dict["timeout"] = args.timeout
-                if args.adaptive_batch_processing is not None:
-                    config_dict["adaptive_batch_processing"] = args.adaptive_batch_processing
-                if args.initial_batch_size != BATCH_SIZE:
-                    config_dict["initial_batch_size"] = args.initial_batch_size
-                if args.max_batch_size != MAX_BATCH_SIZE:
-                    config_dict["max_batch_size"] = args.max_batch_size
-                if args.target_batch_time != TARGET_BATCH_TIME_SECONDS:
-                    config_dict["target_batch_time"] = args.target_batch_time
-                if args.memory_cache_size != MEMORY_CACHE_MAX_SIZE:
-                    config_dict["memory_cache_size"] = args.memory_cache_size
-                if args.use_disk_backed_sets:
-                    config_dict["use_disk_backed_sets"] = args.use_disk_backed_sets
-                if args.disk_cache_dir:
-                    config_dict["disk_cache_dir"] = args.disk_cache_dir
-                if not args.fast_parsing_fallback:
-                    config_dict["fast_parsing_fallback"] = args.fast_parsing_fallback
-                if not args.http2_pipelining:
-                    config_dict["http2_pipelining"] = args.http2_pipelining
-                if not args.connection_pool_prewarm:
-                    config_dict["connection_pool_prewarm"] = args.connection_pool_prewarm
-                if args.fs_cache_ttl != FS_CACHE_TTL_SECONDS:
-                    config_dict["fs_cache_ttl"] = args.fs_cache_ttl
-
-                # NEW v3.0.0 overrides
-
-                if args.parallel_downloads:
-                    config_dict["parallel_downloads"] = True
-                    config_dict["streaming_parallel"] = False
-                    config_dict["sequential_downloads"] = False
-                elif args.streaming_parallel:
-                    config_dict["parallel_downloads"] = False
-                    config_dict["streaming_parallel"] = True
-                    config_dict["sequential_downloads"] = False
-                elif args.sequential_downloads:
-                    config_dict["parallel_downloads"] = False
-                    config_dict["streaming_parallel"] = False
-                    config_dict["sequential_downloads"] = True
-
-                if args.max_chunks != MAX_CHUNKS_PER_FILE:
-                    config_dict["max_chunks_per_file"] = args.max_chunks
-                if args.min_chunk_size != 10:
-                    config_dict["min_chunk_size_mb"] = args.min_chunk_size
-                if args.max_parallel_chunks != MAX_PARALLEL_CHUNKS_TOTAL:
-                    config_dict["max_parallel_chunks_total"] = args.max_parallel_chunks
-                if args.chunk_assembly_dir:
-                    config_dict["chunk_assembly_dir"] = args.chunk_assembly_dir
-                if args.chunk_timeout_multiplier != CHUNK_TIMEOUT_MULTIPLIER:
-                    config_dict["chunk_timeout_multiplier"] = args.chunk_timeout_multiplier
-
-                # NEW v3.0.2 overrides
-                if args.max_concurrent_downloads != 10:
-                    config_dict["max_concurrent_downloads"] = args.max_concurrent_downloads
-
-                # NEW v3.0.6 overrides
-                if args.auto_concurrency:
-                    config_dict["auto_concurrency"] = args.auto_concurrency
-
-                # NEW: Auto-selection overrides from command line
-                if hasattr(args, "auto_select"):
-                    config_dict["auto_select_method"] = args.auto_select
-                if hasattr(args, "force_method") and args.force_method:
-                    config_dict["force_method"] = args.force_method
-                if hasattr(args, "force_disk_type") and args.force_disk_type:
-                    config_dict["force_disk_type"] = args.force_disk_type
-                if hasattr(args, "network_speed") and args.network_speed:
-                    config_dict["manual_network_speed_mbps"] = args.network_speed
-                if hasattr(args, "streaming_parallel"):
-                    config_dict["streaming_parallel"] = args.streaming_parallel
-                if hasattr(args, "streaming_min_size"):
-                    config_dict["streaming_min_file_size_mb"] = args.streaming_min_size
-
-                # ========================================================================
-                # FIX: Add missing CLI overrides that were ignored when using --config
-                # ========================================================================
-                # Cleanup & Safety overrides
-                if hasattr(args, "cleanup"):
-                    try:
-                        config_dict["cleanup_policy"] = CleanupPolicy(args.cleanup)
-                    except ValueError:
-                        pass  # Keep config file value if CLI value is invalid
-                if args.confirm_delete:
-                    config_dict["confirm_delete"] = True
-                if args.dry_run:
-                    config_dict["dry_run"] = True
-                if args.quick:
-                    config_dict["quick"] = True
-
-                # Cache Control overrides
-                if args.no_cache:
-                    config_dict["no_cache"] = True
-                if args.refresh_cache:
-                    config_dict["refresh_cache"] = True
-                if args.cache_max_age != DEFAULT_CACHE_MAX_AGE_DAYS:
-                    config_dict["cache_max_age"] = args.cache_max_age
-                if getattr(args, "no_etag", False):
-                    config_dict["no_etag"] = True
-                if getattr(args, "missing_files", False):
-                    config_dict["missing_files"] = True
-                if getattr(args, "list_dirs", None) is not None:
-                    config_dict["list_dirs"] = True
-                    config_dict["list_dirs_n"] = args.list_dirs
-                if getattr(args, "list_files", None) is not None:
-                    config_dict["list_files"] = True
-                    config_dict["list_files_n"] = args.list_files
-                if not args.cache_html:  # Handles --no-cache-html
-                    config_dict["cache_html"] = False
-                if args.html_cache_max_age != HTML_CACHE_MAX_AGE_HOURS:
-                    config_dict["html_cache_max_age"] = args.html_cache_max_age
-
-                # Filtering & Scanning overrides
-                if args.filter:
-                    config_dict["file_filters"] = [f.lower() for f in args.filter]
-                if args.exclude_dir:
-                    config_dict["exclude_dirs"] = args.exclude_dir
-                if args.scan_mode != "adaptive":
-                    try:
-                        config_dict["scan_mode"] = ScanMode(args.scan_mode)
-                    except ValueError:
-                        pass
-
-                # Performance & Async overrides
-                if not args.async_metadata:  # Handles --no-async-metadata
-                    config_dict["async_metadata"] = False
-                if args.trusted_server:
-                    config_dict["trusted_server"] = True
-                if args.request_delay != REQUEST_DELAY:
-                    config_dict["request_delay"] = args.request_delay
-                if args.bandwidth_limit is not None:
-                    config_dict["bandwidth_limit"] = args.bandwidth_limit
-
-                # Symlinks & Security overrides
-                if args.handle_symlinks:
-                    config_dict["handle_symlinks"] = True
-                if args.symlink_mode != "skip":
-                    config_dict["symlink_mode"] = args.symlink_mode
-                # ========================================================================
+                config_dict["dir_suffix"] = suf
+                config_dict["use_shared_log"] = use_shared
+                config_dict.update(_cli_overrides(args, explicit_dests))
 
                 suffix_config = MirrorConfig.from_dict(config_dict, silent=use_shared)
             else:
@@ -1696,13 +1403,14 @@ EXAMPLES:
                     max_retries=args.max_retries,
                     retry_delay=args.retry_delay,
                     dry_run=args.dry_run,
-                    file_filters=[f.lower() for f in args.filter],
+                    file_filters=list(args.filter),
                     exclude_dirs=args.exclude_dir or [],
                     cleanup_policy=args.cleanup_policy,
                     quick=args.quick,
                     no_rget_list=args.no_rget_list,
                     rget_list_max_age=args.rget_list_max_age,
                     force_rget_list=args.force_rget_list,
+                    hash_algorithm=args.hash_algorithm,
                     no_cache=args.no_cache,
                     refresh_cache=args.refresh_cache,
                     cache_max_age=args.cache_max_age,

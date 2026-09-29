@@ -50,14 +50,3 @@ def test_direct_mirrorconfig_constructor_includes_no_etag():
         "--no-etag is not threaded through the plain-CLI (no --config) "
         "MirrorConfig(...) constructor -- the flag would be silently ignored"
     )
-
-
-def test_config_branch_has_cli_override_for_no_etag():
-    src = inspect.getsource(cli_module)
-    assert (
-        'if getattr(args, "no_etag", False):\n                    config_dict["no_etag"] = True'
-        in src
-    ), (
-        "--no-etag passed alongside --config has no CLI-override entry "
-        "in config_dict -- only the YAML file's value would ever be used"
-    )

@@ -43,9 +43,9 @@ Optional extras: `fast` (stringzilla, lxml), `progress` (tqdm), `monitor` (psuti
 Run via the console entry point or the module:
 
 ```bash
-mirror-url https://example.com/files/ --output ./mirror
+mirror-url --url https://example.com/files/ --dest-path ./mirror --log-path ./mirror-log
 # or
-python -m mirror_url https://example.com/files/ --output ./mirror
+python -m mirror_url --url https://example.com/files/ --dest-path ./mirror --log-path ./mirror-log
 ```
 
 Run `mirror-url --help` for the full option list.

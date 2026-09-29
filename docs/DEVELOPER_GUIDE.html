@@ -107,6 +107,7 @@
   </style>
 </head>
 <body>
+<body>
 <header id="title-block-header">
 <h1 class="title">MirrorURL — Developer Guide</h1>
 </header>
@@ -139,7 +140,7 @@
 <p>If you only want to <em>use</em> MirrorURL (install, CLI, config, Python API), read <a href="./USER_GUIDE.md"><code>USER_GUIDE.md</code></a> instead. For day-to-day contribution mechanics (branching, PR etiquette) see <a href="../CONTRIBUTING.md"><code>CONTRIBUTING.md</code></a>; this guide repeats the essentials so you can work from it alone.</p>
 <ul>
 <li><strong>Package:</strong> <code>mirror_url</code> (src-layout under <code>src/</code>)</li>
-<li><strong>Version:</strong> 3.1.65</li>
+<li><strong>Version:</strong> 3.1.66</li>
 <li><strong>Python:</strong> 3.9 – 3.12</li>
 <li><strong>Runtime deps:</strong> <code>httpx</code>, <code>pydantic</code> v2, <code>PyYAML</code> (optional: <code>stringzilla</code>, <code>lxml</code>, <code>tqdm</code>, <code>psutil</code>)</li>
 </ul>
@@ -167,7 +168,7 @@
 <h2 id="background-the-monolith-and-the-refactor">Background: the monolith and the refactor</h2>
 <p>MirrorURL began as a single <code>mirror_url.py</code> of ~15,000 lines containing ~70 classes and ~25 module-level functions. It was split into the modular <code>src/mirror_url/</code> package (30 modules across 7 dependency layers) by a <strong>behavior-preserving</strong> migration: code was relocated verbatim and class/function method sets were verified identical to the original via AST comparison. Logic changes were kept out of the migration and made only in separate, reviewable commits.</p>
 <p>Two consequences shape how you should work in this codebase:</p>
-<ol>
+<ol type="1">
 <li><strong>Verbatim heritage.</strong> Much of the code is a faithful port of working, audited, sometimes idiosyncratic logic (including hard-won bug fixes recorded in the changelog). When touching migrated code, prefer surgical changes over "cleanups" — the original behavior is the contract.</li>
 <li><strong>Python 3.9 baseline.</strong> The package still supports 3.9, so it uses classic typing (<code>Dict</code>, <code>Optional</code>, <code>List</code>) and <code>from __future__ import annotations</code> rather than 3.10+ syntax. Lint rules that would modernize syntax (pyupgrade, most of SIM) are intentionally disabled — see <a href="#coding-conventions">Coding conventions</a>.</li>
 </ol>
@@ -175,7 +176,7 @@
 <hr />
 <h2 id="design-principles">Design principles</h2>
 <p>The package is built on four rules. Internalize them before making structural changes — most review feedback traces back to one of these.</p>
-<ol>
+<ol type="1">
 <li><strong>Behavior-preserving by default.</strong> Relocation and refactoring must not change runtime behavior. Functional fixes are separate commits with their own tests and changelog entries.</li>
 <li><strong>One concern per module.</strong> Each module is independently readable and testable. If a change makes a module "about two things," that is a signal to split it.</li>
 <li><strong>Acyclic dependency layering.</strong> A module may import only from <em>strictly lower</em> layers (plus stdlib / third-party). No sideways cycles, no upward imports. This is the property that keeps the package importable and testable in isolation. See <a href="#the-dependency-layer-architecture">the layer architecture</a>.</li>
@@ -205,8 +206,7 @@
 ├── pyproject.toml           # packaging, deps, tool config  (the other version source)
 ├── REFACTORING_PLAN.md      # the migration plan + module/line map
 ├── CHANGELOG.md             # Keep a Changelog format
-└── .github/workflows/       # ci.yml (lint+test matrix), release.yml (tag → build → PyPI)
-</code></pre>
+└── .github/workflows/       # ci.yml (lint+test matrix), release.yml (tag → build → PyPI)</code></pre>
 <hr />
 <h2 id="the-dependency-layer-architecture">The dependency-layer architecture</h2>
 <p>Every module is assigned to a layer. <strong>Imports only point downward.</strong> This is the single most important structural invariant in the project.</p>
@@ -217,8 +217,7 @@ Layer 3  transport · storage · circuit_breaker · rate_limiter · queue
 Layer 4  metrics · progress · monitoring · connection · async_connection · concurrency · cache
 Layer 5  download · scanner · health · config · tuner
 Layer 6  core   (MirrorURL — the only place that wires many subsystems together)
-Layer 7  cli  →  __main__ / console entry point
-</code></pre>
+Layer 7  cli  →  __main__ / console entry point</code></pre>
 <p><strong>The rule:</strong> a module in layer <em>N</em> may import from layers <em>0…N-1</em>, from the standard library, and from third-party deps — never from layer <em>N</em> in a cycle, and never from a higher layer. <code>core.py</code> (layer 6) is the only module permitted to compose many layer-4/5 subsystems at once; that is its job.</p>
 <p><strong>Why it matters for you:</strong></p>
 <ul>
@@ -281,22 +280,21 @@ Layer 7  cli  →  __main__ / console entry point
 </ul>
 <p><strong>Layer 7 — entry point.</strong></p>
 <ul>
-<li><code>cli.py</code> — <code>add_parallel_arguments</code>, <code>setup_shared_logging</code>, <code>main</code>.</li>
+<li><code>cli.py</code> — <code>setup_shared_logging</code>, <code>main</code> (plus its helpers <code>_explicit_cli_dests</code> and <code>_cli_overrides</code>, which decide what a <code>--config</code> run overrides).</li>
 <li><code>__main__.py</code> — thin wrapper so <code>python -m mirror_url</code> calls <code>cli.main</code>.</li>
 </ul>
 <hr />
 <h2 id="the-mirrorurl-orchestrator-and-its-mixins">The MirrorURL orchestrator and its mixins</h2>
 <p><code>MirrorURL</code> was ~3,600 lines as a single class. It is now composed from focused <strong>mixins</strong> under the private <code>_core/</code> subpackage. <code>core.py</code> is a thin composer:</p>
-<div class="sourceCode" id="cb3"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true"></a><span class="kw">class</span> MirrorURL(</span>
-<span id="cb3-2"><a href="#cb3-2" aria-hidden="true"></a>    UrlMixin,        <span class="co"># _core/urls.py</span></span>
-<span id="cb3-3"><a href="#cb3-3" aria-hidden="true"></a>    ScanMixin,       <span class="co"># _core/scan.py</span></span>
-<span id="cb3-4"><a href="#cb3-4" aria-hidden="true"></a>    CompareMixin,    <span class="co"># _core/compare.py</span></span>
-<span id="cb3-5"><a href="#cb3-5" aria-hidden="true"></a>    DownloadMixin,   <span class="co"># _core/downloads.py</span></span>
-<span id="cb3-6"><a href="#cb3-6" aria-hidden="true"></a>    CleanupMixin,    <span class="co"># _core/cleanup.py</span></span>
-<span id="cb3-7"><a href="#cb3-7" aria-hidden="true"></a>    ReportMixin,     <span class="co"># _core/report.py</span></span>
-<span id="cb3-8"><a href="#cb3-8" aria-hidden="true"></a>    _MirrorBase,     <span class="co"># _core/_base.py — __init__ + shared state, listed LAST</span></span>
-<span id="cb3-9"><a href="#cb3-9" aria-hidden="true"></a>):</span>
-<span id="cb3-10"><a href="#cb3-10" aria-hidden="true"></a>    ...</span></code></pre></div>
+<div class="sourceCode" id="cb3"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">class</span> MirrorURL(</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>    UrlMixin,  <span class="co"># _core/urls.py</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>    ScanMixin,  <span class="co"># _core/scan.py</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>    CompareMixin,  <span class="co"># _core/compare.py</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>    DownloadMixin,  <span class="co"># _core/downloads.py</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>    CleanupMixin,  <span class="co"># _core/cleanup.py</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>    ReportMixin,  <span class="co"># _core/report.py</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>    _MirrorBase,  <span class="co"># _core/_base.py — __init__ + shared state, listed LAST</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>): ...</span></code></pre></div>
 <p><strong>Why this is safe and unambiguous:</strong> every method is defined in exactly one mixin, so the MRO never has to disambiguate. <code>_MirrorBase</code> is listed <strong>last</strong> so that it sits at the base of the MRO and owns <code>__init__</code> plus all shared instance state; the feature mixins are "above" it and call into the state it sets up. Behavior is identical to the pre-split class — <code>from mirror_url.core import MirrorURL</code> is unchanged for callers.</p>
 <p><strong>Responsibilities and key methods per mixin:</strong></p>
 <table>
@@ -349,7 +347,7 @@ Layer 7  cli  →  __main__ / console entry point
 <hr />
 <h2 id="runtime-data-flow-anatomy-of-a-sync">Runtime data flow: anatomy of a sync()</h2>
 <p>A full mirror run is driven by <code>ReportMixin.sync()</code>. The high-level path:</p>
-<ol>
+<ol type="1">
 <li><strong>Construction (<code>_MirrorBase.__init__</code>).</strong> Parse the base URL, compute the destination/target paths, build the cache file path (<code>mirror_url_&lt;suffix&gt;_&lt;hash&gt;.json</code>, where the hash is the first 16 hex chars of <code>sha256(base_url)</code> — this disambiguates different base URLs that share a directory suffix), set up logging, and instantiate the subsystem managers (connection, async, concurrency, metrics, circuit breakers, rate limiter, caches).</li>
 <li><strong>Connect (<code>test_connection</code>, <code>_warm_up_connections</code>).</strong> Validate reachability and resolve the target scope. Until the target is resolved, scope checks fall back to the base URL (so the scanner doesn't drop every subdirectory).</li>
 <li><strong>Scan (<code>ScanMixin.get_remote_files</code>).</strong> Breadth-first discovery of the remote tree, honoring <code>max_depth</code>, <code>exclude_dirs</code>, scope enforcement, and a visited set (cycle-safe). Directory listings are parsed by <code>parsing.py</code>. Results feed the HTML cache.</li>
@@ -369,8 +367,7 @@ Layer 7  cli  →  __main__ / console entry point
 <p>The assembly path:</p>
 <pre><code>CLI args ──┐
            ├─► load_config_from_args() ─► MirrorConfig  ─► MirrorURL(cfg)
-config file┘   (expand_env_vars, validate_config_file)
-</code></pre>
+config file┘   (expand_env_vars, validate_config_file)</code></pre>
 <ul>
 <li><code>expand_env_vars</code> resolves <code>${VAR}</code> placeholders in the file before validation.</li>
 <li><code>validate_config_file</code> loads YAML/JSON and checks it against <code>ConfigSchema</code>.</li>
@@ -388,16 +385,16 @@ config file┘   (expand_env_vars, validate_config_file)
 <h2 id="extension-recipes">Extension recipes</h2>
 <p>These are the common changes and the exact touch-points.</p>
 <h3 id="add-a-configuration-option">Add a configuration option</h3>
-<ol>
+<ol type="1">
 <li>Add the field to <code>MirrorConfig</code> in <code>config.py</code> (and to <code>ConfigSchema</code> too if it should be settable from a config file), with a sensible default and any pydantic validation bounds.</li>
 <li>If it should be settable from the CLI, add a flag in <code>cli.py</code> and map it in <code>load_config_from_args</code>.</li>
 <li>Read <code>self.config.&lt;field&gt;</code> where the behavior lives (a mixin or a subsystem).</li>
 <li>Add a test (a config round-trip test for the field; a behavior test for the effect). Document it in <code>USER_GUIDE.md</code> if user-facing.</li>
 </ol>
 <h3 id="add-a-cli-flag">Add a CLI flag</h3>
-<p>Flags are defined in <code>cli.py</code> (download-related ones via <code>add_parallel_arguments</code>). Add the <code>argparse</code> argument, then ensure <code>load_config_from_args</code> translates it onto <code>MirrorConfig</code>. Keep <code>--help</code> text consistent with the User Guide's option tables.</p>
+<p>Flags are defined directly on <code>parser</code>/the argument groups in <code>cli.main()</code>. Add the <code>argparse</code> argument there, matching its <code>dest</code> to the <code>MirrorConfig</code> field name whenever possible — <code>main()</code>'s <code>--config</code> branch picks up any flag whose <code>dest</code> equals a <code>MirrorConfig</code> field automatically (via <code>_cli_overrides</code>); only a <code>dest</code> that differs from the field name (or that needs special handling, e.g. the three mutually-exclusive download-mode flags) needs an entry in <code>_CLI_DEST_TO_CONFIG_KEY</code> or a branch in <code>_cli_overrides</code>. The non-<code>--config</code> branch (<code>MirrorConfig(...)</code> call further down <code>main()</code>) and <code>load_config_from_args</code> (the public, config-file-only entry point) each need the field passed explicitly — add it to both. Keep <code>--help</code> text consistent with the User Guide's option tables, and add the new option's row to the <code>TYPED</code>/boolean-flag tables in <code>tests/test_cli_config_precedence.py</code> (a missing row fails <code>test_typed_table_covers_every_valued_option</code>).</p>
 <h3 id="add-a-download-mode">Add a download mode</h3>
-<ol>
+<ol type="1">
 <li>Add a value to <code>DownloadMethod</code> in <code>enums.py</code>.</li>
 <li>Implement the mechanism in <code>download.py</code> (<code>ParallelDownloadManager</code>), and make <code>auto_select_method</code> able to return it when appropriate.</li>
 <li>Handle the new method where methods are dispatched in <code>_core/report.py</code>/<code>_core/downloads.py</code> (the <code>if method == DownloadMethod.…</code> branches).</li>
@@ -438,23 +435,23 @@ config file┘   (expand_env_vars, validate_config_file)
 <p>Markers are declared in <code>pyproject.toml</code> under <code>[tool.pytest.ini_options]</code> (<code>--strict-markers</code> is on, so register new markers there).</p>
 <hr />
 <h2 id="build-lint-and-type-check">Build, lint, and type-check</h2>
-<div class="sourceCode" id="cb5"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true"></a><span class="co"># editable install with the dev toolchain</span></span>
-<span id="cb5-2"><a href="#cb5-2" aria-hidden="true"></a><span class="ex">pip</span> install -e <span class="st">&quot;.[dev]&quot;</span></span>
-<span id="cb5-3"><a href="#cb5-3" aria-hidden="true"></a><span class="ex">pre-commit</span> install        # optional but recommended</span>
-<span id="cb5-4"><a href="#cb5-4" aria-hidden="true"></a></span>
-<span id="cb5-5"><a href="#cb5-5" aria-hidden="true"></a><span class="ex">ruff</span> check .              # lint</span>
-<span id="cb5-6"><a href="#cb5-6" aria-hidden="true"></a><span class="ex">ruff</span> format --check .     # or: black --check .</span>
-<span id="cb5-7"><a href="#cb5-7" aria-hidden="true"></a><span class="ex">mypy</span>                      # advisory type-check of src/mirror_url</span>
-<span id="cb5-8"><a href="#cb5-8" aria-hidden="true"></a><span class="ex">pytest</span> -m <span class="st">&quot;not integration&quot;</span>   # fast lane</span>
-<span id="cb5-9"><a href="#cb5-9" aria-hidden="true"></a><span class="ex">pytest</span>                        # full suite (includes integration)</span>
-<span id="cb5-10"><a href="#cb5-10" aria-hidden="true"></a></span>
-<span id="cb5-11"><a href="#cb5-11" aria-hidden="true"></a><span class="co"># build distributions</span></span>
-<span id="cb5-12"><a href="#cb5-12" aria-hidden="true"></a><span class="ex">pip</span> install build</span>
-<span id="cb5-13"><a href="#cb5-13" aria-hidden="true"></a><span class="ex">python</span> -m build           # wheel + sdist into dist/</span></code></pre></div>
+<div class="sourceCode" id="cb5"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="co"># editable install with the dev toolchain</span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> install <span class="at">-e</span> <span class="st">&quot;.[dev]&quot;</span></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a><span class="ex">pre-commit</span> install        <span class="co"># optional but recommended</span></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a><span class="ex">ruff</span> check .              <span class="co"># lint</span></span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a><span class="ex">ruff</span> format <span class="at">--check</span> .     <span class="co"># or: black --check .</span></span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a><span class="ex">mypy</span>                      <span class="co"># advisory type-check of src/mirror_url</span></span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a><span class="ex">pytest</span> <span class="at">-m</span> <span class="st">&quot;not integration&quot;</span>   <span class="co"># fast lane</span></span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a><span class="ex">pytest</span>                        <span class="co"># full suite (includes integration)</span></span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a><span class="co"># build distributions</span></span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> install build</span>
+<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> <span class="at">-m</span> build           <span class="co"># wheel + sdist into dist/</span></span></code></pre></div>
 <p>CI (<code>.github/workflows/ci.yml</code>) runs lint + tests across 3.9–3.12. The HTML docs are produced from the Markdown with pandoc (embedded CSS + TOC) — regenerate <code>docs/*.html</code> after editing the corresponding <code>.md</code>.</p>
 <hr />
 <h2 id="release-process">Release process</h2>
-<ol>
+<ol type="1">
 <li><strong>Bump the version in both sources</strong> (a test asserts they match):
 <ul>
 <li><code>pyproject.toml</code> → <code>version = "X.Y.Z"</code></li>
@@ -464,8 +461,8 @@ config file┘   (expand_env_vars, validate_config_file)
 <li><strong>Update <code>CHANGELOG.md</code></strong> — add a new section at the top following Keep a Changelog (<code>### Added/Changed/Fixed</code>).</li>
 <li><strong>Commit everything</strong> (<code>git add -A</code> — don't forget docs/changelog/cli), push.</li>
 <li><strong>Tag and push the tag:</strong>
-<div class="sourceCode" id="cb6"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true"></a><span class="fu">git</span> tag -a vX.Y.Z -m <span class="st">&quot;mirror-url X.Y.Z&quot;</span></span>
-<span id="cb6-2"><a href="#cb6-2" aria-hidden="true"></a><span class="fu">git</span> push origin vX.Y.Z</span></code></pre></div></li>
+<div class="sourceCode" id="cb6"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> tag <span class="at">-a</span> vX.Y.Z <span class="at">-m</span> <span class="st">&quot;mirror-url X.Y.Z&quot;</span></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> push origin vX.Y.Z</span></code></pre></div></li>
 <li>The tag triggers <code>.github/workflows/release.yml</code>, which builds the wheel/sdist, creates a GitHub Release, and (when configured) publishes to PyPI via <strong>Trusted Publishing</strong> (OIDC — no API token). The PyPI step requires a one-time setup: a pending publisher on PyPI (<code>owner</code> = repo owner, workflow <code>release.yml</code>, environment <code>pypi</code>) and a matching <code>pypi</code> Environment in the repo settings. Until that exists, the tag still builds the wheel and creates the GitHub Release; only the PyPI upload is skipped/red.</li>
 </ol>
 <p>If you push a tag pointing at an incomplete commit, move it with <code>git tag -f -a vX.Y.Z … &amp;&amp; git push origin vX.Y.Z --force</code> to re-trigger the release from the corrected commit.</p>
@@ -557,6 +554,6 @@ config file┘   (expand_env_vars, validate_config_file)
 </tbody>
 </table>
 <hr />
-<p><em>This guide describes the architecture as of version 3.1.65. When you change the structure, update this document in the same PR.</em></p>
+<p><em>This guide describes the architecture as of version 3.1.66. When you change the structure, update this document in the same PR.</em></p>
 </body>
 </html>

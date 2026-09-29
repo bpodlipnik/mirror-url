@@ -11,7 +11,7 @@ If you only want to *use* MirrorURL (install, CLI, config, Python API), read
 repeats the essentials so you can work from it alone.
 
 - **Package:** `mirror_url` (src-layout under `src/`)
-- **Version:** 3.1.65
+- **Version:** 3.1.66
 - **Python:** 3.9 – 3.12
 - **Runtime deps:** `httpx`, `pydantic` v2, `PyYAML` (optional: `stringzilla`,
   `lxml`, `tqdm`, `psutil`)
@@ -239,7 +239,8 @@ failure immediately.
 
 **Layer 7 — entry point.**
 
-- `cli.py` — `add_parallel_arguments`, `setup_shared_logging`, `main`.
+- `cli.py` — `setup_shared_logging`, `main` (plus its helpers `_explicit_cli_dests`
+  and `_cli_overrides`, which decide what a `--config` run overrides).
 - `__main__.py` — thin wrapper so `python -m mirror_url` calls `cli.main`.
 
 ---
@@ -410,10 +411,20 @@ These are the common changes and the exact touch-points.
 
 ### Add a CLI flag
 
-Flags are defined in `cli.py` (download-related ones via
-`add_parallel_arguments`). Add the `argparse` argument, then ensure
-`load_config_from_args` translates it onto `MirrorConfig`. Keep `--help` text
-consistent with the User Guide's option tables.
+Flags are defined directly on `parser`/the argument groups in `cli.main()`.
+Add the `argparse` argument there, matching its `dest` to the `MirrorConfig`
+field name whenever possible — `main()`'s `--config` branch picks up any flag
+whose `dest` equals a `MirrorConfig` field automatically (via
+`_cli_overrides`); only a `dest` that differs from the field name (or that
+needs special handling, e.g. the three mutually-exclusive download-mode
+flags) needs an entry in `_CLI_DEST_TO_CONFIG_KEY` or a branch in
+`_cli_overrides`. The non-`--config` branch (`MirrorConfig(...)` call further
+down `main()`) and `load_config_from_args` (the public, config-file-only
+entry point) each need the field passed explicitly — add it to both. Keep
+`--help` text consistent with the User Guide's option tables, and add the new
+option's row to the `TYPED`/boolean-flag tables in
+`tests/test_cli_config_precedence.py` (a missing row fails
+`test_typed_table_covers_every_valued_option`).
 
 ### Add a download mode
 
@@ -608,5 +619,5 @@ These bit the project before; the migration plan calls them out explicitly.
 
 ---
 
-*This guide describes the architecture as of version 3.1.65. When you change the
+*This guide describes the architecture as of version 3.1.66. When you change the
 structure, update this document in the same PR.*
