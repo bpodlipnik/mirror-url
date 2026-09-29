@@ -303,7 +303,7 @@
 </tr>
 <tr class="even">
 <td><code>--chunk-timeout-multiplier MULT</code></td>
-<td>Scale the per-chunk timeout relative to <code>--timeout</code> (default 1.5).</td>
+<td><em>Currently has no effect</em> (accepted for backward compatibility). Chunk requests use fixed multiples of <code>--timeout</code>.</td>
 </tr>
 </tbody>
 </table>
@@ -350,15 +350,19 @@
 </tr>
 <tr class="odd">
 <td><code>--no-http2-pipelining</code></td>
-<td>Disable HTTP/2 request pipelining (pipelining is on by default whenever HTTP/2 is).</td>
+<td><em>Currently has no effect</em> (accepted for backward compatibility); the HTTP/2 client does not read this setting.</td>
 </tr>
 <tr class="even">
 <td><code>--no-connection-pool-prewarm</code></td>
 <td>Don't pre-warm connection pools at startup.</td>
 </tr>
+<tr class="even">
+<td><code>--no-circuit-breaker</code></td>
+<td>Disable the circuit breaker everywhere it is used: per-domain for metadata/scan requests and for chunked file downloads.</td>
+</tr>
 <tr class="odd">
 <td><code>--no-circuit-breaker-downloads</code></td>
-<td>Disable the circuit breaker specifically for file downloads (independent of <code>--no-circuit-breaker</code>, which covers metadata/scan requests).</td>
+<td><em>Currently has no effect</em> (accepted for backward compatibility). Use <code>--no-circuit-breaker</code> to disable the download circuit breaker.</td>
 </tr>
 <tr class="even">
 <td><code>--adaptive-start-concurrency N</code></td>
@@ -421,15 +425,15 @@
 </tr>
 <tr class="even">
 <td><code>--no-rget-list</code></td>
-<td>Disable use of a server's <code>RGET-LIST</code> file, if present, as a shortcut for directory discovery.</td>
+<td><em>Currently has no effect</em> (accepted for backward compatibility): <code>RGET-LIST</code> files are not used for directory discovery.</td>
 </tr>
 <tr class="odd">
 <td><code>--force-rget-list</code></td>
-<td>Use an <code>RGET-LIST</code> file even if it's older than <code>--rget-list-max-age</code>.</td>
+<td><em>Currently has no effect</em> (accepted for backward compatibility).</td>
 </tr>
 <tr class="even">
 <td><code>--rget-list-max-age DAYS</code></td>
-<td>Max age of an <code>RGET-LIST</code> file before it's ignored (default 7).</td>
+<td><em>Currently has no effect</em> (accepted for backward compatibility).</td>
 </tr>
 <tr class="odd">
 <td><code>--no-content-hash</code></td>
@@ -464,7 +468,7 @@
 </tr>
 <tr class="odd">
 <td><code>--parallel-threshold N</code></td>
-<td>Directories smaller than this scan sequentially even in <code>adaptive</code>/<code>async</code> mode (default 10).</td>
+<td><em>Currently has no effect</em> (accepted for backward compatibility); the value is parsed but not used to choose a scan strategy.</td>
 </tr>
 <tr class="even">
 <td><code>--max-filename-len N</code></td>
@@ -476,7 +480,7 @@
 </tr>
 <tr class="even">
 <td><code>--max-symlink-depth N</code></td>
-<td>With <code>--handle-symlinks</code>, how many symlink hops deep to follow before stopping (default 5).</td>
+<td>With <code>--handle-symlinks</code>, how many symlink hops deep to follow before stopping (default 10).</td>
 </tr>
 <tr class="odd">
 <td><code>--list-dirs [N]</code></td>
