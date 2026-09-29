@@ -486,7 +486,10 @@ EXAMPLES:
         type=float,
         default=CHUNK_TIMEOUT_MULTIPLIER,
         metavar="MULT",
-        help=f"Timeout multiplier for chunks (default: {CHUNK_TIMEOUT_MULTIPLIER})",
+        help=(
+            f"Timeout multiplier for chunks (default: {CHUNK_TIMEOUT_MULTIPLIER}). "
+            "Currently has no effect; accepted for backward compatibility."
+        ),
     )
 
     filter_grp = parser.add_argument_group("Filter Options")
@@ -649,16 +652,28 @@ EXAMPLES:
         choices=["md5", "sha256", "blake2b"],
         help="Hash algorithm for file integrity (default: md5)",
     )
-    cache.add_argument("--no-rget-list", action="store_true", help="Disable RGET-LIST usage")
+    cache.add_argument(
+        "--no-rget-list",
+        action="store_true",
+        help="Disable RGET-LIST usage. Currently has no effect; accepted for backward compatibility.",
+    )
     cache.add_argument(
         "--rget-list-max-age",
         type=int,
         default=DEFAULT_RGET_LIST_MAX_AGE,
         metavar="DAYS",
-        help=f"RGET-LIST max age (default: {DEFAULT_RGET_LIST_MAX_AGE} days)",
+        help=(
+            f"RGET-LIST max age (default: {DEFAULT_RGET_LIST_MAX_AGE} days). "
+            "Currently has no effect; accepted for backward compatibility."
+        ),
     )
     cache.add_argument(
-        "--force-rget-list", action="store_true", help="Force RGET-LIST use even if old"
+        "--force-rget-list",
+        action="store_true",
+        help=(
+            "Force RGET-LIST use even if old. "
+            "Currently has no effect; accepted for backward compatibility."
+        ),
     )
     cache.add_argument("--no-etag", action="store_true", help="Disable ETag verification")
     cache.add_argument(
@@ -861,7 +876,10 @@ EXAMPLES:
         "--no-circuit-breaker-downloads",
         action="store_false",
         dest="circuit_breaker_downloads",
-        help="Disable circuit breaker for downloads",
+        help=(
+            "Disable circuit breaker for downloads. Currently has no effect "
+            "(use --no-circuit-breaker); accepted for backward compatibility."
+        ),
     )
 
     logging_grp = parser.add_argument_group("Logging & Output Options")
@@ -899,7 +917,10 @@ EXAMPLES:
         type=int,
         default=PARALLEL_SCAN_THRESHOLD,
         metavar="N",
-        help=f"Parallel scan threshold (default: {PARALLEL_SCAN_THRESHOLD})",
+        help=(
+            f"Parallel scan threshold (default: {PARALLEL_SCAN_THRESHOLD}). "
+            "Currently has no effect; accepted for backward compatibility."
+        ),
     )
     scan.add_argument(
         "--max-depth",
@@ -1001,7 +1022,7 @@ EXAMPLES:
         "--no-http2-pipelining",
         action="store_false",
         dest="http2_pipelining",
-        help="Disable HTTP/2 pipelining",
+        help="Disable HTTP/2 pipelining. Currently has no effect; accepted for backward compatibility.",
     )
     advanced.add_argument(
         "--connection-pool-prewarm",

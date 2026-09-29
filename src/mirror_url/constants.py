@@ -7,7 +7,7 @@ imports, no side effects. Every other module imports its constants from here.
 from __future__ import annotations
 
 # ============================================================================
-# CONSTANTS (All preserved)
+# CONSTANTS
 # ============================================================================
 # Core settings
 DEFAULT_MAX_RETRIES = 3
@@ -15,13 +15,11 @@ DEFAULT_RETRY_DELAY = 2
 DEFAULT_TIMEOUT = 30
 DEFAULT_WORKERS = 8
 DEFAULT_ASYNC_WORKERS = 50
-PROGRESS_INTERVAL = 60
 MAX_DIRECTORY_DEPTH = 50
 LIST_DIRS_DEFAULT_MAX_DEPTH = 1  # immediate children only, unless --max-depth overrides it
 
 # Rate limiting
 REQUEST_DELAY = 0.05
-TRUSTED_SERVER_DELAY = 0.01
 DEFAULT_RATE_LIMIT = 20
 
 # Cache settings
@@ -32,29 +30,23 @@ MAX_CACHE_METADATA_ENTRIES = 100000
 MAX_HTML_CACHE_SIZE = 500
 HTML_CACHE_MAX_AGE_HOURS = 24
 
+# NOTE: CONTENT_HASH_LIMIT, SIZE_TOLERANCE_PERCENT, MASSIVE_SIZE_DIFF_THRESHOLD,
+# MAX_DIR_SUFFIX_LENGTH, MAX_DIR_SUFFIX_DEPTH, MAX_REQUESTS_PER_IP and
+# DISK_BACKED_SET_THRESHOLD are currently referenced nowhere: the limits they
+# describe are not enforced. Kept deliberately (they read as intended limits,
+# not tuning leftovers) -- wire them up or delete them in a follow-up.
+
 # File handling
 MAX_FILENAME_LENGTH = 255
 MAX_CONNECTION_POOLS = 20
 DOWNLOAD_CHUNK_SIZE = 16384
-SMALL_FILE_THRESHOLD = 1024 * 1024
 CONTENT_HASH_LIMIT = 16384
 CONTENT_HASH_THRESHOLD = 512 * 1024
 
 # Scanning
 PARALLEL_SCAN_THRESHOLD = 10
-MIN_DIRS_FOR_PARALLEL = 5
 MAX_IN_MEMORY_CACHE_SIZE = 1000
 BATCH_SIZE = 200
-ASYNC_BATCH_SIZE = 500
-
-# Async scanning thresholds
-ASYNC_SCAN_SMALL_BATCH = 50
-ASYNC_SCAN_MEDIUM_BATCH = 500
-ASYNC_SCAN_LARGE_BATCH = 500
-ASYNC_SCAN_CONCURRENCY_SMALL = 20
-ASYNC_SCAN_CONCURRENCY_MEDIUM = 50
-ASYNC_SCAN_CONCURRENCY_LARGE = 100
-ASYNC_SCAN_FALLBACK_THRESHOLD = 0.3
 
 # Comparison tolerance
 SIZE_TOLERANCE_PERCENT = 5
@@ -71,7 +63,6 @@ MAX_CACHE_AGE_DAYS = 365
 
 # Async concurrency
 ASYNC_SEMAPHORE_LIMIT = 20
-CONNECTION_RESET_DELAY = 5
 
 # Adaptive async
 ADAPTIVE_ASYNC_ENABLED = True
@@ -85,7 +76,6 @@ ADAPTIVE_COOLDOWN_SECONDS = 30
 
 # Server profiling
 PROFILE_SAMPLE_SIZE = 20
-PROFILE_TIMEOUT_SECONDS = 60
 
 # Known throttled domains
 KNOWN_THROTTLED_DOMAINS = [
@@ -124,7 +114,6 @@ WINDOWS_RESERVED_NAMES = {
     "LPT9",
 }
 
-PROGRESS_UPDATE_INTERVAL = 1000
 
 # Async speed test parameters
 ASYNC_TEST_MAX_SECONDS = 12.0
@@ -173,24 +162,15 @@ MIN_FREE_SPACE_BYTES = 100 * 1024 * 1024
 MAX_BACKOFF_DELAY = 60.0
 BACKOFF_BASE = 2.0
 JITTER_FACTOR = 0.1
-ADAPTIVE_SMOOTHING_FACTOR = 0.1
 MAX_REQUESTS_PER_IP = 100
 # HEALTH_CHECK_PORT = 8080  # For health check API <- moved to MirrorConfig
 
 # NEW v3.0.0 constants - Parallel Downloads
-MIN_CHUNK_SIZE = 10 * 1024 * 1024  # 10MB minimum chunk size
 MAX_CHUNKS_PER_FILE = 8
 MAX_PARALLEL_CHUNKS_TOTAL = 50
-CHUNK_ASSEMBLY_RETRIES = 3
 CHUNK_TIMEOUT_MULTIPLIER = 1.5
-CHUNK_CLEANUP_AGE_HOURS = 24
-CHUNK_SUFFIX = ".mirror-chunk"
-CHUNK_WRITE_BUFFER_SIZE = 256 * 1024  # 256KB buffer for chunk writes
-CHUNK_READ_SIZE = 32 * 1024  # 32KB read chunks for HTTP/2 efficiency
 PARALLEL_DOWNLOAD_ENABLED = False  # Default off for backward compatibility
 
-CHUNK_ACQUIRE_TIMEOUT = 30  # seconds
-CHUNK_RETRY_BACKOFF_FACTOR = 1.5
 
 # v3.0.6 constants - Unified Concurrency - REDUCED to prevent deadlocks
 UNIFIED_MAX_TOTAL_THREADS = 50  # Changed from 500 - prevent thread explosion
@@ -207,7 +187,5 @@ AUTO_CONCURRENCY_SAMPLES = 10
 AUTO_CONCURRENCY_THROUGHPUT_THRESHOLD = 0.05  # 5% improvement threshold
 
 # NEW v3.0.7 Streaming parallel constants
-STREAMING_PARALLEL_ENABLED = True
 STREAMING_WRITE_BUFFER_SIZE = 1024 * 1024  # 1MB write buffer
 STREAMING_MIN_FILE_SIZE_MB = 100
-STREAMING_MAX_CONCURRENT_WRITES = 8

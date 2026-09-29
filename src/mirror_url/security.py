@@ -346,10 +346,7 @@ class PathSafety:
             True if child is inside parent
         """
         try:
-            if not parent.exists():
-                parent_resolved = parent.resolve()
-            else:
-                parent_resolved = parent.resolve()
+            parent_resolved = parent.resolve()
             child_resolved = child.resolve()
             if os.name == "nt":
                 parent_drive = parent_resolved.drive.lower()
@@ -411,9 +408,14 @@ class PathSafety:
             except TypeError:
                 base_resolved = base.resolve()
             if base.is_symlink():
-                logging.warning(f"Base path resolved to symlink target, blocking: {base}")
+                logging.warning(f"Base path became a symlink during setup, blocking: {base}")
                 return None
             for part in parts:
+                # Strip NULs first so every check below sees the same string
+                # that is finally used. Otherwise "." + NUL + "." would pass the
+                # ".." test as a single odd component and only be caught by the
+                # final containment check after joining.
+                part = part.replace("\0", "")
                 if not part:
                     continue
                 if os.path.isabs(part):
@@ -423,7 +425,6 @@ class PathSafety:
                 if ".." in part_path.parts:
                     logging.warning(f"Path traversal attempt detected in part: {part}")
                     return None
-                part = part.replace("\0", "")
                 filename = PathSafety._safe_filename(part, max_len=max_filename_len)
                 if not filename:
                     logging.warning(f"Invalid filename after sanitization: {part}")

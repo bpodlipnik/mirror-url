@@ -6,7 +6,7 @@ the remote directory tree, decides which files are new or changed, and downloads
 them efficiently — with adaptive concurrency, resumable/parallel downloads,
 integrity checks, incremental caching, and an SSRF-hardened transport layer.
 
-- **Version:** 3.1.66
+- **Version:** 3.1.67
 - **Python:** 3.9 – 3.12 (pure Python, any OS/architecture)
 - **License:** MIT
 
@@ -81,21 +81,21 @@ On a build machine:
 
 ```bash
 pip install build
-python -m build          # produces dist/mirror_url-3.1.66-py3-none-any.whl
+python -m build          # produces dist/mirror_url-3.1.67-py3-none-any.whl
 ```
 
 Copy the wheel to the target server and install it:
 
 ```bash
 python3 -m venv /opt/mirror-url
-/opt/mirror-url/bin/pip install /tmp/mirror_url-3.1.66-py3-none-any.whl
+/opt/mirror-url/bin/pip install /tmp/mirror_url-3.1.67-py3-none-any.whl
 /opt/mirror-url/bin/mirror-url --help
 ```
 
 To include the optional speed extras:
 
 ```bash
-/opt/mirror-url/bin/pip install "/tmp/mirror_url-3.1.66-py3-none-any.whl[fast]"
+/opt/mirror-url/bin/pip install "/tmp/mirror_url-3.1.67-py3-none-any.whl[fast]"
 ```
 
 Available extras: `fast` (stringzilla + lxml), `progress` (tqdm),
@@ -104,24 +104,24 @@ Available extras: `fast` (stringzilla + lxml), `progress` (tqdm),
 ### From a Git repository
 
 ```bash
-pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.66"
+pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.67"
 # private repo over SSH:
-pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.1.66"
+pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.1.67"
 ```
 
 ### As an isolated CLI with pipx
 
 ```bash
-pipx install /tmp/mirror_url-3.1.66-py3-none-any.whl
-# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.66"
+pipx install /tmp/mirror_url-3.1.67-py3-none-any.whl
+# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.67"
 ```
 
 ### With Docker
 
 ```dockerfile
 FROM python:3.12-slim
-COPY dist/mirror_url-3.1.66-py3-none-any.whl /tmp/
-RUN pip install --no-cache-dir "/tmp/mirror_url-3.1.66-py3-none-any.whl[fast]"
+COPY dist/mirror_url-3.1.67-py3-none-any.whl /tmp/
+RUN pip install --no-cache-dir "/tmp/mirror_url-3.1.67-py3-none-any.whl[fast]"
 ENTRYPOINT ["mirror-url"]
 ```
 
@@ -199,7 +199,7 @@ list of options. The most commonly used options:
 | `--bandwidth-limit MB/S` | Cap total download bandwidth. |
 | `--max-parallel-chunks N` | Max chunks in flight across *all* files at once (default 50; `--max-chunks` above caps chunks *per file*). |
 | `--chunk-assembly-dir DIR` | Directory for temporary chunk files (defaults next to the destination file). |
-| `--chunk-timeout-multiplier MULT` | Scale the per-chunk timeout relative to `--timeout` (default 1.5). |
+| `--chunk-timeout-multiplier MULT` | *Currently has no effect* (accepted for backward compatibility). Chunk requests use fixed multiples of `--timeout`. |
 
 ### Performance and networking
 
@@ -213,9 +213,10 @@ list of options. The most commonly used options:
 | `--retry-delay SECS` | Delay between retries (default 2). |
 | `--trusted-server` | Use faster rate limiting (10 ms vs 50 ms between requests). |
 | `--no-http2` | Disable HTTP/2. |
-| `--no-http2-pipelining` | Disable HTTP/2 request pipelining (pipelining is on by default whenever HTTP/2 is). |
+| `--no-http2-pipelining` | *Currently has no effect* (accepted for backward compatibility); the HTTP/2 client does not read this setting. |
 | `--no-connection-pool-prewarm` | Don't pre-warm connection pools at startup. |
-| `--no-circuit-breaker-downloads` | Disable the circuit breaker specifically for file downloads (independent of `--no-circuit-breaker`, which covers metadata/scan requests). |
+| `--no-circuit-breaker` | Disable the circuit breaker everywhere it is used: per-domain for metadata/scan requests and for chunked file downloads. |
+| `--no-circuit-breaker-downloads` | *Currently has no effect* (accepted for backward compatibility). Use `--no-circuit-breaker` to disable the download circuit breaker. |
 | `--adaptive-start-concurrency N` | Starting concurrency for adaptive async scanning (default 5). |
 | `--adaptive-error-threshold RATE` | Error rate (0–1) at which adaptive async concurrency backs off (default 0.05). |
 | `--no-adaptive-async` | Disable adaptive async concurrency; use a fixed `--async-workers` count. |
@@ -233,9 +234,9 @@ list of options. The most commonly used options:
 | `--no-cache-html` | Disable caching of parsed HTML directory listings (HTML caching is on by default). |
 | `--html-cache-max-age HOURS` | Max age of cached HTML listings before a re-fetch (default 24). |
 | `--hash-algorithm {md5,sha256}` | Hash algorithm used for file-integrity/cache keys (default `md5`). |
-| `--no-rget-list` | Disable use of a server's `RGET-LIST` file, if present, as a shortcut for directory discovery. |
-| `--force-rget-list` | Use an `RGET-LIST` file even if it's older than `--rget-list-max-age`. |
-| `--rget-list-max-age DAYS` | Max age of an `RGET-LIST` file before it's ignored (default 7). |
+| `--no-rget-list` | *Currently has no effect* (accepted for backward compatibility): `RGET-LIST` files are not used for directory discovery. |
+| `--force-rget-list` | *Currently has no effect* (accepted for backward compatibility). |
+| `--rget-list-max-age DAYS` | *Currently has no effect* (accepted for backward compatibility). |
 | `--no-content-hash` | Skip content hashing for small files (hashing is on by default and is how small, frequently-rewritten files are detected as changed even when size/timestamp look the same). |
 
 ### Filtering and scope
@@ -246,10 +247,10 @@ list of options. The most commonly used options:
 | `--exclude-dir D [D ...]` | Skip directories, each matched as an exact path relative to `--url` (not a suffix at any depth — see "Filtering and scope" below). |
 | `--max-depth N` | Maximum directory recursion depth (default 50; `--list-dirs` defaults to 1 instead — see below). |
 | `--scan-mode {adaptive,sequential,async}` | Directory-scan strategy: `adaptive` (default) picks per directory, `sequential` and `async` force one approach throughout. |
-| `--parallel-threshold N` | Directories smaller than this scan sequentially even in `adaptive`/`async` mode (default 10). |
+| `--parallel-threshold N` | *Currently has no effect* (accepted for backward compatibility); the value is parsed but not used to choose a scan strategy. |
 | `--max-filename-len N` | Truncate filenames longer than this before writing to disk (default 255). |
 | `--download-queue-size N` | Max files buffered between the scanner and the downloader (default 1000). |
-| `--max-symlink-depth N` | With `--handle-symlinks`, how many symlink hops deep to follow before stopping (default 5). |
+| `--max-symlink-depth N` | With `--handle-symlinks`, how many symlink hops deep to follow before stopping (default 10). |
 | `--list-dirs [N]` | Discover and print the directory tree under `--url`/`--dir-suffix`, then exit — no file scanning, freshness checks, or downloads/deletes. Respects `--exclude-dir`/`--max-depth` (defaults to `1` — the current folder's immediate children only — unless `--max-depth` is given explicitly; every other mode still defaults to 50); `--filter` doesn't apply (files only). With `N`, shows only the last `N` directories overall, sorted **lexicographically by relative path** (a name sort, not a true timestamp sort), with the root (`.`) excluded from that ranking. Always followed by a `# Directories N/total` summary line, including unrestricted runs (`N == total`). Doesn't require `--dest-path`/`--log-path`. |
 | `--list-files [N]` | Discover and print files under `--url`/`--dir-suffix`, then exit — no freshness checks or downloads/deletes. Respects `--exclude-dir`/`--max-depth`/`--filter`. With `N`, shows only the last `N` files *per directory*, sorted **lexicographically by filename** (a name sort, not a true timestamp sort — see "Filtering and scope" below). Doesn't require `--dest-path`/`--log-path`. |
 
