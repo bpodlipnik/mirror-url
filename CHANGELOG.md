@@ -4,6 +4,102 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.66] - 2026-09-29
+
+### Fixed
+- **`--config` runs silently dropped or overrode CLI options.** `main()`
+  decided whether a CLI option should override the YAML/JSON file using
+  `args.x != DEFAULT`, `hasattr(args, x)` or `args.x is not None` --
+  all three are true for *every* option once argparse has applied its
+  default, not just the ones actually typed. In practice: an explicit
+  value equal to its own default (`--workers 8` when 8 is the default)
+  could not override a file's `workers: 4`; `--config` plus
+  `streaming_parallel: true` in the file became `False` and
+  `adaptive_batch_processing: false` became `True`, because those checks
+  are always-true for `store_true`/`is not None` options; and about two
+  dozen options -- `--max-retries`, `--retry-delay`, `--max-depth`,
+  `--hash-algorithm`, `--stats`, `--progress-bar`, `--metrics-json`,
+  `--health-check-port`, `--no-http2`, `--no-security-validation`,
+  `--no-circuit-breaker[-downloads]`, `--no-adaptive-async`,
+  `--no-content-hash`, `--no-rget-list`, `--force-rget-list`,
+  `--rget-list-max-age`, `--max-filename-len`, `--download-queue-size`,
+  `--async-workers`, `--parallel-threshold`, `--max-symlink-depth` -- had
+  no override handling at all and were always ignored with `--config`.
+  The hand-copied YAML-to-config block also dropped five `MirrorConfig`
+  fields entirely (`health_check_port`, `parallel_optimization_mode`,
+  `disable_rate_scaling`, `use_dedicated_download_pool`,
+  `use_shared_thread_pool`), so those YAML settings never took effect.
+
+  `main()` now re-parses `argv` with every default suppressed to learn
+  which options were actually typed (`_explicit_cli_dests`), builds the
+  config from *every* field of the file's config, and overlays only the
+  options that were explicitly given (`_cli_overrides`) -- matched by
+  `dest == MirrorConfig` field name for any future option, with a small
+  rename table for the few that differ.
+
+- **`--hash-algorithm` was ignored even without `--config`** -- `main()`
+  built the non-`--config` `MirrorConfig` without reading `args.hash_algorithm`
+  at all, so `--hash-algorithm sha256` silently produced `md5`.
+
+- **`--filter` patterns were lowercased before being stored,** corrupting
+  regex escapes: `\\D`/`\\S`/`\\W` silently became `\\d`/`\\s`/`\\w` (inverting
+  the match), and `\\Z` became the invalid `\\z` (aborting the run with
+  "bad escape \\z"). Extension/substring patterns were unaffected since
+  `matches_filter()` already lowercases both sides for those, and already
+  uses `re.IGNORECASE` for regex patterns -- the lowercasing was pure
+  data corruption with no matching benefit. Patterns are now stored as
+  given.
+
+- **`load_config_from_args()` (the public, config-file-driven API) raised
+  on a `Namespace` produced by the package's own CLI parser** --
+  `AttributeError: 'Namespace' object has no attribute 'cleanup'` (that
+  option uses `default=argparse.SUPPRESS`), or, once `--cleanup` was
+  passed, a pydantic error on `max_depth=None` (which `main()`, not the
+  parser, normally resolves). It now applies the same `cleanup` ->
+  `cleanup_policy` -> default and `max_depth` resolution rules `main()`
+  uses, so a real parser's `Namespace` works directly.
+
+  New tests in `tests/test_cli_config_precedence.py` drive the real
+  `main()` (via a stubbed `MirrorURL` that captures the built
+  `MirrorConfig`) and cover every valued and boolean CLI option, with and
+  without `--config`, plus `load_config_from_args()` on a real-parser
+  `Namespace`. Six tests that asserted the old override code's *source
+  text* rather than its behavior were replaced by these.
+
+### Removed
+- Dead code with no callers anywhere in the package: `cli.add_parallel_arguments`
+  (86 lines; superseded by the inline "Parallel Download Options" group in
+  `main()`, and already out of sync with it -- it declared `--auto-select`,
+  `--force-method`, `--force-disk-type` and `--network-speed`, none of
+  which exist in the live parser), `MirrorDownloadMixin._write_stream_to_file`,
+  `MirrorDownloadMixin._check_http2_support`, `_MirrorBase._get_remote_timestamp`,
+  and `UrlMixin._validate_url_scheme_fallback`.
+
+### Documentation
+- `USER_GUIDE.md` documented 63 of the tool's 104 CLI options; added the
+  41 missing rows (chunk/parallelism tuning, `--retry-delay`, HTTP/2
+  pipelining/prewarm, the per-download circuit breaker, adaptive-async
+  tuning, HTML caching, `--hash-algorithm`, RGET-LIST controls,
+  `--no-content-hash`, scan-mode/scan tuning, symlink depth, and the
+  batch/cache/fast-parser advanced-performance group).
+- `USER_GUIDE.md` claimed CLI flags "take precedence where applicable" --
+  rewritten to state the actual, now-correct rule (an explicitly-typed
+  flag always overrides the file, including when it equals the default;
+  an untyped flag never does).
+- `USER_GUIDE.md`'s own `--filter '2024.*\\.fits' .png` example was
+  itself unanchored (matches `2024.fits.bak`, contrary to the adjacent,
+  correctly-anchored table entry); anchored it to `2024.*\\.fits$`.
+- `README.md`'s quick-start command used a `--output` flag that does not
+  exist; corrected to `--url`/`--dest-path`/`--log-path`.
+- `DEVELOPER_GUIDE.md`'s "Add a CLI flag" recipe pointed at the removed
+  `add_parallel_arguments` and described a `load_config_from_args`-based
+  wiring path `main()` never actually used; rewritten to describe
+  `_cli_overrides`/`_CLI_DEST_TO_CONFIG_KEY` and to point at the new
+  precedence tests.
+- `cli.py` and `_version.py` docstrings no longer describe themselves as
+  in sync with the legacy `mirror_url.py` monolith, removed at v3.1.20.
+- `USER_GUIDE.html`/`DEVELOPER_GUIDE.html` regenerated to match.
+
 ## [3.1.65] - 2026-09-26
 
 ### Fixed
