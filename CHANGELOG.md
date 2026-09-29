@@ -4,6 +4,38 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.67] - 2026-09-29
+
+### Fixed
+- **`PathSafety.safe_join` validated the raw path part, then stripped NUL
+  bytes.** `".\0."` and `"\0/etc/passwd"` therefore passed the `..` /
+  absolute-path checks as written and were only handled by later logic (the
+  latter was silently reduced to `passwd`). NULs are now stripped first, so
+  every check sees the string that is actually joined. A part made only of
+  NULs is skipped like an empty part rather than becoming a directory named
+  `unnamed`. No traversal was possible before (the final containment check
+  held); this makes the earlier checks do their stated job.
+
+### Documentation
+- **Seven flags are accepted but have no effect**, and `--help` /
+  `USER_GUIDE` now say so instead of describing behaviour that does not
+  exist: `--no-rget-list`, `--force-rget-list`, `--rget-list-max-age`,
+  `--parallel-threshold`, `--chunk-timeout-multiplier`,
+  `--no-http2-pipelining`, `--no-circuit-breaker-downloads`. They remain
+  accepted so existing cron/YAML invocations keep working. (The download
+  circuit breaker is controlled by `--no-circuit-breaker`; that flag now has
+  its own USER_GUIDE row.)
+- `USER_GUIDE` gave `--max-symlink-depth` a default of 5; the real default
+  is 10.
+
+### Changed
+- Removed 26 unreferenced tuning constants from `constants.py`. Seven more
+  that look like intended-but-unenforced limits are kept and flagged in a
+  comment (`MAX_DIR_SUFFIX_LENGTH`/`_DEPTH`, `MAX_REQUESTS_PER_IP`,
+  `SIZE_TOLERANCE_PERCENT`, `MASSIVE_SIZE_DIFF_THRESHOLD`,
+  `DISK_BACKED_SET_THRESHOLD`, `CONTENT_HASH_LIMIT`).
+- `is_subpath`: removed an `if/else` with two identical branches.
+
 ## [3.1.66] - 2026-09-29
 
 ### Fixed
