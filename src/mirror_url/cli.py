@@ -1148,8 +1148,16 @@ EXAMPLES:
     except ValueError:
         args.cleanup_policy = CleanupPolicy.SAFE_NO_DELETE
 
-    # Check lxml availability
+    # Check lxml availability. --no-fast-parsing-fallback requires lxml;
+    # silently forcing the flag back on undoes an explicit user choice and
+    # made the CLI-precedence tests fail in CI (which installs only [dev],
+    # without the optional lxml extra).
     if not LXML_AVAILABLE and not args.fast_parsing_fallback:
+        if "fast_parsing_fallback" in explicit_dests:
+            parser.error(
+                "--no-fast-parsing-fallback requires lxml "
+                "(install mirror-url[fast] or mirror-url[all])"
+            )
         print("WARNING: lxml not available, falling back to fast parser", file=sys.stderr)
         args.fast_parsing_fallback = True
 
