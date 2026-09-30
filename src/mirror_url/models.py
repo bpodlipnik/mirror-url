@@ -156,7 +156,7 @@ class ChunkInfo:
     start_byte: int
     end_byte: int
     total_chunks: int
-    temp_path: Path
+    temp_path: Optional[Path]
     size: int = 0
     downloaded: int = 0
     status: str = "pending"  # pending, downloading, completed, failed
@@ -164,7 +164,8 @@ class ChunkInfo:
     max_retries: int = 3
     etag: Optional[str] = None
     last_modified: Optional[str] = None
-    direct_write: bool = False  # Write directly to final file
+    direct_write: bool = False  # Write into the shared staging file
+    file_size: Optional[int] = None
 
 
 @dataclass
@@ -176,6 +177,7 @@ class ParallelFileDownload:
     file_size: int
     chunks: List[ChunkInfo] = field(default_factory=list)
     temp_dir: Optional[Path] = None
+    staging_path: Optional[Path] = None
     start_time: float = field(default_factory=time.time)
     completed_chunks: int = 0
     failed_chunks: int = 0

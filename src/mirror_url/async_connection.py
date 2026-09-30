@@ -17,6 +17,7 @@ from urllib.parse import urlparse
 
 import httpx
 
+from .async_primitives import LoopLocalPrimitive
 from .circuit_breaker import CircuitBreakerManager
 from .constants import (
     ADAPTIVE_COOLDOWN_SECONDS,
@@ -426,7 +427,7 @@ class AdaptiveAsyncManager:
         # effect on subsequent operations without requiring an event loop
         # at construction time.
         self._semaphore: Optional[asyncio.Semaphore] = None
-        self._semaphore_lock = asyncio.Lock()
+        self._semaphore_lock = LoopLocalPrimitive(asyncio.Lock)
 
     async def __aenter__(self):
         """Context manager entry"""
@@ -473,7 +474,7 @@ class AdaptiveAsyncManager:
     async def _init_client(self) -> None:
         """Initialize the async client if not already done — PRODUCTION HARDENED."""
         # ✅ FIX: Use async lock to prevent race condition during initialization
-        async with self._semaphore_lock:  # Reuse existing lock for simplicity
+        async with self._semaphore_lock.get():
             if self._client_initialized and self._client and not self._client.is_closed:
                 return
             try:
@@ -965,10 +966,15 @@ class AsyncTaskManager:
     def __init__(self):
         """Initialize async task manager."""
         self.tasks: Set[asyncio.Task] = set()
-        self.lock = asyncio.Lock()
+        self._lock = LoopLocalPrimitive(asyncio.Lock)
         self._shutdown = False
         self.total_created = 0
         self.total_completed = 0
+
+    @property
+    def lock(self) -> asyncio.Lock:
+        """Create the shared task lock on first use in a running event loop."""
+        return self._lock.get()
 
     async def create_task(self, coro) -> asyncio.Task:
         """

@@ -366,6 +366,11 @@ class CacheManager:
         """
         key = str(local_path.resolve())
         data = {"etag": etag, "mtime": mtime, "size": size, "updated": datetime.now().isoformat()}
+        try:
+            stat = local_path.stat()
+            data.update(local_mtime_ns=stat.st_mtime_ns, local_ctime_ns=stat.st_ctime_ns)
+        except OSError:
+            pass
         self.lru_file_cache.put(key, data)
 
         with self.lock:

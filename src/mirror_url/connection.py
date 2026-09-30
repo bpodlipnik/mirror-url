@@ -660,7 +660,7 @@ class ConnectionManager:
                 # Capture the CALLER-supplied headers once, before the retry
                 # loop pops them out of kwargs. Used to correctly forward
                 # Range / If-None-Match etc. across a redirect (see below).
-                caller_headers = dict(kwargs.get("headers") or {})
+                caller_headers = dict(kwargs.pop("headers", None) or {})
 
                 for attempt in range(self.config.max_retries + 1):
                     try:
@@ -669,11 +669,7 @@ class ConnectionManager:
                             request_headers = client.headers.copy()
                         except (AttributeError, TypeError):
                             request_headers = {}
-                        if "headers" in kwargs:
-                            try:
-                                request_headers.update(kwargs.pop("headers"))
-                            except Exception:
-                                request_headers = dict(kwargs.pop("headers"))
+                        request_headers.update(caller_headers)
 
                         # FIX: Use custom timeout or default
                         if custom_timeout:

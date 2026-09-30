@@ -1,25 +1,8 @@
-"""Regression test for the streaming chunk-lock narrowing (perf fix).
+"""Concurrent range writes are verified before atomic publication.
 
-download_chunk_streaming() used to hold the per-file RLock for the entire
-network read loop + fsync of every chunk, fully serializing all chunks of
-the same file in "streaming parallel" mode -- defeating the point of
-parallel chunk downloads for any single file. The lock is now held only
-for the create/pre-allocate race; the actual read+write+fsync happens
-outside it, relying on each chunk writing to a disjoint byte range.
-
-This test drives download_chunk_streaming for real, concurrently, against
-a local HTTP server that actually supports Range requests, and asserts
-the assembled file is byte-for-byte identical to the source -- repeated
-across several runs to catch races that don't show up every time.
-
-ConnectionManager's SecureTransport intentionally refuses loopback targets
-(SSRF guard -- see test_integration.py) and there's no test-mode bypass
-wired through config yet, so this test patches only
-ParallelDownloadManager._get_client_for_url to hand back a plain
-httpx.Client() pointed at the local server. That's the one seam between
-this manager and the security-hardened transport; everything downstream
-of it (locking, seeking, writing, fsync, retries) is the real,
-unmodified production code path.
+A local HTTP server drives real concurrent reads and writes. Only the
+ConnectionManager client's SSRF transport is replaced for this loopback
+fixture; requests still use ConnectionManager's scope and redirect checks.
 """
 
 from __future__ import annotations
@@ -33,6 +16,7 @@ import httpx
 import pytest
 
 from mirror_url.config import MirrorConfig
+from mirror_url.connection import ConnectionManager
 from mirror_url.download import ParallelDownloadManager
 from mirror_url.metrics import MetricsCollector
 from mirror_url.models import ChunkInfo
@@ -59,6 +43,7 @@ class _RangeHandler(http.server.BaseHTTPRequestHandler):
             body = CONTENT[start : end + 1]
             self.send_response(206)
             self.send_header("Content-Range", f"bytes {start}-{end}/{FILE_SIZE}")
+            self.send_header("ETag", '"test-v1"')
             self.send_header("Accept-Ranges", "bytes")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
@@ -67,6 +52,7 @@ class _RangeHandler(http.server.BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Accept-Ranges", "bytes")
             self.send_header("Content-Length", str(FILE_SIZE))
+            self.send_header("ETag", '"test-v1"')
             self.end_headers()
             self.wfile.write(CONTENT)
 
@@ -74,6 +60,7 @@ class _RangeHandler(http.server.BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Accept-Ranges", "bytes")
         self.send_header("Content-Length", str(FILE_SIZE))
+        self.send_header("ETag", '"test-v1"')
         self.end_headers()
 
 
@@ -86,37 +73,37 @@ def range_server():
     yield f"http://127.0.0.1:{port}/file.bin"
     server.shutdown()
     thread.join(timeout=5)
+    server.server_close()
 
 
 def _make_manager(tmp_path: Path, config: MirrorConfig) -> ParallelDownloadManager:
     pdm = ParallelDownloadManager(
         config=config,
         metrics=MetricsCollector(),
-        connection_manager=None,
+        connection_manager=ConnectionManager(config, MetricsCollector()),
         bandwidth_limiter=BandwidthLimiter(),
         mirror=None,
     )
-    # See module docstring: bypass only the SecureTransport seam, not the
-    # per-file locking / write / fsync logic under test.
+    # Replace only the transport-bearing pooled client for localhost.
     client = httpx.Client()
-    pdm._get_client_for_url = lambda url: client
+    pdm.connection_manager.connection_pool.get_client = lambda url: client
     return pdm
 
 
 def _run_one_concurrent_streaming_download(tmp_path: Path, url: str) -> bytes:
     config = MirrorConfig(
-        base_url=url,
+        base_url=url.rsplit("/", 1)[0] + "/",
         dest_path=str(tmp_path / "dest"),
         log_path=str(tmp_path / "log"),
         no_cache=True,
         streaming_parallel=True,
+        security_validation=False,
     )
     pdm = _make_manager(tmp_path, config)
     try:
         final_path = tmp_path / f"out_{threading.get_ident()}_{id(tmp_path)}.bin"
 
-        # Mirror create_chunks()'s real streaming pre-allocation step: the
-        # final file already exists at full size before any chunk starts.
+        # A staging file is fully allocated before concurrent writers start.
         final_path.parent.mkdir(parents=True, exist_ok=True)
         with open(final_path, "wb") as f:
             f.truncate(FILE_SIZE)
@@ -137,12 +124,12 @@ def _run_one_concurrent_streaming_download(tmp_path: Path, url: str) -> bytes:
                     temp_path=None,
                     size=end - start + 1,
                     direct_write=True,
+                    etag='"test-v1"',
+                    file_size=FILE_SIZE,
                 )
             )
 
-        # Download all chunks truly concurrently, same as _download_chunk_
-        # with_semaphore does via the executor -- this is what exercises
-        # the narrowed lock.
+        # Drive disjoint chunk ranges concurrently through real HTTP I/O.
         with ThreadPoolExecutor(max_workers=N_CHUNKS) as ex:
             results = list(ex.map(pdm.download_chunk_streaming, chunks))
 
@@ -150,6 +137,8 @@ def _run_one_concurrent_streaming_download(tmp_path: Path, url: str) -> bytes:
         return final_path.read_bytes()
     finally:
         pdm.shutdown(timeout=2.0)
+        pdm.connection_manager.connection_pool.get_client(url).close()
+        pdm.connection_manager.close()
 
 
 def test_concurrent_streaming_chunks_produce_correct_file(tmp_path, range_server):
@@ -182,29 +171,23 @@ def test_streaming_download_fsyncs_once_per_file_not_once_per_chunk(tmp_path, ra
     from mirror_url.rate_limiter import BandwidthLimiter
 
     config = MirrorConfig(
-        base_url=range_server,
+        base_url=range_server.rsplit("/", 1)[0] + "/",
         dest_path=str(tmp_path / "dest"),
         log_path=str(tmp_path / "log"),
         no_cache=True,
         streaming_parallel=True,
+        security_validation=False,
     )
     pdm = ParallelDownloadManager(
         config=config,
         metrics=MetricsCollector(),
-        connection_manager=None,
+        connection_manager=ConnectionManager(config, MetricsCollector()),
         bandwidth_limiter=BandwidthLimiter(),
         mirror=None,
     )
     try:
         client = httpx.Client()
-        pdm._get_client_for_url = lambda url: client
-        # _test_range_support() goes through connection_manager.request(),
-        # not _get_client_for_url() -- there's no real ConnectionManager
-        # here (SecureTransport would refuse the loopback target anyway;
-        # see this file's module docstring), so stub the one thing
-        # create_chunks() needs from it: confirmation the server supports
-        # Range. The local _RangeHandler genuinely does.
-        pdm._test_range_support = lambda url: True
+        pdm.connection_manager.connection_pool.get_client = lambda url: client
         # Force multiple chunks out of a sub-MB test file without
         # transferring tens of MB over the local server.
         pdm.min_chunk_size = 64 * 1024
@@ -236,3 +219,5 @@ def test_streaming_download_fsyncs_once_per_file_not_once_per_chunk(tmp_path, ra
         )
     finally:
         pdm.shutdown(timeout=2.0)
+        client.close()
+        pdm.connection_manager.close()

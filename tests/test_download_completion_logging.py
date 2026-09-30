@@ -107,27 +107,23 @@ def test_assemble_file_logs_downloaded_line(tmp_path, caplog):
 
 
 def test_streaming_completion_logs_downloaded_line(tmp_path, caplog):
-    """Streaming mode: chunks already write directly to final_path as
-    they download, so completion is just bookkeeping + logging -- no
-    assembly step. All chunks pre-marked 'completed' so
-    download_parallel() skips real network I/O entirely (see the
-    `if chunk.status == "completed": continue` guard before chunks are
-    submitted to the executor) and goes straight to the completion path
-    this test is checking."""
+    """Completed staging bytes are published and logged exactly once."""
     mgr = _make_manager(tmp_path)
     final_path = tmp_path / "dest" / "streamed_file.dat"
     final_path.parent.mkdir(parents=True, exist_ok=True)
-    final_path.write_bytes(b"X" * 10)  # streaming already wrote this directly
+    final_path.write_bytes(b"old file")
+    staging_path = final_path.with_suffix(".streaming")
+    staging_path.write_bytes(b"X" * 10)
     url = "https://example.test/data/streamed_file.dat"
 
     chunk = ChunkInfo(
         file_url=url,
-        final_path=final_path,
+        final_path=staging_path,
         chunk_id=0,
         start_byte=0,
         end_byte=9,
         total_chunks=1,
-        temp_path=final_path,
+        temp_path=None,
         size=10,
         status="completed",
         direct_write=True,
@@ -138,6 +134,7 @@ def test_streaming_completion_logs_downloaded_line(tmp_path, caplog):
         file_size=10,
         chunks=[chunk],
         status="streaming",
+        staging_path=staging_path,
     )
 
     with caplog.at_level(logging.INFO):

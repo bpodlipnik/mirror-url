@@ -42,7 +42,7 @@ Given a base URL that serves an HTML directory index (e.g. an Apache/nginx
 1. **Discovers** the remote tree by recursively parsing directory listings
    (breadth-first, with depth and exclusion limits, cycle-safe).
 2. **Compares** each remote file against the local copy using size, timestamp,
-   ETag, and optional content hashing — so re-runs only fetch what changed.
+   and ETag. Directory listing validators never stand in for file checks.
 3. **Downloads** the missing/changed files, optionally in parallel (multiple
    files and/or multiple chunks per file) with resume support.
 4. **Optionally cleans up** local files that no longer exist remotely
@@ -190,8 +190,8 @@ list of options. The most commonly used options:
 |---|---|
 | *(default)* | Auto-select the best method at runtime. |
 | `--sequential-downloads` | One file at a time, no parallelism (most conservative). |
-| `--parallel-downloads` | Traditional parallel chunks via temp files (safe, resumable). |
-| `--streaming-parallel` | Parallel chunks written directly into the final file (fastest for huge files). |
+| `--parallel-downloads` | Parallel chunks via temp files, verified before assembly. |
+| `--streaming-parallel` | Parallel chunks written into a staging file, then atomically published. |
 | `--max-concurrent-downloads N` | Max files downloaded at once (default 10). |
 | `--max-chunks N` | Max chunks per file (default 8). |
 | `--min-chunk-size MB` | Minimum chunk size in MB (default 10). |
@@ -237,7 +237,7 @@ list of options. The most commonly used options:
 | `--no-rget-list` | *Currently has no effect* (accepted for backward compatibility): `RGET-LIST` files are not used for directory discovery. |
 | `--force-rget-list` | *Currently has no effect* (accepted for backward compatibility). |
 | `--rget-list-max-age DAYS` | *Currently has no effect* (accepted for backward compatibility). |
-| `--no-content-hash` | Skip content hashing for small files (hashing is on by default and is how small, frequently-rewritten files are detected as changed even when size/timestamp look the same). |
+| `--no-content-hash` | Currently has no effect on file freshness checks. |
 
 ### Filtering and scope
 
@@ -260,7 +260,7 @@ list of options. The most commonly used options:
 |---|---|
 | `--cleanup safe` | **Default.** Never delete anything. |
 | `--cleanup preview` | Show what *would* be deleted/moved, but do nothing. |
-| `--cleanup move` | Move obsolete files into an `_obsolete/` folder. |
+| `--cleanup move` | Move obsolete files into the sibling `<dest>_obsolete/` folder. |
 | `--cleanup delete` | Delete obsolete files. |
 | `--confirm-delete` | Require interactive confirmation (delete mode). |
 | `--dry-run` | Simulate the whole run without downloading or deleting. |
@@ -446,14 +446,26 @@ support.
 | Mode | Flag | Best for |
 |---|---|---|
 | **Sequential** | `--sequential-downloads` | Small jobs, fragile/throttled servers, debugging. |
-| **Traditional parallel** | `--parallel-downloads` | Many files; chunks written to temp files then assembled (safe, resumable, needs ~2× disk headroom per in-flight file). |
-| **Streaming parallel** | `--streaming-parallel` | A few very large files; chunks written directly into the pre-allocated final file (fastest, ~1× disk). |
+| **Traditional parallel** | `--parallel-downloads` | Many files; chunks written to temp files then assembled (verified before atomic replacement, needs ~2× disk headroom per in-flight file). |
+| **Streaming parallel** | `--streaming-parallel` | A few very large files; chunks written into a pre-allocated staging file, then atomically published (~1× additional disk space). |
 | **Auto** | *(default)* | Let MirrorURL choose; good general default. |
 
-Parallel chunking requires the server to support HTTP **Range** requests; if it
-doesn't, MirrorURL falls back to whole-file downloads automatically. Interrupted
-downloads can resume from a partial file on the next run (`enable_resume`,
-on by default).
+Parallel chunking requires byte Range support, a known size, and a **strong
+ETag**. Without these, MirrorURL falls back to a whole-file download. Each
+chunk sends `If-Range` and must return the exact requested `Content-Range`,
+length, and ETag. Existing destination files stay intact until all chunks
+have passed verification and the replacement is atomically published.
+
+Whole-file partials can resume with `enable_resume` (on by default) when a
+matching `.partial.json` sidecar records the source URL, total size, and strong
+ETag. Legacy partials and partials without a strong validator restart from
+zero. A server response of 200 replaces the partial from zero; 416 also
+triggers a fresh full request and never certifies the partial as complete.
+`--no-etag` disables ETag freshness comparisons; range transfers still require
+ETags for representation integrity. Traditional and streaming chunk state
+is not resumed across runs; failed chunk attempts can retry within a run.
+An interruption may leave a hidden `.streaming` staging file, but never an
+incomplete file under the destination filename.
 
 ---
 
@@ -690,11 +702,18 @@ weekly) to still catch in-place changes on a bounded delay.
 By default MirrorURL **never deletes** anything (`--cleanup safe`). To mirror
 deletions from the remote side, choose a stronger policy:
 
+
+Cleanup only acts within the current scan selection. Files excluded by
+filters, directory exclusions, depth limits, or skipped symlink subtrees are
+preserved, as are local symlinks. An incomplete remote scan skips cleanup.
+If the MOVE archive cannot be created, cleanup stops; a failed move leaves
+the source in place and never falls back to deletion.
+
 ```bash
 # See what would be removed — safe to run anytime
 mirror-url --config mirror.yaml --cleanup preview
 
-# Move obsolete files into <dest>/_obsolete/ instead of deleting
+# Move obsolete files into sibling <dest>_obsolete/ instead of deleting
 mirror-url --config mirror.yaml --cleanup move
 
 # Actually delete, with a confirmation prompt

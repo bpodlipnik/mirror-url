@@ -13,6 +13,7 @@ import time
 from threading import RLock
 from typing import Any, Callable, Dict
 
+from .async_primitives import LoopLocalPrimitive
 from .enums import CircuitBreakerState
 from .exceptions import MirrorConnectionError
 
@@ -150,11 +151,16 @@ class AsyncCircuitBreaker:
         self.failures = 0
         self.last_failure_time = 0
         self.state = "closed"  # closed, open, half-open
-        self.lock = asyncio.Lock()
+        self._lock = LoopLocalPrimitive(asyncio.Lock)
         self.total_failures = 0
         self.total_successes = 0
         self.half_open_successes = 0  # NEW: Track successes in half-open state
         self.half_open_limit = 3  # NEW: Number of successes needed to close
+
+    @property
+    def lock(self) -> asyncio.Lock:
+        """Create the shared state lock on first use in a running event loop."""
+        return self._lock.get()
 
     async def can_execute(self) -> bool:
         """
