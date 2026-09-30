@@ -12,6 +12,34 @@ integrity checks, incremental caching, and an SSRF-hardened transport layer.
 
 ---
 
+## Audit patch behavior
+
+The audit patch for 3.1.69 streams file bodies as they arrive and throttles
+between reads. HTTP/2 and pool limits reach the secure transport. Fixed async
+metadata checks honor `async_workers`; adaptive resizing changes the live
+admission limit. Both async modes validate every redirect and retry 429/5xx
+responses, honoring `Retry-After` within their overall request timeout.
+
+Whole-file partials and their resume metadata now live in the owned
+`.mirror-url-state/` directory inside the destination, so publication remains
+on the same filesystem. This name is reserved (case-insensitively): a remote file mapping under it
+causes the sync to fail. A pre-existing directory without a valid ownership
+marker is preserved and rejected; obsolete-file cleanup never enters this
+reserved directory. Legacy adjacent `*.mirror-partial` files are not resumed
+or classified as stale partials. Requested obsolete-file cleanup can still
+remove them if absent from the remote listing. Review or archive those files
+before enabling cleanup.
+
+`max_depth` counts directories below the root (root depth 0); a file in an
+immediate child directory is eligible at depth 1. Duplicate URLs are downloaded
+once. Ambiguous sanitized names abort before downloading. A complete empty
+scan can clean obsolete files when requested; an incomplete scan skips cleanup
+and reports failure. Cleanup failures also produce a failing exit status.
+
+Cache metadata is saved after downloads and cleanup. `--quick` refreshes the
+JSON timestamp used for cache expiry without scanning. Neither ETags nor
+size/mtime checks are a cryptographic content comparison against the server.
+
 ## Table of contents
 
 - [What it does](#what-it-does)
@@ -217,8 +245,8 @@ list of options. The most commonly used options:
 | `--no-connection-pool-prewarm` | Don't pre-warm connection pools at startup. |
 | `--no-circuit-breaker` | Disable the circuit breaker everywhere it is used: per-domain for metadata/scan requests and for chunked file downloads. |
 | `--no-circuit-breaker-downloads` | *Currently has no effect* (accepted for backward compatibility). Use `--no-circuit-breaker` to disable the download circuit breaker. |
-| `--adaptive-start-concurrency N` | Starting concurrency for adaptive async scanning (default 5). |
-| `--adaptive-error-threshold RATE` | Error rate (0–1) at which adaptive async concurrency backs off (default 0.05). |
+| `--adaptive-start-concurrency N` | Starting async metadata concurrency (default 5), bounded by `--async-workers` and the adaptive maximum of 50. |
+| `--adaptive-error-threshold RATE` | Error-rate threshold (0–1, default 0.05) for adaptive metadata fallback; moderate errors also reduce concurrency. |
 | `--no-adaptive-async` | Disable adaptive async concurrency; use a fixed `--async-workers` count. |
 
 ### Caching
@@ -233,7 +261,7 @@ list of options. The most commonly used options:
 | `--quick` | Quick mode: refresh the cache timestamp only. |
 | `--no-cache-html` | Disable caching of parsed HTML directory listings (HTML caching is on by default). |
 | `--html-cache-max-age HOURS` | Max age of cached HTML listings before a re-fetch (default 24). |
-| `--hash-algorithm {md5,sha256}` | Hash algorithm used for file-integrity/cache keys (default `md5`). |
+| `--hash-algorithm {md5,sha256,blake2b}` | Hash used for directory/cache signatures (default `md5`); downloaded file contents are not compared with a remote cryptographic digest. |
 | `--no-rget-list` | *Currently has no effect* (accepted for backward compatibility): `RGET-LIST` files are not used for directory discovery. |
 | `--force-rget-list` | *Currently has no effect* (accepted for backward compatibility). |
 | `--rget-list-max-age DAYS` | *Currently has no effect* (accepted for backward compatibility). |
@@ -246,10 +274,10 @@ list of options. The most commonly used options:
 | `--filter P [P ...]` | Only download matching files. Each pattern is a plain extension (`.fits`) or a regex (`'2024.*\.fits$'`). |
 | `--exclude-dir D [D ...]` | Skip directories, each matched as an exact path relative to `--url` (not a suffix at any depth — see "Filtering and scope" below). |
 | `--max-depth N` | Maximum directory recursion depth (default 50; `--list-dirs` defaults to 1 instead — see below). |
-| `--scan-mode {adaptive,sequential,async}` | Directory-scan strategy: `adaptive` (default) picks per directory, `sequential` and `async` force one approach throughout. |
+| `--scan-mode {adaptive,sequential,parallel,async}` | Accepted for compatibility; directory discovery and parsing currently use sequential scanning regardless of this value. Async workers apply to file metadata checks. |
 | `--parallel-threshold N` | *Currently has no effect* (accepted for backward compatibility); the value is parsed but not used to choose a scan strategy. |
-| `--max-filename-len N` | Truncate filenames longer than this before writing to disk (default 255). |
-| `--download-queue-size N` | Max files buffered between the scanner and the downloader (default 1000). |
+| `--max-filename-len N` | Sanitize/truncate local filenames (default 255). If distinct URLs map to the same local name, the sync fails before downloading; use a larger limit or a narrower scope. |
+| `--download-queue-size N` | Accepted for compatibility; the current sync pipeline collects the full remote file list and does not enqueue downloads through the bounded queue. |
 | `--max-symlink-depth N` | With `--handle-symlinks`, how many symlink hops deep to follow before stopping (default 10). |
 | `--list-dirs [N]` | Discover and print the directory tree under `--url`/`--dir-suffix`, then exit — no file scanning, freshness checks, or downloads/deletes. Respects `--exclude-dir`/`--max-depth` (defaults to `1` — the current folder's immediate children only — unless `--max-depth` is given explicitly; every other mode still defaults to 50); `--filter` doesn't apply (files only). With `N`, shows only the last `N` directories overall, sorted **lexicographically by relative path** (a name sort, not a true timestamp sort), with the root (`.`) excluded from that ranking. Always followed by a `# Directories N/total` summary line, including unrestricted runs (`N == total`). Doesn't require `--dest-path`/`--log-path`. |
 | `--list-files [N]` | Discover and print files under `--url`/`--dir-suffix`, then exit — no freshness checks or downloads/deletes. Respects `--exclude-dir`/`--max-depth`/`--filter`. With `N`, shows only the last `N` files *per directory*, sorted **lexicographically by filename** (a name sort, not a true timestamp sort — see "Filtering and scope" below). Doesn't require `--dest-path`/`--log-path`. |
@@ -277,14 +305,14 @@ list of options. The most commonly used options:
 | `--quiet` | Warnings and errors only. |
 | `--health-check-port N` | Port for the health/metrics HTTP server (default 8080). |
 | `--version` | Print version and exit. |
-| `--no-adaptive-batch-processing` | Use a fixed batch size instead of adapting it during the run (see the three flags below). |
-| `--initial-batch-size N` | Starting batch size when `--no-adaptive-batch-processing` is *not* set (default 200). |
-| `--max-batch-size N` | Ceiling the adaptive batch size can grow to (default 1000). |
-| `--target-batch-time SECS` | Adaptive batching aims for each batch to take about this long (default 1.0). |
-| `--memory-cache-size N` | Max entries kept in the in-memory metadata cache (default 100000). |
-| `--disk-cache-dir DIR` | Spill the metadata cache to disk under this directory once `--memory-cache-size` is exceeded. |
-| `--no-fast-parsing-fallback` | Disable the fast HTML parser fallback used for very large directory listings. |
-| `--fs-cache-ttl SECS` | How long a filesystem stat lookup is cached before being re-checked (default 5.0). |
+| `--no-adaptive-batch-processing` | Accepted for compatibility; the adaptive batch processor is not used by the current sync pipeline. |
+| `--initial-batch-size N` | Accepted for compatibility; currently does not change sync batching. |
+| `--max-batch-size N` | Accepted for compatibility; currently does not change sync batching. |
+| `--target-batch-time SECS` | Accepted for compatibility; currently does not change sync batching. |
+| `--memory-cache-size N` | Sets the memory threshold of the optional disk-backed tracking component, which the current sync pipeline does not populate. The active metadata-cache capacities are constants; this option does not bound the remote file list. |
+| `--disk-cache-dir DIR` | Configures cache/tracking components; does not spill the current sync pipeline's full remote file list to disk. |
+| `--no-fast-parsing-fallback` | Disables fallback after an lxml failure; large listings or installations without lxml still select the lightweight HTML parser. |
+| `--fs-cache-ttl SECS` | Configures the standalone filesystem cache; freshness checks in the current pipeline use filesystem stats directly. |
 | `--benchmark` | Run a built-in performance benchmark instead of a normal sync. |
 
 Without `--log-file`, each `--dir-suffix` gets its own log file named
@@ -683,8 +711,9 @@ re-fetching directory listings.
   locally; only download what's absent.
 - `--quick` — only bump the cache timestamp (no scanning/downloading).
 
-For very large trees, `--use-disk-backed-sets` keeps the file-set on disk to
-bound memory use.
+`--use-disk-backed-sets` constructs a tracking component, but the current sync
+pipeline does not add remote URLs to it. Discovery still materializes the remote
+file list in memory; this option does not bound large-tree memory use.
 
 `--missing-files` trades correctness for speed on datasets where a per-file
 network check on every run is expensive but rarely finds anything (a large,
@@ -739,10 +768,10 @@ MirrorURL ships with security protections **enabled by default**:
 - **Filesystem safety** — filename sanitization, path-traversal rejection,
   Windows reserved-name handling, and symlink-loop/bomb defenses.
 
-> Because of the SSRF guard, MirrorURL **cannot mirror a server on
-> `localhost`/`127.0.0.1`** unless you explicitly disable validation with
-> `--no-security-validation` (or `security_validation: false`). Disabling this
-> removes SSRF protection — only do so for trusted, local targets.
+> The secure transport rejects direct-IP, private, and loopback targets,
+> including `localhost`. `--no-security-validation` disables the extra URL
+> validation layer; it does not disable transport IP validation. There is no
+> production option for mirroring private or local servers.
 
 Symlink handling is off by default; see [Symlink handling](#symlink-handling)
 below for how it works and how to use it.
@@ -979,8 +1008,9 @@ mirror-url --config mirror.yaml && echo "OK" || echo "FAILED ($?)"
 ## Troubleshooting
 
 **"Hostname resolves to private IP" / connection refused to localhost.**
-The SSRF guard is blocking a private/loopback target. For a trusted local
-server, add `--no-security-validation` (or `security_validation: false`).
+The secure transport blocks private/loopback targets even with
+`--no-security-validation`. Use a public hostname resolving to a public address.
+The loopback bypass used by integration tests is confined to those tests.
 
 **Server returns 403/429 or downloads are slow/failing.**
 The remote may be throttling you. Try `--trusted-server` off, increase
