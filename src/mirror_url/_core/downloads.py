@@ -1,6 +1,6 @@
 """DownloadMixin: Single-file download with resume.
 
-Methods extracted verbatim from the original ``MirrorURL`` class
+Originally extracted from the original ``MirrorURL`` class
 (see ``REFACTORING_PLAN.md`` §4.1). Composed into ``MirrorURL`` in
 ``core/__init__.py``; relies on shared state set up by ``_MirrorBase.__init__``.
 """
@@ -10,12 +10,21 @@ from __future__ import annotations
 import logging
 import os
 import time
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Optional
 
 import httpx
 
 from ..constants import DOWNLOAD_CHUNK_SIZE
+from ..download_integrity import (
+    clear_resume_metadata,
+    content_length,
+    load_resume_metadata,
+    save_resume_metadata,
+    strong_etag,
+    validate_range,
+)
 from ..utils import exponential_backoff, format_bytes, sanitize_url_for_log, trim_url
 
 
@@ -54,15 +63,6 @@ class DownloadMixin:
         remote_url = trim_url(remote_url)
         download_start = time.time()
 
-        try:
-            # Use cached filename extraction for performance
-            filename = self._get_cached_filename(remote_url)
-            parent_dir = local_path.parent
-            local_path = parent_dir / filename
-            logging.debug(f"Normalized path: {local_path}")
-        except Exception as e:
-            logging.debug(f"Error decoding filename: {e}")
-
         # Connection-level circuit breaking is enforced inside
         # ConnectionManager request paths via circuit_breaker_manager
         # (per-domain). A previous pre-check against the always-None
@@ -72,76 +72,46 @@ class DownloadMixin:
         partial_path = self.partial_manager.register_partial(local_path, remote_url)
         logging.debug(f"Partial path: {partial_path}")
 
-        headers = {}
-        mode = "wb"
-        bytes_already = 0
-
-        if self.config.enable_resume and partial_path.exists():
-            bytes_already = self.partial_manager.get_resume_offset(partial_path)
-            if bytes_already > 0:
-                headers["Range"] = f"bytes={bytes_already}-"
-                mode = "ab"
-                logging.debug(f"Resuming download from {bytes_already} bytes")
-                self.metrics.increment("partial_resumes")
-
         try:
             local_path.parent.mkdir(parents=True, exist_ok=True)
-            ts = self.get_remote_timestamp(remote_url)
+            if partial_path.is_symlink():
+                raise ValueError("Partial download path is a symlink")
 
             for attempt in range(self.config.max_retries + 1):
+                r = None
                 try:
+                    headers = {"Accept-Encoding": "identity"}
+                    metadata = (
+                        load_resume_metadata(partial_path, remote_url)
+                        if self.config.enable_resume
+                        else None
+                    )
+                    bytes_already = partial_path.stat().st_size if metadata else 0
+                    mode = "ab" if bytes_already else "wb"
+                    if metadata:
+                        headers.update(
+                            Range=f"bytes={bytes_already}-", **{"If-Range": metadata["etag"]}
+                        )
+                        self.metrics.increment("partial_resumes")
+                    else:
+                        clear_resume_metadata(partial_path)
+
                     start = time.time()
                     r = self.connection_manager.request(
                         remote_url, method="GET", timeout=30, headers=headers
                     )
-
-                    if attempt == 0 and r.status_code == 416 and bytes_already > 0:
-                        # Per RFC 7233, a 416 response SHOULD include
-                        #   Content-Range: bytes */<total_size>
-                        # to tell the client the actual file length.
-                        # Earlier code read Content-Length, which is 0 for an
-                        # empty 416 body — making the size comparison
-                        # ``partial_size >= 0`` trivially true and renaming the
-                        # partial regardless of whether it was complete. We now
-                        # parse Content-Range first, fall back to Content-Length
-                        # only if the server omits the standard header.
-                        total_size = 0
-                        content_range = r.headers.get("Content-Range", "")
-                        if "/" in content_range:
-                            try:
-                                total_size = int(content_range.rsplit("/", 1)[1])
-                            except (ValueError, IndexError):
-                                total_size = 0
-                        if total_size == 0:
-                            try:
-                                total_size = int(r.headers.get("Content-Length", 0))
-                            except (ValueError, TypeError):
-                                total_size = 0
-
-                        if total_size > 0 and partial_path.stat().st_size >= total_size:
-                            partial_path.rename(local_path)
-                            logging.info(f"File already complete: {local_path}")
-                            self.metrics.increment("resumed_downloads")
-                            self.partial_manager.complete_partial(partial_path)
-
-                            if hasattr(self, "fs_cache"):
-                                self.fs_cache.invalidate(local_path)
-
-                            self.performance_monitor.record(
-                                "download", time.time() - download_start, True
-                            )
-                            return True
-
-                        # 416 but partial isn't actually complete — restart from
-                        # scratch (truncate the partial, drop Range header).
-                        try:
-                            partial_path.unlink()
-                        except OSError:
-                            pass
-                        mode = "wb"
-                        headers = {}
-                        bytes_already = 0
-                        continue
+                    if metadata and r.status_code == 416:
+                        # A 416 never proves local contents are complete, even
+                        # when the advertised total happens to equal our size.
+                        r.close()
+                        r = self.connection_manager.request(
+                            remote_url,
+                            method="GET",
+                            timeout=30,
+                            headers={"Accept-Encoding": "identity"},
+                        )
+                        mode, bytes_already, metadata = "wb", 0, None
+                        clear_resume_metadata(partial_path)
 
                     if r.status_code not in (200, 206):
                         logging.warning(
@@ -153,45 +123,66 @@ class DownloadMixin:
                         )
                         return False
 
-                    # Range-ignored protection.
-                    #
-                    # If we sent ``Range: bytes=N-`` (because a partial existed)
-                    # but the server returned 200 with the FULL body instead of
-                    # 206 with just the requested range, appending the full body
-                    # to the existing partial bytes would silently corrupt the
-                    # file (final size = partial_size + full_size, content =
-                    # partial_bytes + full_bytes). Detected and fixed here:
-                    # discard the partial and overwrite from scratch.
-                    if r.status_code == 200 and mode == "ab":
-                        logging.warning(
-                            f"Server returned 200 instead of 206 for ranged request "
-                            f"to {sanitize_url_for_log(remote_url)}; discarding "
-                            f"{bytes_already}-byte partial and restarting from scratch."
-                        )
-                        mode = "wb"
-                        bytes_already = 0
+                    if metadata and r.status_code == 200:
+                        mode, bytes_already, metadata = "wb", 0, None
                         self.metrics.increment("range_ignored_restarts")
+                        clear_resume_metadata(partial_path)
+                    if r.status_code == 206:
+                        if not metadata:
+                            raise ValueError("Unsolicited partial response to a full download")
+                        validate_range(
+                            r,
+                            bytes_already,
+                            metadata["size"] - 1,
+                            metadata["size"],
+                            metadata["etag"],
+                        )
+                        expected_size = metadata["size"]
+                    else:
+                        if r.headers.get("Content-Encoding", "identity").lower() != "identity":
+                            raise ValueError("Server ignored Accept-Encoding: identity")
+                        expected_size = content_length(r.headers)
 
                     size = bytes_already
-
                     with open(partial_path, mode) as f:
+                        f.flush()
+                        os.fsync(f.fileno())
+                        # Write the validator only after an old partial has
+                        # been truncated, so a crash cannot bind old bytes to
+                        # the new representation.
+                        etag = strong_etag(r.headers)
+                        if etag and expected_size is not None:
+                            save_resume_metadata(partial_path, remote_url, etag, expected_size)
+                        else:
+                            clear_resume_metadata(partial_path)
                         for chunk in r.iter_bytes(DOWNLOAD_CHUNK_SIZE):
                             if chunk:
+                                if expected_size is not None and size + len(chunk) > expected_size:
+                                    raise ValueError("Download exceeds expected length")
                                 f.write(chunk)
                                 size += len(chunk)
                                 self.partial_manager.update_activity(partial_path, len(chunk))
-
                                 if self.bandwidth_limiter:
                                     self.bandwidth_limiter.throttle(len(chunk))
+                        f.flush()
+                        os.fsync(f.fileno())
+                    if expected_size is not None and size != expected_size:
+                        raise ValueError(f"Incomplete download: {size} != {expected_size}")
 
                     download_time = time.time() - start
                     self.metrics.add_download_time(download_time)
 
-                    partial_path.rename(local_path)
+                    os.replace(partial_path, local_path)
+                    clear_resume_metadata(partial_path)
                     self.partial_manager.complete_partial(partial_path)
 
-                    if ts:
-                        os.utime(local_path, times=(ts, ts))
+                    last_modified = r.headers.get("Last-Modified")
+                    if last_modified:
+                        try:
+                            timestamp = parsedate_to_datetime(last_modified).timestamp()
+                            os.utime(local_path, times=(timestamp, timestamp))
+                        except (OSError, ValueError, TypeError, OverflowError):
+                            pass
 
                     remote_etag = r.headers.get("ETag")
                     if remote_etag:
@@ -219,7 +210,12 @@ class DownloadMixin:
                     self.performance_monitor.record("download", time.time() - download_start, True)
                     return True
 
-                except (httpx.ConnectError, httpx.TimeoutException) as e:
+                except (
+                    httpx.ConnectError,
+                    httpx.TimeoutException,
+                    httpx.ReadError,
+                    httpx.RemoteProtocolError,
+                ) as e:
                     if attempt < self.config.max_retries:
                         wait_time = exponential_backoff(attempt)
                         logging.warning(
@@ -246,6 +242,7 @@ class DownloadMixin:
                         if partial_path.exists():
                             try:
                                 partial_path.unlink()
+                                clear_resume_metadata(partial_path)
                             except Exception as unlink_err:
                                 logging.debug(
                                     f"Failed to remove partial file {partial_path}: {unlink_err}"
@@ -272,6 +269,7 @@ class DownloadMixin:
                     if partial_path.exists():
                         try:
                             partial_path.unlink()
+                            clear_resume_metadata(partial_path)
                         except Exception as unlink_err:
                             logging.debug(
                                 f"Failed to remove partial file {partial_path}: {unlink_err}"
@@ -280,6 +278,9 @@ class DownloadMixin:
                     self.partial_manager.complete_partial(partial_path)
                     self.performance_monitor.record("download", time.time() - download_start, False)
                     return False
+                finally:
+                    if r is not None:
+                        r.close()
 
         except Exception as e:
             logging.error(f"Download failed: {e}")
@@ -287,9 +288,21 @@ class DownloadMixin:
             self.metrics.increment("files_failed")
             self.metrics.add_error(str(e), "download_failed")
 
-            if partial_path.exists():
+            if (
+                not isinstance(
+                    e,
+                    (
+                        httpx.ConnectError,
+                        httpx.TimeoutException,
+                        httpx.ReadError,
+                        httpx.RemoteProtocolError,
+                    ),
+                )
+                and partial_path.exists()
+            ):
                 try:
                     partial_path.unlink()
+                    clear_resume_metadata(partial_path)
                 except Exception as unlink_err:
                     logging.debug(f"Failed to remove partial file {partial_path}: {unlink_err}")
 

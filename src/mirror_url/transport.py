@@ -194,6 +194,10 @@ class SecureAsyncTransport(httpx.AsyncHTTPTransport):
         # download paths. Mirror the sync transport's behavior.
         self._test_mode = test_mode
 
+        # DNS resolution is serialized separately from cache access. asyncio
+        # locks are not reentrant; cache helpers acquire _ip_lock themselves.
+        self._resolution_lock = asyncio.Lock()
+
         # FIX: Track cleanup timing
         self._last_cleanup = time.time()
         self._request_count = 0
@@ -263,7 +267,7 @@ class SecureAsyncTransport(httpx.AsyncHTTPTransport):
             if hasattr(self.rate_limiter, "async_wait"):
                 await self.rate_limiter.async_wait(hostname)
             else:
-                self.rate_limiter.wait(hostname)
+                await asyncio.to_thread(self.rate_limiter.wait, hostname)
 
         # FIX: Periodic cleanup of stale IPs
         self._request_count += 1
@@ -272,15 +276,17 @@ class SecureAsyncTransport(httpx.AsyncHTTPTransport):
 
         safe_ip = await self._get_cached_ip(hostname)
         if safe_ip is None:
-            async with self._ip_lock:
+            async with self._resolution_lock:
                 safe_ip = await self._get_cached_ip(hostname)
                 if safe_ip is None:
-                    safe_ip = SecurityValidator.resolve_and_validate_hostname(hostname)
+                    safe_ip = await asyncio.to_thread(
+                        SecurityValidator.resolve_and_validate_hostname, hostname
+                    )
                     await self._cache_ip(hostname, safe_ip)
 
         new_url = request.url.copy_with(host=safe_ip)
         new_headers = request.headers.copy()
-        new_headers["Host"] = hostname
+        new_headers["Host"] = request.url.netloc.decode("ascii")
         new_extensions = dict(request.extensions) if request.extensions else {}
         new_extensions["sni_hostname"] = hostname
 

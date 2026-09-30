@@ -1,6 +1,6 @@
 """CleanupMixin: Obsolete-file cleanup (preview/move/delete policies).
 
-Methods extracted verbatim from the original ``MirrorURL`` class
+Originally extracted from the original ``MirrorURL`` class
 (see ``REFACTORING_PLAN.md`` §4.1). Composed into ``MirrorURL`` in
 ``core/__init__.py``; relies on shared state set up by ``_MirrorBase.__init__``.
 """
@@ -13,7 +13,7 @@ import shutil
 import time
 from pathlib import Path
 from typing import List, Optional, Set, Tuple
-from urllib.parse import unquote, urlparse
+from urllib.parse import quote, unquote, urlparse
 
 from ..decorators import log_performance
 from ..enums import CleanupPolicy
@@ -35,21 +35,16 @@ class CleanupMixin:
         objects already carry that type information from the directory
         read itself on most platforms (no second syscall needed).
 
-        Symlinks are followed for file/directory classification (matching
-        pathlib's Path.is_file()/is_dir() default behavior, which the
-        previous rglob()-based code relied on), but a symlinked directory
-        is only ever descended into once: each directory's resolved real
-        path is tracked in `visited`, so a symlink cycle terminates
-        cleanly instead of looping forever. This is more explicit and
-        robust than the previous code's approach, which just caught
-        whatever RuntimeError pathlib's own (version-dependent) loop
-        detection happened to raise.
+        Local symlinks are never followed or removed. Every candidate is
+        checked for containment again immediately before a mutation.
 
         A directory that can't be listed (permission error, or it
         disappeared mid-walk) is logged at debug level and skipped rather
         than aborting the whole walk -- mirrors the previous code's
         graceful handling of individual unreadable entries.
         """
+        if self.target_dir.is_symlink():
+            return [], []
         files: List[Path] = []
         dirs: List[Path] = []
         visited: Set[Path] = set()
@@ -73,8 +68,10 @@ class CleanupMixin:
             for entry in entries:
                 entry_path = Path(entry.path)
                 try:
-                    is_dir = entry.is_dir()
-                    is_file = entry.is_file()
+                    if entry.is_symlink():
+                        continue
+                    is_dir = entry.is_dir(follow_symlinks=False)
+                    is_file = entry.is_file(follow_symlinks=False)
                 except OSError as e:
                     # Broken symlink or a permission/stat error on this one
                     # entry -- pathlib's is_file()/is_dir() would likewise
@@ -99,6 +96,52 @@ class CleanupMixin:
                     files.append(entry_path)
 
         return files, dirs
+
+    def _cleanup_path_selected(self, path: Path, *, directory: bool = False) -> bool:
+        """Protect paths the current scan deliberately did not inspect."""
+        try:
+            relative = path.relative_to(self.target_dir)
+            if path.is_symlink() or self.target_dir.is_symlink():
+                return False
+            if not PathSafety.is_subpath(self.target_dir, path):
+                return False
+            # A scan only fetches directories strictly below max_depth;
+            # file mapping also counts the filename as a path component.
+            depth = len(relative.parts) + (1 if directory else 0)
+            if depth > self.config.max_depth:
+                return False
+            base = self.target_parsed.geturl().rstrip("/") + "/"
+            parts = relative.parts if directory else relative.parts[:-1]
+            for index in range(1, len(parts) + 1):
+                parent = self.target_dir.joinpath(*parts[:index])
+                if parent.is_symlink():
+                    return False
+                url = base + "/".join(quote(part, safe="") for part in parts[:index]) + "/"
+                if any(
+                    url.startswith(prefix)
+                    for prefix in getattr(self, "cleanup_protected_prefixes", ())
+                ):
+                    return False
+                if getattr(self.config, "exclude_dirs", ()):
+                    if not hasattr(self, "_is_dir_excluded") or self._is_dir_excluded(url):
+                        return False
+            if not directory:
+                mapped = PathSafety.safe_join(
+                    self.target_dir,
+                    *relative.parts,
+                    max_depth=self.config.max_depth,
+                    max_filename_len=self.config.max_filename_len,
+                    create_base=False,
+                )
+                if mapped != path.resolve():
+                    return False
+                if getattr(self.config, "file_filters", ()):
+                    url = base + "/".join(quote(part, safe="") for part in relative.parts)
+                    if not hasattr(self, "matches_filter") or not self.matches_filter(url):
+                        return False
+            return True
+        except (OSError, ValueError):
+            return False
 
     @log_performance("clean_obsolete")
     def clean_obsolete(self, remote_files: Set[str]) -> None:
@@ -128,6 +171,10 @@ class CleanupMixin:
         # Check target_dir
         if self.target_dir is None:
             logging.debug("Cleanup skipped: target_dir is None")
+            return
+
+        if self.target_dir.is_symlink():
+            logging.warning("Cleanup skipped: target directory is a symlink")
             return
 
         if not self.target_dir.exists():
@@ -168,6 +215,9 @@ class CleanupMixin:
         # and the real DELETE/MOVE collection all used to each re-walk the
         # entire tree independently via their own Path.rglob("*") call.
         all_files, all_dirs = self._scan_local_tree()
+        protected = {item for item in all_files if not self._cleanup_path_selected(item)}
+        expected.update(protected)
+        all_dirs = [item for item in all_dirs if self._cleanup_path_selected(item, directory=True)]
 
         # Delete confirmation
         if (
@@ -235,12 +285,14 @@ class CleanupMixin:
         if self.config.cleanup_policy == CleanupPolicy.MOVE:
             obsolete_dir = self.target_dir.parent / f"{self.target_dir.name}_obsolete"
             try:
+                if obsolete_dir.is_symlink():
+                    raise OSError("Archive directory is a symlink")
                 obsolete_dir.mkdir(parents=True, exist_ok=True)
                 logging.info(f"📦 Obsolete files will be moved to: {obsolete_dir}")
             except Exception as e:
                 logging.error(f"Failed to create obsolete directory {obsolete_dir}: {e}")
-                logging.warning("Falling back to DELETE mode")
-                self.config.cleanup_policy = CleanupPolicy.DELETE
+                self.metrics.metrics["cleanup_failed_operations"] = 1
+                return
 
         logging.info(f"{prefix}Scanning for obsolete files...")
 
@@ -252,13 +304,15 @@ class CleanupMixin:
 
         # Process files
         for item in files_to_process:
-            if item in expected:
+            if item in expected or not self._cleanup_path_selected(item):
                 continue
 
             if self.config.cleanup_policy == CleanupPolicy.MOVE and obsolete_dir:
                 try:
                     rel_path = item.relative_to(self.target_dir)
                     dest = obsolete_dir / rel_path
+                    if not PathSafety.is_subpath(obsolete_dir, dest):
+                        raise OSError("Archive destination escapes archive directory")
                     dest.parent.mkdir(parents=True, exist_ok=True)
 
                     if dest.exists():
@@ -276,6 +330,7 @@ class CleanupMixin:
                     logging.info(f"Moved obsolete: {item} → {dest}")
                 except Exception as e:
                     logging.error(f"Failed to move {item}: {e}")
+                    expected.add(item)
                     failed_operations += 1
             else:  # DELETE mode
                 try:
@@ -289,6 +344,7 @@ class CleanupMixin:
                     logging.info(f"Deleted obsolete: {item}")
                 except Exception as e:
                     logging.error(f"Failed to delete {item}: {e}")
+                    expected.add(item)
                     failed_operations += 1
 
         logging.info(f"{prefix}Cleaning up empty directories...")
@@ -301,7 +357,11 @@ class CleanupMixin:
             iteration += 1
 
             for item in sorted(dirs_to_check, key=lambda p: len(p.parts), reverse=True):
-                if not item.is_dir() or item == self.target_dir:
+                if (
+                    not item.is_dir()
+                    or item == self.target_dir
+                    or not self._cleanup_path_selected(item, directory=True)
+                ):
                     continue
 
                 try:
@@ -319,6 +379,8 @@ class CleanupMixin:
                         try:
                             rel_path = item.relative_to(self.target_dir)
                             dest = obsolete_dir / rel_path
+                            if not PathSafety.is_subpath(obsolete_dir, dest):
+                                raise OSError("Archive destination escapes archive directory")
                             dest.parent.mkdir(parents=True, exist_ok=True)
                             # FIX: shutil.move() already relocates the
                             # directory to `dest`. The previous code followed
@@ -336,14 +398,9 @@ class CleanupMixin:
                             moved_dirs += 1
                             logging.info(f"Moved obsolete dir: {item} → {dest}")
                             changed = True
-                        except Exception:
-                            try:
-                                item.rmdir()
-                                deleted_dirs += 1
-                                changed = True
-                                logging.info(f"Removed empty dir: {item}")
-                            except Exception as e:
-                                logging.debug(f"Error removing directory {item}: {e}")
+                        except Exception as e:
+                            logging.error(f"Failed to move directory {item}: {e}")
+                            failed_operations += 1
                     else:
                         try:
                             item.rmdir()

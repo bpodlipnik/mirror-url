@@ -1,6 +1,6 @@
 """Parallel + partial download engines.
 
-Migrated verbatim from ``mirror_url.py``:
+Originally extracted from ``mirror_url.py``:
 ``ParallelDownloadManager`` (orig. 4215-5640), ``PartialDownloadManager`` (orig.
 9204-9366).
 
@@ -26,7 +26,7 @@ import uuid
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from threading import Lock, RLock, Semaphore
+from threading import RLock, Semaphore
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 from urllib.parse import urlparse
 
@@ -40,6 +40,7 @@ from .constants import (
     PARTIAL_SUFFIX,
     STREAMING_WRITE_BUFFER_SIZE,
 )
+from .download_integrity import clear_resume_metadata, content_length, strong_etag, validate_range
 from .enums import DownloadMethod
 from .exceptions import ChunkAssemblyError, ChunkDownloadError
 from .models import ChunkInfo, ParallelFileDownload
@@ -223,19 +224,6 @@ class ParallelDownloadManager:
 
         self.assembly_dir.mkdir(parents=True, exist_ok=True)
 
-        # Per-file locks for true parallelism (one RLock per final file path).
-        # Pruned on download completion in cleanup_chunks() to avoid leaking.
-        # FIX (lock-creation race): a defaultdict's __missing__ + __setitem__
-        # is not formally atomic — two threads concurrently accessing the
-        # same not-yet-present key could each construct a separate RLock and
-        # only one would survive in the dict, while the other thread would
-        # already be holding (and serializing on) the loser. CPython's GIL
-        # masks this *most* of the time, but it's not safe to rely on. Use
-        # an explicit guard lock for the lazy-create step (see
-        # _get_file_lock).
-        self._file_locks: Dict[Path, RLock] = {}
-        self._file_locks_create_lock = Lock()
-
         # Statistics
         self.stats = {
             "total_chunks": 0,
@@ -289,7 +277,6 @@ class ParallelDownloadManager:
             ]
             for path in stale_downloads:
                 self.active_downloads.pop(path, None)
-                self._file_locks.pop(path, None)
 
             # 🔴 CRITICAL: Enforce hard limit to prevent unbounded memory growth
             if len(self.active_downloads) > self.max_active_downloads:
@@ -307,7 +294,6 @@ class ParallelDownloadManager:
                 to_remove = completed[: max(0, len(completed) - target)]
                 for path, _ in to_remove:
                     self.active_downloads.pop(path, None)
-                    self._file_locks.pop(path, None)
 
         # ========================================================================
         # 2. CLEAN UP IP SEMAPHORES (TIME-BASED)
@@ -363,49 +349,46 @@ class ParallelDownloadManager:
         chunk_count = self.get_chunk_count(file_size)
         if chunk_count <= 1:
             return None
-        if not self._test_range_support(url):
-            logging.debug(f"Server doesn't support Range for {url}")
+        try:
+            response = self.connection_manager.request(
+                url, method="HEAD", headers={"Accept-Encoding": "identity"}
+            )
+            etag = strong_etag(response.headers)
+            if (
+                response.status_code != 200
+                or response.headers.get("Accept-Ranges", "").lower() != "bytes"
+                or content_length(response.headers) != file_size
+                or not etag
+            ):
+                return None
+        except Exception as e:
+            logging.debug(f"Range metadata unavailable for {url}: {e}")
             return None
-        download = ParallelFileDownload(url=url, final_path=local_path, file_size=file_size)
+        download = ParallelFileDownload(
+            url=url, final_path=local_path, file_size=file_size, server_etag=etag
+        )
 
-        # Determine mode based on settings
         if self.use_streaming:
-            # Streaming mode: direct write to final file
             try:
                 local_path.parent.mkdir(parents=True, exist_ok=True)
-                with open(local_path, "wb") as f:
+                # Same filesystem as destination, but never a plausible final
+                # file after an interruption. The existing file stays intact.
+                fd, name = tempfile.mkstemp(
+                    prefix=f".{local_path.name}.", suffix=".streaming", dir=local_path.parent
+                )
+                download.staging_path = Path(name)
+                with os.fdopen(fd, "wb") as f:
                     f.truncate(file_size)
                 download.status = "streaming"
-                logging.info(
-                    f"🚀 Streaming parallel download for {local_path.name}: {chunk_count} chunks, {format_bytes(file_size)}"
-                )
-            except Exception as e:
-                logging.warning(
-                    f"Failed to pre-allocate file for streaming, falling back to temp files: {e}"
-                )
-                download.temp_dir = self.assembly_dir / f"{local_path.name}_{uuid.uuid4().hex[:8]}"
-                download.temp_dir.mkdir(parents=True, exist_ok=True)
-                download.status = "downloading"
-                logging.info(
-                    f"📦 Traditional parallel download (fallback) for {local_path.name}: {chunk_count} chunks, {format_bytes(file_size)}"
-                )
-
-                # FIX: Touch the file to ensure it exists.
-                # This prevents race conditions in download_chunk_streaming where concurrent chunks
-                # might try to create/truncate the file simultaneously in the 'else' block.
-                # By ensuring it exists (even if empty), download_chunk_streaming will use 'r+b'.
-                try:
-                    local_path.touch(exist_ok=True)
-                except Exception:
-                    pass
-        else:
-            # Traditional mode: use temp files
+            except OSError as e:
+                if download.staging_path:
+                    download.staging_path.unlink(missing_ok=True)
+                    download.staging_path = None
+                logging.warning(f"Streaming pre-allocation failed, using chunk files: {e}")
+        if download.staging_path is None:
             download.temp_dir = self.assembly_dir / f"{local_path.name}_{uuid.uuid4().hex[:8]}"
             download.temp_dir.mkdir(parents=True, exist_ok=True)
             download.status = "downloading"
-            logging.info(
-                f"📦 Traditional parallel download for {local_path.name}: {chunk_count} chunks, {format_bytes(file_size)}"
-            )
 
         # Calculate chunk sizes
         chunk_size = file_size // chunk_count
@@ -415,7 +398,7 @@ class ParallelDownloadManager:
             end = start + chunk_size - 1 if i < chunk_count - 1 else file_size - 1
             chunk = ChunkInfo(
                 file_url=url,
-                final_path=local_path,
+                final_path=download.staging_path or local_path,
                 chunk_id=i,
                 start_byte=start,
                 end_byte=end,
@@ -424,7 +407,9 @@ class ParallelDownloadManager:
                 if download.temp_dir
                 else None,
                 size=end - start + 1,
-                direct_write=self.use_streaming,
+                direct_write=download.staging_path is not None,
+                etag=etag,
+                file_size=file_size,
             )
             chunks.append(chunk)
         download.chunks = chunks
@@ -436,70 +421,35 @@ class ParallelDownloadManager:
             self.metrics.increment("total_chunks", chunk_count)
         return download
 
-    def _test_range_support(self, url: str) -> bool:
-        """Test if server supports Range requests."""
-        try:
-            response = self.connection_manager.request(url, method="HEAD")
-            accept_ranges = response.headers.get("Accept-Ranges", "").lower()
-            return accept_ranges == "bytes"
-        except Exception as e:
-            logging.debug(f"Range test failed for {url}: {e}")
-            return False
-
-    def _get_client_for_url(self, url: str) -> httpx.Client:
-        """Get or create HTTP client for URL's domain with HTTP/2 support"""
-        return self.connection_manager.connection_pool.get_client(url)
-
     def download_chunk(self, chunk: ChunkInfo) -> bool:
-        """Download chunk with HTTP/2 stream reuse - FIXED"""
+        """Download a verified range into a temporary chunk file."""
+        return self._download_verified_chunk(chunk, streaming=False)
+
+    def download_chunk_streaming(self, chunk: ChunkInfo) -> bool:
+        """Write a verified range into a preallocated, unpublished staging file."""
+        return self._download_verified_chunk(chunk, streaming=True)
+
+    def _download_verified_chunk(self, chunk: ChunkInfo, *, streaming: bool) -> bool:
         chunk.status = "downloading"
         parsed = urlparse(chunk.file_url)
         try:
             ip = socket.gethostbyname(parsed.hostname)
         except Exception:
             ip = parsed.hostname
-
         self.rate_limiter.register_chunk_start(ip)
-
         try:
-            headers = {"Range": f"bytes={chunk.start_byte}-{chunk.end_byte}"}
-            mode = "wb"
-            resume_offset = 0
-
-            if chunk.temp_path.exists():
-                resume_offset = chunk.temp_path.stat().st_size
-                if resume_offset > 0 and resume_offset < chunk.size:
-                    headers["Range"] = f"bytes={chunk.start_byte + resume_offset}-{chunk.end_byte}"
-                    mode = "ab"
-                    logging.debug(f"Resuming chunk {chunk.chunk_id} at {resume_offset}")
-
-            time.sleep(random.uniform(0, 0.005))
-
+            if not chunk.etag or chunk.file_size is None:
+                raise ChunkDownloadError("Chunk has no representation validator or total size")
+            headers = {
+                "Range": f"bytes={chunk.start_byte}-{chunk.end_byte}",
+                "If-Range": chunk.etag,
+                "Accept-Encoding": "identity",
+            }
             for attempt in range(3):
-                # Track how many retries have been attempted on this chunk.
-                chunk.retries = attempt
-                # FIX (resume retry duplication): on a resumed download
-                # (mode == 'ab') a mid-stream connection failure left
-                # partially-written bytes in chunk.temp_path. The previous
-                # iteration's range header asks the server for the SAME
-                # window starting at start_byte+resume_offset, so on retry
-                # those bytes were appended a second time, growing the temp
-                # file beyond chunk.size and silently corrupting assembly
-                # (assemble_file copies len(data) bytes, which then overrun
-                # the next chunk's region in the mmap). Truncate the temp
-                # file back to resume_offset before each attempt so resumed
-                # retries always start from a clean tail.
-                if mode == "ab" and attempt > 0:
-                    try:
-                        with open(chunk.temp_path, "r+b") as _trunc:
-                            _trunc.truncate(resume_offset)
-                    except OSError as _te:
-                        logging.debug(
-                            f"Pre-retry truncate failed for chunk {chunk.chunk_id}: {_te}"
-                        )
+                response = None
                 try:
-                    # Go through ConnectionManager.request so retries / circuit
-                    # breaker / mocked connection_manager (in tests) all work.
+                    # Both modes share scope checks, manual redirects, retry
+                    # headers and circuit breaking through ConnectionManager.
                     response = self.connection_manager.request(
                         chunk.file_url,
                         method="GET",
@@ -509,57 +459,51 @@ class ParallelDownloadManager:
                             self.config.timeout * 2, connect=10.0, read=self.config.timeout * 3
                         ),
                     )
-
-                    if response.status_code not in (200, 206):
-                        if attempt < 2:
-                            time.sleep(2**attempt)
-                            continue
-                        raise ChunkDownloadError(f"HTTP {response.status_code}")
-
-                    bytes_downloaded = resume_offset
-                    # OPTIMIZATION: Use larger buffer for parallel chunk writes
-                    BUFFER_SIZE = 256 * 1024  # 256KB buffer
-
-                    with open(chunk.temp_path, mode, buffering=BUFFER_SIZE) as f:
-                        for data in response.iter_bytes(
-                            32768
-                        ):  # 32KB read chunks, larger chunk size for HTTP/2
+                    validate_range(
+                        response, chunk.start_byte, chunk.end_byte, chunk.file_size, chunk.etag
+                    )
+                    path = chunk.final_path if streaming else chunk.temp_path
+                    if path is None:
+                        raise ChunkDownloadError("Missing chunk output path")
+                    # Retry the entire chunk, never append a possibly stale
+                    # tail. Concurrent writers only touch disjoint ranges.
+                    with open(path, "r+b" if streaming else "wb") as f:
+                        if streaming:
+                            f.seek(chunk.start_byte)
+                        downloaded = 0
+                        for data in response.iter_bytes(STREAMING_WRITE_BUFFER_SIZE):
+                            if downloaded + len(data) > chunk.size:
+                                raise ChunkDownloadError("Response exceeds chunk boundary")
                             f.write(data)
-                            bytes_downloaded += len(data)
+                            downloaded += len(data)
                             if self.bandwidth_limiter:
                                 self.bandwidth_limiter.throttle(len(data))
-
-                    # Force flush to ensure data is on disk before continuing
-                    if mode == "wb":  # Only for new files, not resumes
-                        with open(chunk.temp_path, "ab") as f:
-                            f.flush()
+                        f.flush()
+                        if not streaming:
                             os.fsync(f.fileno())
-
-                    if bytes_downloaded != chunk.size:
-                        if attempt < 2:
-                            time.sleep(2**attempt)
-                            continue
+                    if downloaded != chunk.size:
                         raise ChunkDownloadError(
-                            f"Size mismatch: {bytes_downloaded} != {chunk.size}"
+                            f"Chunk length mismatch: {downloaded} != {chunk.size}"
                         )
-
+                    chunk.downloaded = downloaded
                     chunk.status = "completed"
                     with self.stats_lock:
                         self.stats["completed_chunks"] += 1
                     self.metrics.increment("chunk_downloads")
-                    self.metrics.add_bytes(chunk.size - resume_offset)
-
+                    self.metrics.add_bytes(chunk.size)
                     if self.circuit_breaker:
                         self.circuit_breaker.record_chunk_success(chunk.file_url, parsed.netloc)
                     return True
-
-                except (httpx.ConnectError, httpx.TimeoutException, httpx.ReadError):
-                    if attempt < 2:
-                        time.sleep(2**attempt)
-                        continue
-                    raise
+                except (httpx.RequestError, OSError) as e:
+                    chunk.retries += 1
+                    if attempt == 2:
+                        raise
+                    logging.debug(f"Chunk {chunk.chunk_id} retry: {e}")
+                    time.sleep(exponential_backoff(attempt))
+                finally:
+                    if response is not None:
+                        response.close()
             return False
-
         except Exception as e:
             logging.error(f"Chunk {chunk.chunk_id} failed: {e}")
             chunk.status = "failed"
@@ -569,173 +513,6 @@ class ParallelDownloadManager:
             if self.circuit_breaker:
                 self.circuit_breaker.record_chunk_failure(chunk.file_url, parsed.netloc)
             return False
-        finally:
-            self.rate_limiter.register_chunk_complete(ip)
-
-    def download_chunk_streaming(self, chunk: ChunkInfo) -> bool:
-        """Download chunk directly to final file at correct offset.
-
-        NOTE: The per-IP semaphore is acquired by the caller
-        (_download_chunk_with_semaphore). Acquiring it again here would
-        consume two permits per chunk and halve effective parallelism /
-        risk starvation, so this method does NOT touch _ip_semaphores.
-        """
-        chunk.status = "downloading"
-        parsed = urlparse(chunk.file_url)
-
-        try:
-            ip = socket.gethostbyname(parsed.hostname)
-        except Exception:
-            ip = parsed.hostname
-
-        self.rate_limiter.register_chunk_start(ip)
-
-        try:
-            headers = {"Range": f"bytes={chunk.start_byte}-{chunk.end_byte}"}
-
-            client = self._get_client_for_url(chunk.file_url)
-
-            for attempt in range(3):
-                try:
-                    response = client.request(
-                        "GET",
-                        chunk.file_url,
-                        headers=headers,
-                        timeout=httpx.Timeout(
-                            self.config.timeout * 2, connect=10.0, read=self.config.timeout * 3
-                        ),
-                    )
-
-                    if response.status_code not in (200, 206):
-                        if attempt < 2:
-                            time.sleep(exponential_backoff(attempt))
-                            continue
-                        raise ChunkDownloadError(f"HTTP {response.status_code}")
-
-                    bytes_downloaded = 0
-                    buffer_size = STREAMING_WRITE_BUFFER_SIZE
-
-                    # FIX: Ensure final file directory exists
-                    chunk.final_path.parent.mkdir(parents=True, exist_ok=True)
-
-                    # FIX (race condition): Acquire the per-file lock BEFORE
-                    # opening the file. Previously the 'wb' branch opened
-                    # (and truncated) the file before locking, so two threads
-                    # racing into the create branch would each truncate the
-                    # file and destroy each other's writes. _get_file_lock()
-                    # also closes a separate lazy-creation race in the lock
-                    # dict itself.
-                    #
-                    # PERF: only the create/pre-allocate step is serialized
-                    # here. Previously the entire network read loop + fsync
-                    # for every chunk ran inside this lock, which fully
-                    # serialized all chunks of the same file — defeating
-                    # parallel chunk downloading for any single file in
-                    # streaming mode. Each chunk writes to a disjoint byte
-                    # range, so once the file exists, concurrent seek+write
-                    # from different chunks/threads is safe on POSIX without
-                    # further locking; the lock is released before the
-                    # (slow) network transfer + fsync below.
-                    with self._get_file_lock(chunk.final_path):
-                        # Re-check after acquiring the lock — first writer
-                        # creates / pre-allocates, subsequent writers seek.
-                        if not chunk.final_path.exists():
-                            need_prealloc = chunk.start_byte > 0
-                            with open(chunk.final_path, "wb") as f:
-                                if need_prealloc:
-                                    # Pre-allocate sparse file so seek(start_byte)
-                                    # below lands inside the file.
-                                    f.seek(chunk.end_byte)
-                                    f.write(b"\0")
-
-                    # PERF: no os.fsync() here. It used to run once per
-                    # chunk, but this file has no resume path that reads
-                    # partial chunk bytes back (retries always re-request
-                    # the full start_byte..end_byte range, and create_chunks()
-                    # truncates the final file to zero on every new attempt
-                    # regardless of what was previously fsynced) -- so a
-                    # per-chunk fsync bought no resume guarantee, only a
-                    # post-completion durability guarantee that a single
-                    # whole-file fsync (see download_parallel's streaming
-                    # completion branch) provides equally well for one disk
-                    # barrier instead of N. flush() still runs -- it pushes
-                    # Python's own buffer into the OS and costs essentially
-                    # nothing.
-                    with open(chunk.final_path, "r+b") as f:
-                        f.seek(chunk.start_byte)
-                        for data in response.iter_bytes(buffer_size):
-                            f.write(data)
-                            bytes_downloaded += len(data)
-                            if self.bandwidth_limiter:
-                                self.bandwidth_limiter.throttle(len(data))
-                        f.flush()
-
-                    # Verify downloaded size matches expected chunk size
-                    if bytes_downloaded != chunk.size:
-                        if attempt < 2:
-                            time.sleep(exponential_backoff(attempt))
-                            continue
-                        raise ChunkDownloadError(
-                            f"Size mismatch: downloaded {bytes_downloaded} bytes, "
-                            f"expected {chunk.size} bytes"
-                        )
-
-                    chunk.status = "completed"
-                    with self.stats_lock:
-                        self.stats["completed_chunks"] += 1
-
-                    self.metrics.increment("chunk_downloads")
-                    self.metrics.add_bytes(chunk.size)
-
-                    if self.circuit_breaker:
-                        self.circuit_breaker.record_chunk_success(chunk.file_url, parsed.netloc)
-
-                    return True
-
-                except (httpx.ConnectError, httpx.TimeoutException, httpx.ReadError) as e:
-                    if attempt < 2:
-                        wait_time = exponential_backoff(attempt)
-                        logging.debug(
-                            f"Chunk {chunk.chunk_id} attempt {attempt + 1} failed: {e}. "
-                            f"Retrying in {wait_time:.1f}s"
-                        )
-                        time.sleep(wait_time)
-                        continue
-                    raise
-
-                except OSError as e:
-                    logging.error(
-                        f"File I/O error for chunk {chunk.chunk_id} at {chunk.final_path}: {e}"
-                    )
-                    if attempt < 2:
-                        time.sleep(exponential_backoff(attempt))
-                        continue
-                    raise ChunkDownloadError(f"File write failed: {e}") from e
-
-            return False
-
-        except ChunkDownloadError:
-            # Re-raise ChunkDownloadError as-is
-            raise
-        # ADD this cleanup block to the except Exception section of download_chunk_streaming:
-        except Exception as e:
-            logging.error(f"Streaming chunk {chunk.chunk_id} failed with unexpected error: {e}")
-            # ⬇️ FIX: Clean up partial data on failure
-            try:
-                if chunk.final_path.exists() and chunk.start_byte > 0:
-                    with open(chunk.final_path, "r+b") as f:
-                        f.truncate(chunk.start_byte)  # Roll back to before this chunk started
-                    logging.debug(f"Truncated corrupted partial: {chunk.final_path}")
-            except Exception:
-                pass  # Ignore cleanup errors
-            chunk.status = "failed"
-            with self.stats_lock:
-                self.stats["failed_chunks"] += 1
-                self.metrics.increment("chunk_failures")
-            if self.circuit_breaker:
-                self.circuit_breaker.record_chunk_failure(chunk.file_url, parsed.netloc)
-            return False
-
         finally:
             self.rate_limiter.register_chunk_complete(ip)
 
@@ -750,7 +527,7 @@ class ParallelDownloadManager:
         # factor exists because traditional parallel mode keeps each chunk
         # as a temp file AND then assembles them into the final output, so
         # peak disk usage really is ~2x. Streaming mode writes directly
-        # into the pre-allocated final file once and never duplicates the
+        # into a pre-allocated staging file once and never duplicates the
         # bytes anywhere, so the right factor is 1x. The old check
         # incorrectly rejected streaming downloads when the user had only
         # ~file_size of headroom.
@@ -761,6 +538,7 @@ class ParallelDownloadManager:
             if not ok:
                 logging.error(f"Insufficient disk space for parallel download: {error}")
                 download.status = "failed"
+                self.cleanup_chunks(download)
                 return False
 
         # OPTIMIZATION: Apply rate limit ONCE per file, not per chunk
@@ -785,7 +563,7 @@ class ParallelDownloadManager:
             futures.append((future, chunk))
 
         # Wait for all chunks
-        completed = 0
+        completed = sum(c.status == "completed" for c in download.chunks)
         failed = 0
         for future, chunk in futures:
             try:
@@ -814,67 +592,47 @@ class ParallelDownloadManager:
                 self.cleanup_chunks(download)
                 return False
 
-        # For streaming mode, we're done - no assembly needed
         if download.status == "streaming":
-            # PERF (v3.1.64): a single whole-file fsync here replaces the
-            # old per-chunk os.fsync() calls in download_chunk_streaming.
-            # Same durability guarantee -- the file is flushed past the OS
-            # page cache before "Downloaded:" is logged below, so a crash
-            # or power loss right after this point can't lose completed
-            # data -- for one disk barrier per file instead of one per
-            # chunk. (There is still no resume path for streaming mode:
-            # a retried/re-attempted download truncates and re-fetches the
-            # whole file via create_chunks(), so this fsync is purely a
-            # post-completion durability barrier, not a resume mechanism.)
-            try:
-                with open(download.final_path, "r+b") as f:
-                    os.fsync(f.fileno())
-            except OSError as e:
-                logging.warning(f"Final fsync failed for {download.final_path}: {e}")
-
-            # Update metrics
-            self.metrics.increment("chunk_assemblies")
-            self.metrics.add_bytes(download.file_size)
-
-            if self.mirror:
-                self.mirror.files_processed.increment(1)
-                self.mirror.total_downloaded_size.add(download.file_size)
-
-                if hasattr(self.mirror, "cache_manager") and download.server_etag:
-                    self.mirror.cache_manager.save_file_metadata(
-                        download.final_path, download.server_etag, time.time(), download.file_size
-                    )
-                if hasattr(self.mirror, "fs_cache"):
-                    self.mirror.fs_cache.invalidate(download.final_path)
-
-            logging.info(f"Downloaded: {download.final_path} ({format_bytes(download.file_size)})")
-            logging.info(
-                f"✅ Streaming complete: {download.final_path.name} ({format_bytes(download.file_size)})"
-            )
-            download.status = "completed"
-            self.cleanup_chunks(download)
-            return True
-
-        # For non-streaming mode, assemble chunks
+            return self._finish_streaming(download)
         return self.assemble_file(download)
 
-    def _get_file_lock(self, path: Path) -> RLock:
-        """Atomically fetch-or-create the per-file write lock.
-
-        Used by streaming chunk writers to serialize writes to the same
-        final file. Wraps lazy creation in a dedicated guard lock so two
-        threads can't end up with different RLock objects for the same
-        path (see __init__ for context).
-        """
-        lock = self._file_locks.get(path)
-        if lock is not None:
-            return lock
-        with self._file_locks_create_lock:
-            lock = self._file_locks.get(path)
-            if lock is None:
-                lock = RLock()
-                self._file_locks[path] = lock
-            return lock
+    def _finish_streaming(self, download: ParallelFileDownload) -> bool:
+        """Publish only after all validated chunks are complete and flushed."""
+        try:
+            if not download.staging_path or any(c.status != "completed" for c in download.chunks):
+                raise ChunkAssemblyError("Streaming download is incomplete")
+            if download.staging_path.stat().st_size != download.file_size:
+                raise ChunkAssemblyError("Streaming size mismatch")
+            with open(download.staging_path, "r+b") as f:
+                os.fsync(f.fileno())
+            os.replace(download.staging_path, download.final_path)
+            download.staging_path = None
+            download.status = "completed"
+            try:
+                self.metrics.increment("chunk_assemblies")
+                if self.mirror:
+                    self.mirror.files_processed.increment(1)
+                    self.mirror.total_downloaded_size.add(download.file_size)
+                    if hasattr(self.mirror, "cache_manager") and download.server_etag:
+                        self.mirror.cache_manager.save_file_metadata(
+                            download.final_path,
+                            download.server_etag,
+                            time.time(),
+                            download.file_size,
+                        )
+                    if hasattr(self.mirror, "fs_cache"):
+                        self.mirror.fs_cache.invalidate(download.final_path)
+            except Exception as e:
+                logging.warning(f"Cache/metrics update failed after streaming publication: {e}")
+            logging.info(f"Downloaded: {download.final_path} ({format_bytes(download.file_size)})")
+            logging.info(f"✅ Streaming complete: {download.final_path.name}")
+            return True
+        except (OSError, ChunkAssemblyError) as e:
+            logging.error(f"Streaming completion failed: {e}")
+            download.status = "failed"
+            return False
+        finally:
+            self.cleanup_chunks(download)
 
     def _get_ip_semaphore(self, ip: str) -> Semaphore:
         """Atomically fetch-or-create the per-IP semaphore."""
@@ -989,13 +747,8 @@ class ParallelDownloadManager:
                     download.status = "failed"
                     self.cleanup_chunks(download)
                     return False
-        # In streaming mode, chunks write directly to the final file — no
-        # assembly step. assemble_file() expects temp chunk files and would
-        # fail otherwise.
         if download.status == "streaming" or any(c.direct_write for c in download.chunks):
-            download.status = "completed"
-            self.cleanup_chunks(download)
-            return True
+            return self._finish_streaming(download)
         return self.assemble_file(download)
 
     def assemble_file(self, download: ParallelFileDownload) -> bool:
@@ -1150,19 +903,11 @@ class ParallelDownloadManager:
             # ====================================================================
             # PHASE 6: ATOMIC REPLACEMENT
             # ====================================================================
-            try:
-                os.replace(str(temp_assembly), str(download.final_path))
-                temp_file_moved = True
-            except OSError as e:
-                logging.warning(f"os.replace() failed ({e}), falling back to shutil.move()")
-                shutil.move(str(temp_assembly), str(download.final_path))
-                temp_file_moved = True
-                # Verify fallback move
-                if download.final_path.stat().st_size != file_size:
-                    # Not caused by the os.replace() failure above (that path
-                    # already succeeded via shutil.move) -- an independent
-                    # condition, so don't chain onto the unrelated `e`.
-                    raise ChunkAssemblyError("Post-move size verification failed") from None
+            # The assembly file is in the destination directory, so a
+            # failed replace must leave the old file intact. A copy/move
+            # fallback could destroy it before that fallback completes.
+            os.replace(temp_assembly, download.final_path)
+            temp_file_moved = True
 
             # ====================================================================
             # PHASE 7: UPDATE METRICS AND CACHE (Non-fatal)
@@ -1238,6 +983,8 @@ class ParallelDownloadManager:
     def cleanup_chunks(self, download: ParallelFileDownload) -> None:
         """Remove temporary chunk files."""
         try:
+            if download.staging_path:
+                download.staging_path.unlink(missing_ok=True)
             if download.temp_dir and download.temp_dir.exists():
                 shutil.rmtree(download.temp_dir)
         except Exception as e:
@@ -1245,14 +992,6 @@ class ParallelDownloadManager:
 
         with self.lock:
             self.active_downloads.pop(download.final_path, None)
-
-        # FIX (memory leak): drop the per-file lock entry. _file_locks is a
-        # defaultdict that previously grew one RLock per file path forever,
-        # which leaked over the lifetime of long-running mirror jobs.
-        try:
-            self._file_locks.pop(download.final_path, None)
-        except Exception:
-            pass
 
     def cleanup_stale_chunks(self) -> int:
         """Remove stale chunk directories."""
@@ -1365,12 +1104,6 @@ class ParallelDownloadManager:
         with self._ip_semaphores_lock:
             self._ip_semaphores.clear()
             self._ip_semaphores_last_used.clear()
-
-        # Clear per-file locks
-        try:
-            self._file_locks.clear()
-        except Exception:
-            pass
 
         logging.debug("Parallel download manager shutdown complete")
 
@@ -1705,6 +1438,7 @@ class PartialDownloadManager:
                 try:
                     if now - partial_file.stat().st_mtime > max_age_seconds:
                         partial_file.unlink()
+                        clear_resume_metadata(partial_file)
                         cleaned += 1
                         logging.debug(f"Cleaned stale partial: {partial_file}")
                 except Exception as e:

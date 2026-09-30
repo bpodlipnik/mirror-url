@@ -307,17 +307,22 @@ A full mirror run is driven by `ReportMixin.sync()`. The high-level path:
    set (cycle-safe). Directory listings are parsed by `parsing.py`. Results feed
    the HTML cache.
 4. **Compare (`CompareMixin`).** For each remote file, decide whether the local
-   copy is current using size, timestamp, ETag, and (for small files) content
-   hashing. When `async_metadata` is enabled, HEAD checks run through the async
-   manager for throughput; otherwise the sync path is used.
+   copy is current using a shared sync/async size, timestamp, and ETag policy.
+   Cached ETags require matching local size/mtime/ctime metadata, and directory
+   signatures never validate child file contents. When `async_metadata` is
+   enabled, HEAD checks run through the async manager for throughput; otherwise the sync path is used.
 5. **Download (`DownloadMixin` → `download.py`).** Missing/changed files are
    fetched. `ParallelDownloadManager.auto_select_method` (or an explicit
    `DownloadMethod`) picks sequential vs. streaming-parallel vs.
-   traditional-parallel chunking; `PartialDownloadManager` provides resume. The
+   traditional-parallel chunking; `download_integrity.py` validates strong ETags,
+   exact ranges, and persistent whole-file resume metadata. Streaming chunks
+   write to a staging path and publish atomically after verification. The
    `UnifiedConcurrencyManager` enforces a single global thread cap; per-domain
    `CircuitBreakerManager` and the rate limiter throttle on errors/bandwidth.
 6. **Cleanup (`CleanupMixin.clean_obsolete`).** Optionally preview/move/delete
-   local files no longer present remotely, per `CleanupPolicy`.
+   local files no longer present remotely, per `CleanupPolicy`. Preserve paths
+   omitted by the scan selection and never traverse local symlinks. MOVE
+   failures leave source paths intact.
 7. **Report (`ReportMixin`).** Render the summary, persist the cache
    (`CacheManager.save`), and optionally emit metrics JSON.
 

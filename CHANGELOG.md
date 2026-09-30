@@ -4,6 +4,29 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- Address immediate audit findings F01–F13: cleanup never follows local
+  symlinks, preserves paths omitted by filters/exclusions/depth/symlink
+  decisions, and aborts failed MOVE operations without switching to DELETE.
+- Remove directory-signature shortcuts from file verification; use one sync
+  and async freshness policy that checks size before validators/timestamps,
+  respects no-cache/no-etag, and binds cached ETags to local file metadata.
+- Fix the async DNS cache deadlock and move DNS resolution off the event loop.
+  Count async comparison inputs once so warmup/fallback cannot omit files.
+- Resume only partials with persistent URL, size, and strong ETag metadata;
+  send If-Range and verify range boundaries, representation, and final length.
+  Restart unverifiable partials and 416 responses rather than publishing them.
+- Bind parallel chunks to one strong ETag and validate every range. Streaming
+  uses an unpublished staging file and atomic replacement, including retries;
+  all chunks now use ConnectionManager's scope and redirect checks. Preserve
+  range/validator headers across connection retries.
+- Keep the supplied safe local filename in the whole-file fallback and remove
+  the filename cache made obsolete by that change.
+- Parse HTML anchor attributes with the standard HTML parser, including
+  uppercase names, whitespace, unquoted values, and character references.
+
 ## [3.1.68] - 2026-09-30
 
 ### Fixed

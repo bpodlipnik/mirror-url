@@ -1,12 +1,13 @@
 """HTML link extraction and adaptive batching.
 
-Migrated verbatim from ``mirror_url.py`` (orig. lines 2951-3093):
+Originally extracted from ``mirror_url.py`` (orig. lines 2951-3093):
 ``AdaptiveBatchProcessor``, ``extract_links_fast``, ``should_use_fast_parser``.
 """
 
 from __future__ import annotations
 
 from collections import deque
+from html.parser import HTMLParser
 from threading import RLock
 from typing import List, Optional, Union
 
@@ -99,63 +100,41 @@ class AdaptiveBatchProcessor:
 # ============================================================================
 # FAST HTML PARSING UTILITIES
 # ============================================================================
+class _LinkParser(HTMLParser):
+    """Extract anchor attributes without constructing a DOM."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.links = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag != "a":
+            return
+        for name, value in attrs:
+            if name == "href":
+                if value and not value.lower().startswith(("#", "javascript:", "mailto:")):
+                    self.links.append(value)
+                break
+
+
 def extract_links_fast(html_content: Union[bytes, str]) -> List[str]:
-    """
-    Extract links from HTML without full DOM parsing.
-
-    Args:
-        html_content: HTML content as bytes or string
-
-    Returns:
-        List of extracted links
-    """
-    if isinstance(html_content, str):
-        html_content = html_content.encode("utf-8", errors="ignore")
-    links = []
-    start = 0
-    href_pattern = b'href="'
-    href_pattern2 = b"href='"
-
-    # Extract double-quoted hrefs
-    while True:
-        pos = html_content.find(href_pattern, start)
-        if pos == -1:
-            break
-        pos += len(href_pattern)
-        end_pos = html_content.find(b'"', pos)
-        if end_pos == -1:
-            break
-        href = html_content[pos:end_pos].decode("utf-8", errors="ignore")
-        if href and not href.startswith(("#", "javascript:", "mailto:")):
-            links.append(href)
-        start = end_pos + 1
-
-    # Extract single-quoted hrefs
-    start = 0
-    while True:
-        pos = html_content.find(href_pattern2, start)
-        if pos == -1:
-            break
-        pos += len(href_pattern2)
-        end_pos = html_content.find(b"'", pos)
-        if end_pos == -1:
-            break
-        href = html_content[pos:end_pos].decode("utf-8", errors="ignore")
-        if href and not href.startswith(("#", "javascript:", "mailto:")):
-            links.append(href)
-        start = end_pos + 1
-
-    return links
+    """Extract HTML anchor links, including entities and unquoted attributes."""
+    if isinstance(html_content, bytes):
+        html_content = html_content.decode("utf-8", errors="replace")
+    parser = _LinkParser()
+    parser.feed(html_content)
+    parser.close()
+    return parser.links
 
 
 def should_use_fast_parser(content_length: Optional[int], config) -> bool:
     """
-    Determine whether to use the fast parser (StringZilla-based) or lxml.
+    Determine whether to use the lightweight HTML parser or lxml.
 
     Policy:
     - If lxml isn't available, the fast parser is the only option.
-    - If the document is large, prefer the fast parser for speed.
-    - Otherwise, prefer lxml for correctness. ``config.fast_parsing_fallback``
+    - If the document is large, prefer the lightweight parser to avoid a DOM.
+    - Otherwise, prefer lxml. ``config.fast_parsing_fallback``
       is used as a fallback when lxml fails at runtime, NOT as a primary
       preference, so it is intentionally NOT consulted here.
 

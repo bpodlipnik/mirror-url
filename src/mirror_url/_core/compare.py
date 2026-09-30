@@ -1,6 +1,6 @@
 """CompareMixin: Metadata comparison: which remote files need downloading.
 
-Methods extracted verbatim from the original ``MirrorURL`` class
+Originally extracted from the original ``MirrorURL`` class
 (see ``REFACTORING_PLAN.md`` §4.1). Composed into ``MirrorURL`` in
 ``core/__init__.py``; relies on shared state set up by ``_MirrorBase.__init__``.
 """
@@ -32,178 +32,113 @@ from ..constants import (
     TIMESTAMP_TOLERANCE_SECONDS,
 )
 from ..decorators import log_performance
-from ..utils import normalize_etag, sanitize_url_for_log, trim_url
+from ..utils import normalize_etag, sanitize_url_for_log
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, avoids an import cycle
     from ..progress import ProgressTracker
 
 
 class CompareMixin:
+    def _comparison_metadata(self, local_path: Path, use_cache: bool = True):
+        """Only use an ETag belonging to the current local file."""
+        stat = local_path.stat()
+        stored = None
+        if use_cache and not getattr(self.config, "no_cache", False):
+            stored = self.cache_manager.get_file_metadata(local_path)
+            if stored:
+                stored = dict(stored)
+                stored["_local_verified"] = (
+                    stored.get("size") == stat.st_size
+                    and stored.get("local_mtime_ns") == stat.st_mtime_ns
+                    and stored.get("local_ctime_ns") == stat.st_ctime_ns
+                )
+        return stat, stored
+
+    def _freshness_headers(self, stored):
+        headers = {"Accept-Encoding": "identity"}
+        if (
+            stored
+            and stored.get("_local_verified")
+            and stored.get("etag")
+            and not self.config.no_etag
+        ):
+            headers["If-None-Match"] = stored["etag"]
+        return headers
+
+    def _response_is_current(self, response, stat, stored) -> bool:
+        """Shared sync/async policy; listing validators never validate children."""
+        if response.status_code not in (200, 304):
+            return False
+
+        raw_size = response.headers.get("Content-Length")
+        size_matches = False
+        if raw_size is not None:
+            try:
+                size = int(raw_size)
+            except (TypeError, ValueError):
+                return False
+            if size < 0 or size != stat.st_size:
+                return False
+            size_matches = True
+
+        if response.status_code == 304:
+            valid = bool(
+                stored
+                and stored.get("_local_verified")
+                and stored.get("etag")
+                and not self.config.no_etag
+            )
+            if valid:
+                self.metrics.increment("etag_304_responses")
+            return valid
+
+        remote_etag = response.headers.get("ETag")
+        if remote_etag and stored and stored.get("etag") and not self.config.no_etag:
+            matches = normalize_etag(remote_etag) == normalize_etag(stored["etag"])
+            self.metrics.increment("etag_matches" if matches else "etag_mismatches")
+            return matches and bool(stored.get("_local_verified"))
+
+        last_modified = response.headers.get("Last-Modified")
+        if last_modified:
+            try:
+                remote_ts = parsedate_to_datetime(last_modified).timestamp()
+                if remote_ts > stat.st_mtime + TIMESTAMP_TOLERANCE_SECONDS:
+                    return False
+                return size_matches
+            except (TypeError, ValueError, OverflowError):
+                return False
+        return size_matches
+
     @log_performance("file_check")
     def file_exists_and_up_to_date(
         self, local_path: Path, remote_url: str, use_cache: bool = True
     ) -> bool:
         start_time = time.time()
-
-        # First, check if file exists locally
-        if hasattr(self, "fs_cache"):
-            exists = self.fs_cache.exists(local_path)
-            if not exists:
-                self.performance_monitor.record("file_check", time.time() - start_time, True)
-                return False
-        else:
-            # Fix: when fs_cache is unavailable, still verify existence here.
-            # Otherwise a missing file falls through to local_path.stat()
-            # below, raises FileNotFoundError, and the broad except handler
-            # would have reported it as up-to-date (never downloaded).
-            if not local_path.exists():
-                self.performance_monitor.record("file_check", time.time() - start_time, True)
-                return False
-
-        # --missing-files: the file exists locally, and that's all we're
-        # asked to verify -- skip ETag/size/mtime freshness checking (and
-        # therefore the network round-trip) entirely. Faster, but will not
-        # detect a file that changed in place on the server while keeping
-        # the same name. See the CLI help text for --missing-files.
-        if getattr(self.config, "missing_files", False):
-            self.metrics.increment("missing_files_skipped_check")
-            self.performance_monitor.record("file_check", time.time() - start_time, True)
-            return True
-
-        # Try to get metadata from cache if enabled
-        stored_meta = None
-        stored_etag = None
-
-        if use_cache:
-            stored_meta = self.cache_manager.get_file_metadata(local_path)
-            stored_etag = stored_meta.get("etag") if stored_meta else None
-
-        # If cache is disabled but file exists, we need to check it properly
-        # We should still try to get ETag from local file metadata if available
-        if not use_cache and local_path.exists():
-            # Try to read ETag from a sidecar file or compute file hash
-            # For now, let's check size and modification time
-            local_size = local_path.stat().st_size
-
-            # Make HEAD request to get remote info
-            try:
-                r = self.connection_manager.request(
-                    remote_url, method="HEAD", timeout=(10, 20), allow_redirects=True
-                )
-                if r.status_code == 200:
-                    remote_size = int(r.headers.get("Content-Length", 0))
-                    if remote_size == local_size:
-                        # Sizes match, consider it up-to-date
-                        self.performance_monitor.record(
-                            "file_check", time.time() - start_time, True
-                        )
-                        return True
-            except Exception as e:
-                logging.debug(f"Error checking file without cache: {e}")
-
-        # Continue with normal cache-enabled logic...
-        if use_cache and hasattr(self.scanner, "cached_signatures"):
-            dir_url = trim_url(remote_url.rsplit("/", 1)[0] + "/")
-            if dir_url in self.scanner.cached_signatures:
-                old_sig = self.scanner.cached_signatures[dir_url]
-                new_sig = getattr(self.scanner, "fresh_dir_signatures", {}).get(dir_url)
-                # Only trust the shortcut when we have this run's actual
-                # signature for the directory AND it matches what was
-                # cached. The url:...:timestamp fallback form (used when a
-                # server gives no ETag/Last-Modified) changes every run by
-                # construction and carries no real change signal, so it
-                # can never legitimately match here — which is correct:
-                # a directory we can't fingerprint should always be
-                # re-verified, not trusted indefinitely.
-                if new_sig and new_sig == old_sig and not new_sig.startswith("url:"):
-                    self.metrics.increment("cache_hits")
-                    self.metrics.increment("cache_head_requests_saved")
-                    self.performance_monitor.record("file_check", time.time() - start_time, True)
-                    return True
-                self.metrics.increment("dir_signature_changed_forced_recheck")
-
+        current = False
         try:
-            local_ts = local_path.stat().st_mtime
-            local_size = local_path.stat().st_size
-            headers = {}
-
-            if stored_etag and not self.config.no_etag:
-                headers["If-None-Match"] = stored_etag
-
-            start = time.time()
-            r = self.connection_manager.request(
-                remote_url, method="HEAD", timeout=(10, 20), allow_redirects=True, headers=headers
-            )
-            self.metrics.add_request_time(time.time() - start)
-
-            if r.status_code == 304:
-                self.metrics.increment("cache_hits")
-                self.metrics.increment("etag_304_responses")
-                self.performance_monitor.record("file_check", time.time() - start_time, True)
-                return True
-            if r.status_code != 200:
-                # Non-200/non-304 means we can't verify the file is up-to-date
-                # Safe behavior: treat as cache miss and trigger download
-                self.metrics.increment("cache_misses")  # ✅ Correct metric
-                self.performance_monitor.record("file_check", time.time() - start_time, False)
-                return False  # ✅ File needs download when verification fails
-
-            remote_etag = r.headers.get("ETag")
-            if remote_etag and stored_etag and not self.config.no_etag:
-                remote_etag_norm = normalize_etag(remote_etag)
-                stored_etag_norm = normalize_etag(stored_etag)
-
-                if remote_etag_norm == stored_etag_norm:
-                    self.metrics.increment("cache_hits")
-                    self.metrics.increment("etag_matches")
-                    self.performance_monitor.record("file_check", time.time() - start_time, True)
-                    return True
-                else:
-                    self.metrics.increment("cache_misses")
-                    self.metrics.increment("etag_mismatches")
-                    self.performance_monitor.record("file_check", time.time() - start_time, False)
-                    return False
-
-            # Check Last-Modified
-            if "Last-Modified" in r.headers:
-                try:
-                    dt = parsedate_to_datetime(r.headers["Last-Modified"])
-                    remote_ts = dt.timestamp()
-
-                    if remote_ts > local_ts + TIMESTAMP_TOLERANCE_SECONDS:
-                        self.metrics.increment("cache_misses")
-                        self.performance_monitor.record(
-                            "file_check", time.time() - start_time, False
-                        )
-                        return False
-
-                    self.metrics.increment("cache_hits")
-                    self.performance_monitor.record("file_check", time.time() - start_time, True)
-                    return True
-                except Exception:
-                    pass
-
-            # Check file size
-            remote_size = int(r.headers.get("Content-Length", 0))
-            if remote_size != local_size:
-                self.metrics.increment("cache_misses")
-                self.performance_monitor.record("file_check", time.time() - start_time, False)
+            if not local_path.is_file():
                 return False
-
-            self.metrics.increment("cache_hits")
-            self.performance_monitor.record("file_check", time.time() - start_time, True)
-            return True
-
+            if getattr(self.config, "missing_files", False):
+                self.metrics.increment("missing_files_skipped_check")
+                current = True
+                return True
+            stat, stored = self._comparison_metadata(local_path, use_cache)
+            response = self.connection_manager.request(
+                remote_url,
+                method="HEAD",
+                timeout=(10, 20),
+                allow_redirects=True,
+                headers=self._freshness_headers(stored),
+            )
+            current = self._response_is_current(response, stat, stored)
+            self.metrics.increment("cache_hits" if current else "cache_misses")
+            return current
         except Exception as e:
             logging.debug(f"Error checking file {local_path}: {e}")
-            # Fix: a failed verification (network error, timeout, stat error)
-            # must NOT be treated as up-to-date. Returning True here silently
-            # skipped re-downloads on any transient failure. Treat it as a
-            # cache miss so the file is re-fetched — consistent with the
-            # non-200 branch above.
             self.metrics.increment("cache_misses")
-            self.performance_monitor.record("file_check", time.time() - start_time, False)
             return False
+        finally:
+            self.performance_monitor.record("file_check", time.time() - start_time, current)
 
     def _check_files_sync(
         self, remote_files: List[str], progress: Optional[ProgressTracker] = None
@@ -383,8 +318,7 @@ class CompareMixin:
         if use_adaptive:
             if not self.adaptive_async_manager.is_available():
                 logging.warning("Adaptive async manager not available, falling back to sync")
-                # return self._check_files_sync(file_items, progress)
-                return self._check_files_sync([url for url, _ in file_items], progress)  # qwen
+                return self._check_files_sync(file_items, progress)
 
             manager = self.adaptive_async_manager
         else:
@@ -412,161 +346,41 @@ class CompareMixin:
             ASYNC_TEST_MIN_SPEED_THROTTLED * 2 if is_throttled else ASYNC_TEST_MIN_SPEED
         )
 
-        # Define check_one with timeout wrapper
+        async def sync_fallback(local_path: Path, remote_url: str) -> bool:
+            return await asyncio.get_running_loop().run_in_executor(
+                self._meta_check_executor,
+                self.file_exists_and_up_to_date,
+                local_path,
+                remote_url,
+                True,
+            )
+
         async def check_one_with_timeout(local_path: Path, remote_url: str, mgr) -> bool:
-            """Check with timeout wrapper."""
             try:
                 return await asyncio.wait_for(check_one(local_path, remote_url, mgr), timeout=30.0)
             except asyncio.TimeoutError:
                 logging.warning(f"Check timeout for {remote_url}")
-                nonlocal test_checked, files_processed_in_test
-                test_checked += 1
-                files_processed_in_test += 1
-                loop = (
-                    asyncio.get_running_loop()
-                )  # FIX: Run blocking I/O in executor to unblock event loop
-                return await loop.run_in_executor(
-                    self._meta_check_executor,
-                    self.file_exists_and_up_to_date,
-                    local_path,
-                    remote_url,
-                    True,
-                )
+                return await sync_fallback(local_path, remote_url)
 
         async def check_one(local_path: Path, remote_url: str, mgr) -> bool:
-            """Check if a single file needs download."""
-            nonlocal test_checked, fallback_triggered, files_processed_in_test
-
-            if fallback_triggered:
-                return self.file_exists_and_up_to_date(local_path, remote_url, use_cache=True)
-
-            # Fast path: check directory signature cache
-            if hasattr(self.scanner, "cached_signatures"):
-                dir_url = trim_url(remote_url.rsplit("/", 1)[0] + "/")
-                if dir_url in self.scanner.cached_signatures:
-                    old_sig = self.scanner.cached_signatures[dir_url]
-                    new_sig = getattr(self.scanner, "fresh_dir_signatures", {}).get(dir_url)
-                    # See file_exists_and_up_to_date for why this compares
-                    # fresh vs. cached rather than trusting mere presence.
-                    if new_sig and new_sig == old_sig and not new_sig.startswith("url:"):
-                        self.metrics.increment("cache_hits")
-                        self.metrics.increment("cache_head_requests_saved")
-                        test_checked += 1
-                        files_processed_in_test += 1
-                        return True
-                    self.metrics.increment("dir_signature_changed_forced_recheck")
-
-            # If file doesn't exist locally, needs download
-            if not local_path.exists():
-                test_checked += 1
-                files_processed_in_test += 1
+            if not local_path.is_file():
                 return False
-
-            # --missing-files: see file_exists_and_up_to_date for the
-            # rationale -- the file exists locally, skip freshness
-            # verification (and the HEAD request below) entirely.
             if getattr(self.config, "missing_files", False):
                 self.metrics.increment("missing_files_skipped_check")
-                test_checked += 1
-                files_processed_in_test += 1
                 return True
-
-            # Get cached metadata
-            stored = self.cache_manager.get_file_metadata(local_path)
-            headers = {}
-
-            if stored and stored.get("etag") and not self.config.no_etag:
-                headers["If-None-Match"] = stored["etag"]
-
             try:
-                # Use asyncio.wait_for with timeout
-                try:
-                    resp = await asyncio.wait_for(mgr.head(remote_url, headers), timeout=15.0)
-                except asyncio.TimeoutError:
-                    logging.debug(f"Async HEAD timeout for {remote_url}")
-                    test_checked += 1
-                    files_processed_in_test += 1
-                    return self.file_exists_and_up_to_date(local_path, remote_url, use_cache=True)
-
-                if resp is None:
-                    test_checked += 1
-                    files_processed_in_test += 1
-                    return self.file_exists_and_up_to_date(local_path, remote_url, use_cache=True)
-
-                # Handle 304 Not Modified (already correct - keep this)
-                if resp.status_code == 304:
-                    self.metrics.increment("etag_304_responses")
-                    self.metrics.increment("cache_hits")
-                    test_checked += 1
-                    files_processed_in_test += 1
-                    return True
-
-                # Handle client errors: file doesn't exist or is forbidden → skip safely
-                if resp.status_code in (403, 404, 410, 451):
-                    self.metrics.increment("files_skipped")  # ✅ Correct metric
-                    test_checked += 1
-                    files_processed_in_test += 1
-                    logging.debug(
-                        f"Async HEAD {resp.status_code}, skipping: {sanitize_url_for_log(remote_url)}"
-                    )
-                    return True  # True = "don't download this file"
-
-                # Handle server errors or other issues: fall back to sync check for safety
-                if resp.status_code != 200:
-                    test_checked += 1
-                    files_processed_in_test += 1
-                    logging.debug(
-                        f"Async HEAD {resp.status_code}, falling back to sync check: {sanitize_url_for_log(remote_url)}"
-                    )
-                    return self.file_exists_and_up_to_date(local_path, remote_url, use_cache=True)
-
-                # Check ETag
-                remote_etag = resp.headers.get("ETag")
-                if remote_etag and stored and stored.get("etag"):
-                    if normalize_etag(remote_etag) == normalize_etag(stored["etag"]):
-                        self.metrics.increment("etag_matches")
-                        self.metrics.increment("cache_hits")
-                        test_checked += 1
-                        files_processed_in_test += 1
-                        return True
-                    else:
-                        self.metrics.increment("etag_mismatches")
-                        self.metrics.increment("cache_misses")
-                        test_checked += 1
-                        files_processed_in_test += 1
-                        return False
-
-                # Check Last-Modified
-                if "Last-Modified" in resp.headers:
-                    try:
-                        local_ts = local_path.stat().st_mtime
-                        dt = parsedate_to_datetime(resp.headers["Last-Modified"])
-                        remote_ts = dt.timestamp()
-
-                        if remote_ts > local_ts + TIMESTAMP_TOLERANCE_SECONDS:
-                            self.metrics.increment("cache_misses")
-                            test_checked += 1
-                            files_processed_in_test += 1
-                            return False
-
-                        self.metrics.increment("cache_hits")
-                        test_checked += 1
-                        files_processed_in_test += 1
-                        return True
-                    except Exception as e:
-                        logging.debug(f"Last-Modified parsing error: {e}")
-
-                # Default: assume up to date
-                self.metrics.increment("cache_hits")
-                test_checked += 1
-                files_processed_in_test += 1
-                return True
-
+                stat, stored = self._comparison_metadata(local_path)
+                response = await asyncio.wait_for(
+                    mgr.head(remote_url, self._freshness_headers(stored)), timeout=15.0
+                )
+                if response is None or response.status_code not in (200, 304):
+                    return await sync_fallback(local_path, remote_url)
+                current = self._response_is_current(response, stat, stored)
+                self.metrics.increment("cache_hits" if current else "cache_misses")
+                return current
             except Exception as e:
                 logging.debug(f"Async check error for {remote_url}: {e}")
-                test_checked += 1
-                files_processed_in_test += 1
-                return self.file_exists_and_up_to_date(local_path, remote_url, use_cache=True)
+                return await sync_fallback(local_path, remote_url)
 
         # Use the async task manager for all async operations
         async with manager:
@@ -621,7 +435,7 @@ class CompareMixin:
                 # Process results
                 batch_needs_download = []
                 for (task, local, url), result in zip(tasks, results):
-                    if isinstance(result, Exception):
+                    if isinstance(result, BaseException):
                         logging.warning(f"Async check failed for {url}: {result}")
                         batch_needs_download.append((url, local))
                     elif not result:
@@ -654,7 +468,7 @@ class CompareMixin:
 
                     # Keep last 5 samples for rolling average
                     if len(self._speed_samples) > 5:
-                        self._speed_samples.pop(0)
+                        self._speed_samples.popleft()
 
                     # Use rolling average for more stable decision
                     avg_speed = sum(self._speed_samples) / len(self._speed_samples)
@@ -707,7 +521,7 @@ class CompareMixin:
                         return to_download + self._check_files_sync(remaining, progress)
 
                     for (task, local, url), result in zip(tasks, results):
-                        if isinstance(result, Exception) or not result:
+                        if isinstance(result, BaseException) or not result:
                             to_download.append((url, local))
 
                     if progress is not None:

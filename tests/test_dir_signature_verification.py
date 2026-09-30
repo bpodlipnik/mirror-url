@@ -1,33 +1,8 @@
-"""Regression test for the directory-signature cache-hit shortcut.
+"""Directory listing validators must never replace per-file verification.
 
-``file_exists_and_up_to_date()`` (``src/mirror_url/_core/compare.py``) has a
-"fast path": once a directory's URL is present in ``self.scanner.
-cached_signatures`` (signatures loaded from the *previous* run's cache),
-every file under that directory used to be treated as up-to-date
-unconditionally -- with no comparison against the directory's *current*
-signature at all. So once a directory was cached once, in-place changes to
-files inside it (same filename, different content on the server) went
-undetected forever, since the shortcut never re-verified anything.
-
-Fix: ``get_remote_files()`` (``src/mirror_url/_core/scan.py``) now retains
-this run's freshly computed signatures on ``self.scanner.
-fresh_dir_signatures``, and the shortcut in both the sync and async compare
-paths only fires when the fresh signature for a directory matches what was
-cached -- not merely when the directory URL is *present* in the cache. A
-mismatch (or a missing fresh signature) falls through to the existing
-real HEAD-request/ETag verification path, exactly as if the directory had
-never been cached at all.
-
-The non-deterministic ``url:<url>:<timestamp>`` fallback signature (used
-when a server gives no ETag/Last-Modified on the directory) is explicitly
-never trusted by the shortcut, even in the pathological case where it
-happens to be byte-identical across runs -- it carries no real change
-signal, so a directory the tool can't fingerprint should always be
-re-verified per-file.
-
-This test builds a ``CompareMixin`` instance directly (bypassing the
-network layer via a fake ``connection_manager``) and exercises all three
-cases.
+A directory ETag can remain unchanged while an existing child's content
+changes. Matching, mismatched, and fallback listing signatures therefore
+all require the same file HEAD check.
 """
 
 from __future__ import annotations
@@ -101,8 +76,8 @@ def _make_cache_manager():
     return SimpleNamespace(get_file_metadata=lambda path: None)
 
 
-def test_matching_signature_skips_real_check(tmp_path):
-    """Fresh signature == cached signature -> shortcut fires, no HEAD request."""
+def test_matching_signature_still_checks_child(tmp_path):
+    """An unchanged listing says nothing about child content."""
     local_file = tmp_path / "file.fits"
     local_file.write_bytes(b"unchanged content")
     dir_url = "http://example.test/data/"
@@ -112,14 +87,14 @@ def test_matching_signature_skips_real_check(tmp_path):
         cached_signatures={dir_url: "etag:abc123"},
         fresh_dir_signatures={dir_url: "etag:abc123"},
     )
-    conn = _FakeConnectionManager(_FakeResponse(200))
+    conn = _FakeConnectionManager(_FakeResponse(200, {"Content-Length": "999999"}))
     mirror = _StubMirror(_make_config(), scanner, _make_cache_manager(), conn)
 
     result = mirror.file_exists_and_up_to_date(local_file, remote_url, use_cache=True)
 
-    assert result is True
-    assert conn.call_count == 0, "matching signature should skip the HEAD request entirely"
-    assert mirror.metrics.counts.get("cache_hits") == 1
+    assert result is False
+    assert conn.call_count == 1
+    assert mirror.metrics.counts.get("cache_misses") == 1
 
 
 def test_mismatched_signature_forces_real_check(tmp_path):
@@ -144,7 +119,6 @@ def test_mismatched_signature_forces_real_check(tmp_path):
     result = mirror.file_exists_and_up_to_date(local_file, remote_url, use_cache=True)
 
     assert conn.call_count == 1, "signature mismatch must trigger a real HEAD request"
-    assert mirror.metrics.counts.get("dir_signature_changed_forced_recheck") == 1
     assert result is False, "server ETag differs from stored ETag -> needs download"
 
 

@@ -22,9 +22,8 @@ from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
-from threading import RLock
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
-from urllib.parse import ParseResult, unquote, urlparse
+from typing import TYPE_CHECKING, Dict, List, Optional, Union
+from urllib.parse import ParseResult, urlparse
 
 import httpx
 
@@ -362,15 +361,6 @@ class _MirrorBase:
             # that hits a method this fallback doesn't implement. See
             # cache.NullCacheManager's docstring for the history here.
             self.cache_manager = NullCacheManager()
-
-        # ============================================================================
-        # 15a. FILENAME CACHE (Performance optimization)
-        # ============================================================================
-        self._filename_cache: Dict[str, str] = {}
-        self._filename_cache_lock = RLock()
-        self._filename_cache_maxsize = 10000
-        self._filename_cache_hits = 0
-        self._filename_cache_misses = 0
 
         # ============================================================================
         # 16. FILESYSTEM CACHE
@@ -879,12 +869,6 @@ class _MirrorBase:
                 except Exception as e:
                     logging.debug(f"Partial manager cleanup error: {e}")
 
-        # 9. Clear filename cache
-        if hasattr(self, "_filename_cache"):
-            with self._filename_cache_lock:
-                self._filename_cache.clear()
-                logging.debug("Filename cache cleared")
-
         # 10. Shutdown concurrency manager
         if hasattr(self, "concurrency_manager"):
             try:
@@ -1140,67 +1124,6 @@ class _MirrorBase:
         except Exception as e:
             # Non-critical - just log debug level
             logging.debug(f"Connection warm-up failed (non-critical): {e}")
-
-    def _get_cached_filename(self, remote_url: str) -> str:
-        """
-        Get cached filename from URL with automatic cache management.
-
-        Args:
-            remote_url: Remote URL to extract filename from
-
-        Returns:
-            Extracted filename
-        """
-        with self._filename_cache_lock:
-            if remote_url in self._filename_cache:
-                self._filename_cache_hits += 1
-                return self._filename_cache[remote_url]
-
-            self._filename_cache_misses += 1
-            parsed = urlparse(remote_url)
-            # Handle URLs with query parameters
-            path = parsed.path
-            if not path or path == "/":
-                # Generate a filename from the URL if path is empty
-                filename = f"index_{hash(remote_url) & 0xFFFFFFFF:x}.html"
-            else:
-                filename = os.path.basename(unquote(path))
-                if not filename:
-                    filename = f"index_{hash(remote_url) & 0xFFFFFFFF:x}.html"
-
-            # Store in cache
-            self._filename_cache[remote_url] = filename
-
-            # Prune if cache exceeds max size
-            if len(self._filename_cache) > self._filename_cache_maxsize:
-                # Remove oldest 20% of entries
-                items_to_remove = len(self._filename_cache) // 5
-                keys_to_remove = list(self._filename_cache.keys())[:items_to_remove]
-                for key in keys_to_remove:
-                    del self._filename_cache[key]
-                logging.debug(
-                    f"Pruned filename cache: removed {items_to_remove} entries, "
-                    f"now {len(self._filename_cache)} entries"
-                )
-
-            return filename
-
-    def _get_filename_cache_stats(self) -> Dict[str, Any]:
-        """Get filename cache statistics."""
-        with self._filename_cache_lock:
-            return {
-                "size": len(self._filename_cache),
-                "maxsize": self._filename_cache_maxsize,
-                "hits": self._filename_cache_hits,
-                "misses": self._filename_cache_misses,
-                "hit_rate": (
-                    self._filename_cache_hits
-                    / (self._filename_cache_hits + self._filename_cache_misses)
-                    * 100
-                )
-                if (self._filename_cache_hits + self._filename_cache_misses) > 0
-                else 0,
-            }
 
     def _get_file_size(self, url: str) -> Optional[int]:
         """Get file size via HEAD request."""

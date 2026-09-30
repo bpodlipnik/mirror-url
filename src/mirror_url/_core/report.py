@@ -723,14 +723,6 @@ class ReportMixin:
                         f"{parallel_stats['active_chunks']} chunks active"
                     )
 
-            # Add filename cache stats to metrics
-            filename_cache_stats = self._get_filename_cache_stats()
-            if filename_cache_stats["size"] > 0:
-                logging.info(
-                    f"{prefix}  Filename cache: {filename_cache_stats['size']} entries, "
-                    f"hit rate: {filename_cache_stats['hit_rate']:.1f}%"
-                )
-
             if self.config.metrics_json and not self.config.dry_run:
                 self.metrics.export_json(self.config.metrics_json, self.config)
 
