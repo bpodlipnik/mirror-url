@@ -7,7 +7,7 @@ them efficiently — with adaptive concurrency, resumable/parallel downloads,
 integrity checks, incremental caching, and an SSRF-hardened transport layer.
 
 - **Version:** 3.1.67
-- **Python:** 3.9 – 3.12 (pure Python, any OS/architecture)
+- **Python:** 3.9 – 3.12 (pure Python; not supported on Solaris)
 - **License:** MIT
 
 ---
