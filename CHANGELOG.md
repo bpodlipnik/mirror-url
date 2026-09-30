@@ -7,6 +7,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Fixed
+- Create async locks and semaphores on first use in the running event loop.
+  Managers can be constructed after `asyncio.run()` or in worker threads on
+  Python 3.9 without a current event loop. Shared primitives can be rebound
+  after their previous loop closes; concurrent use across open loops is rejected.
 - Address immediate audit findings F01–F13: cleanup never follows local
   symlinks, preserves paths omitted by filters/exclusions/depth/symlink
   decisions, and aborts failed MOVE operations without switching to DELETE.

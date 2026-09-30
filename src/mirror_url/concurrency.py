@@ -14,6 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 from threading import RLock
 from typing import Any, Dict, Optional
 
+from .async_primitives import LoopLocalPrimitive
 from .constants import (
     MONITOR_INTERVAL_SECONDS,
     UNIFIED_MAX_ASYNC_TASKS,
@@ -77,7 +78,7 @@ class UnifiedConcurrencyManager:
         self.shared_pool_lock = RLock()
 
         # Async semaphore
-        self.async_semaphore = asyncio.Semaphore(max_async_tasks)
+        self._async_semaphore = LoopLocalPrimitive(lambda: asyncio.Semaphore(max_async_tasks))
 
         # Monitoring
         self.monitor_running = False
@@ -178,8 +179,13 @@ class UnifiedConcurrencyManager:
             self.total_completed += 1
             self.thread_condition.notify_all()
 
+    @property
+    def async_semaphore(self) -> asyncio.Semaphore:
+        """Create the shared semaphore on first use in a running event loop."""
+        return self._async_semaphore.get()
+
     def acquire_async(self) -> asyncio.Semaphore:
-        """Get async semaphore for task limiting."""
+        """Get the shared task semaphore from within a running event loop."""
         return self.async_semaphore
 
     def submit_to_shared_pool(self, fn, *args, **kwargs) -> concurrent.futures.Future:

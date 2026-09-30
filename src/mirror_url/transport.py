@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
 
 import httpx
 
+from .async_primitives import LoopLocalPrimitive
 from .exceptions import SecurityError
 from .security import SecurityValidator
 
@@ -186,7 +187,7 @@ class SecureAsyncTransport(httpx.AsyncHTTPTransport):
     def __init__(self, rate_limiter: Optional[PerIPRateLimiter] = None, test_mode: bool = False):
         super().__init__()
         self._resolved_ips: Dict[str, Tuple[str, float]] = {}
-        self._ip_lock = asyncio.Lock()
+        self._ip_lock = LoopLocalPrimitive(asyncio.Lock)
         self.rate_limiter = rate_limiter
         # FIX: handle_async_request() reads self._test_mode, but it was never
         # initialized here (only SecureTransport set it). That raised
@@ -196,7 +197,7 @@ class SecureAsyncTransport(httpx.AsyncHTTPTransport):
 
         # DNS resolution is serialized separately from cache access. asyncio
         # locks are not reentrant; cache helpers acquire _ip_lock themselves.
-        self._resolution_lock = asyncio.Lock()
+        self._resolution_lock = LoopLocalPrimitive(asyncio.Lock)
 
         # FIX: Track cleanup timing
         self._last_cleanup = time.time()
@@ -204,7 +205,7 @@ class SecureAsyncTransport(httpx.AsyncHTTPTransport):
 
     async def _get_cached_ip(self, hostname: str) -> Optional[str]:
         """Get cached IP if still valid"""
-        async with self._ip_lock:
+        async with self._ip_lock.get():
             if hostname in self._resolved_ips:
                 ip, timestamp = self._resolved_ips[hostname]
                 if time.time() - timestamp < self.IP_CACHE_TTL_SECONDS:
@@ -214,7 +215,7 @@ class SecureAsyncTransport(httpx.AsyncHTTPTransport):
 
     async def _cache_ip(self, hostname: str, ip: str) -> None:
         """Cache resolved IP with timestamp and bounded size"""
-        async with self._ip_lock:
+        async with self._ip_lock.get():
             # FIX: If cache is full, remove oldest entries before adding
             if len(self._resolved_ips) >= self.IP_CACHE_MAX_SIZE:
                 entries = sorted(self._resolved_ips.items(), key=lambda x: x[1][1])
@@ -231,7 +232,7 @@ class SecureAsyncTransport(httpx.AsyncHTTPTransport):
         if not force and now - self._last_cleanup < self.IP_CACHE_CLEANUP_INTERVAL:
             return 0
 
-        async with self._ip_lock:
+        async with self._ip_lock.get():
             stale = [
                 hostname
                 for hostname, (_, timestamp) in self._resolved_ips.items()
@@ -276,7 +277,7 @@ class SecureAsyncTransport(httpx.AsyncHTTPTransport):
 
         safe_ip = await self._get_cached_ip(hostname)
         if safe_ip is None:
-            async with self._resolution_lock:
+            async with self._resolution_lock.get():
                 safe_ip = await self._get_cached_ip(hostname)
                 if safe_ip is None:
                     safe_ip = await asyncio.to_thread(
@@ -302,7 +303,7 @@ class SecureAsyncTransport(httpx.AsyncHTTPTransport):
 
     async def clear_ip_cache(self) -> None:
         """Clear IP cache (for testing/shutdown)."""
-        async with self._ip_lock:
+        async with self._ip_lock.get():
             self._resolved_ips.clear()
             logging.debug("Async IP cache cleared")
 
