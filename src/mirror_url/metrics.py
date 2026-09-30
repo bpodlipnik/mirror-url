@@ -254,7 +254,9 @@ class MetricsCollector:
 
         Args:
             prefix: Prefix for log lines
-            show_stats: Whether to show detailed statistics
+            show_stats: Unused. Accepted for backward compatibility (``--stats``
+                used to be documented as switching on a detailed summary, but the
+                full summary has always been produced regardless).
 
         Returns:
             Formatted metrics report

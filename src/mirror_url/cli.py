@@ -18,6 +18,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from typing import Optional
 
 import yaml
 
@@ -54,7 +55,6 @@ from .constants import (
     PARALLEL_DOWNLOAD_ENABLED,
     PARALLEL_SCAN_THRESHOLD,
     REQUEST_DELAY,
-    STREAMING_MIN_FILE_SIZE_MB,
     SYMLINK_BOMB_THRESHOLD,
     TARGET_BATCH_TIME_SECONDS,
 )
@@ -64,8 +64,15 @@ from .exceptions import ConfigError, PathTraversalError, URLScopeError
 from .utils import _log_files
 
 
-def setup_shared_logging(args: argparse.Namespace) -> None:
-    """Setup shared logging for multiple suffixes"""
+def setup_shared_logging(
+    args: argparse.Namespace, effective: Optional[argparse.Namespace] = None
+) -> None:
+    """Setup shared logging for multiple suffixes.
+
+    ``args`` drives the handlers and log levels. ``effective`` (see
+    :func:`_effective_args`) is only used for the informational header written
+    at the top of the log; when omitted the header describes ``args`` itself.
+    """
     # Create log filename with suffixes properly separated by underscores
     suffixes_str = "_".join(args.dir_suffix) if args.dir_suffix else "all"
     timestamp = time.strftime("%Y%m%d_%H%M%S")
@@ -152,15 +159,17 @@ def setup_shared_logging(args: argparse.Namespace) -> None:
     for handler in handlers:
         logging.root.addHandler(handler)
 
-    # Log header information
+    # Log header information. Describe the settings the run will actually use
+    # (CLI > --config file > default), not the raw parser defaults.
+    eff = effective if effective is not None else args
     logging.info("=" * 50)
     logging.info(f"MirrorURL v{__version__} - SHARED LOG")
     logging.info(f"Log: {log_path}")
 
-    if args.dir_suffix:
-        logging.info(f"Suffixes: {args.dir_suffix}")
+    if eff.dir_suffix:
+        logging.info(f"Suffixes: {eff.dir_suffix}")
 
-    cleanup_policy = getattr(args, "cleanup_policy", CleanupPolicy.SAFE_NO_DELETE)
+    cleanup_policy = getattr(eff, "cleanup_policy", CleanupPolicy.SAFE_NO_DELETE)
     if cleanup_policy == CleanupPolicy.DELETE:
         logging.warning("⚠️ DELETE MODE ENABLED")
     elif cleanup_policy == CleanupPolicy.MOVE:
@@ -170,71 +179,71 @@ def setup_shared_logging(args: argparse.Namespace) -> None:
     else:
         logging.info("✅ SAFE MODE")
 
-    if args.no_cache:
+    if eff.no_cache:
         logging.warning("CACHE DISABLED")
-    if args.refresh_cache:
+    if eff.refresh_cache:
         logging.warning("CACHE REFRESH FORCED")
-    if getattr(args, "safe_urls", True):
+    if getattr(eff, "safe_urls", True):
         logging.info("🔒 URL sanitization enabled")
 
     logging.info(
-        f"🛡️ Path safety: max_depth={args.max_depth}, max_filename_len={args.max_filename_len}"
+        f"🛡️ Path safety: max_depth={eff.max_depth}, max_filename_len={eff.max_filename_len}"
     )
 
-    if args.confirm_delete and args.cleanup_policy == CleanupPolicy.DELETE:
+    if eff.confirm_delete and eff.cleanup_policy == CleanupPolicy.DELETE:
         logging.info("🔐 Confirmation required")
-    if args.quiet:
+    if eff.quiet:
         logging.info("🔇 Quiet mode")
-    elif args.verbose:
+    elif eff.verbose:
         logging.info("🔊 Verbose mode")
-    if args.metrics_json:
-        logging.info(f"📊 Metrics: {args.metrics_json}")
-    if TQDM_AVAILABLE and args.progress_bar:
+    if eff.metrics_json:
+        logging.info(f"📊 Metrics: {eff.metrics_json}")
+    if TQDM_AVAILABLE and eff.progress_bar:
         logging.info("📈 Progress bar enabled")
-    if args.async_metadata:
-        if args.adaptive_async:
+    if eff.async_metadata:
+        if eff.adaptive_async:
             logging.info(
-                f"🔄 Adaptive async: {args.adaptive_start_concurrency}-{ADAPTIVE_MAX_CONCURRENCY} workers"
+                f"🔄 Adaptive async: {eff.adaptive_start_concurrency}-{ADAPTIVE_MAX_CONCURRENCY} workers"
             )
         else:
-            logging.info(f"⚡ Async meta {args.async_workers} workers")
-    if args.content_hash_small_files:
+            logging.info(f"⚡ Async meta {eff.async_workers} workers")
+    if eff.content_hash_small_files:
         logging.info(f"🔐 Content hash: <{CONTENT_HASH_THRESHOLD / 1024:.0f}KB")
 
-    delay_ms = args.request_delay * 1000
-    logging.info(f"⚡ Rate limit: {delay_ms:.1f}ms{' (trusted)' if args.trusted_server else ''}")
+    delay_ms = eff.request_delay * 1000
+    logging.info(f"⚡ Rate limit: {delay_ms:.1f}ms{' (trusted)' if eff.trusted_server else ''}")
 
-    if args.cache_html:
-        logging.info(f"📦 HTML cache: {args.html_cache_max_age}h")
-    if args.bandwidth_limit:
-        logging.info(f"⏱️ Bandwidth limit: {args.bandwidth_limit} MB/s")
-    if getattr(args, "enable_resume", True):
+    if eff.cache_html:
+        logging.info(f"📦 HTML cache: {eff.html_cache_max_age}h")
+    if eff.bandwidth_limit:
+        logging.info(f"⏱️ Bandwidth limit: {eff.bandwidth_limit} MB/s")
+    if getattr(eff, "enable_resume", True):
         logging.info("↩️ Resume enabled")
-    if args.handle_symlinks:
-        logging.info(f"🔗 Symlink handling: {args.symlink_mode}")
-    if getattr(args, "adaptive_batch_processing", True):
+    if eff.handle_symlinks:
+        logging.info(f"🔗 Symlink handling: {eff.symlink_mode}")
+    if getattr(eff, "adaptive_batch_processing", True):
         logging.info(
-            f"📈 Adaptive batch processing: initial={getattr(args, 'initial_batch_size', BATCH_SIZE)}"
+            f"📈 Adaptive batch processing: initial={getattr(eff, 'initial_batch_size', BATCH_SIZE)}"
         )
-    if getattr(args, "use_disk_backed_sets", False):
+    if getattr(eff, "use_disk_backed_sets", False):
         logging.info(
-            f"💾 Disk-backed sets: memory={getattr(args, 'memory_cache_size', MEMORY_CACHE_MAX_SIZE)}"
+            f"💾 Disk-backed sets: memory={getattr(eff, 'memory_cache_size', MEMORY_CACHE_MAX_SIZE)}"
         )
-    if getattr(args, "fast_parsing_fallback", True):
+    if getattr(eff, "fast_parsing_fallback", True):
         logging.info("⚡ Fast parsing fallback enabled")
-    if getattr(args, "connection_pool_prewarm", True):
+    if getattr(eff, "connection_pool_prewarm", True):
         logging.info("🔥 Connection pool pre-warming enabled")
     if PSUTIL_AVAILABLE:
         logging.info("📊 Memory monitoring: ENABLED")
-    if args.metrics_json:
-        health_port = getattr(args, "health_check_port", 8080)
+    if eff.metrics_json:
+        health_port = getattr(eff, "health_check_port", 8080)
         logging.info(f"🏥 Health check API: http://localhost:{health_port}/health")
-    if getattr(args, "parallel_downloads", False):
+    if getattr(eff, "parallel_downloads", False):
         logging.info(
-            f"🚀 Parallel downloads: ENABLED (max {args.max_chunks} chunks, {args.min_chunk_size}MB min)"
+            f"🚀 Parallel downloads: ENABLED (max {eff.max_chunks} chunks, {eff.min_chunk_size}MB min)"
         )
-    if getattr(args, "max_concurrent_downloads", 10) > 1:
-        logging.info(f"📥 Max concurrent file downloads: {args.max_concurrent_downloads}")
+    if getattr(eff, "max_concurrent_downloads", 10) > 1:
+        logging.info(f"📥 Max concurrent file downloads: {eff.max_concurrent_downloads}")
 
     logging.info("=" * 50)
 
@@ -271,6 +280,45 @@ def _explicit_cli_dests(parser: argparse.ArgumentParser, argv: list) -> set:
     for action in probe._actions:
         action.default = argparse.SUPPRESS
     return set(vars(probe.parse_args(argv)))
+
+
+# Options that steer how *this process* logs. They are applied from the command
+# line only (main() never reads them from the ``--config`` file for the shared
+# log's handlers/levels), so the log header must keep describing the CLI value
+# for them rather than a config-file value that is not actually in force.
+_CLI_ONLY_LOGGING_DESTS = frozenset({"quiet", "verbose", "debug", "print_logs", "log_file"})
+
+
+def _effective_args(
+    args: argparse.Namespace, explicit: set, base_config: MirrorConfig
+) -> argparse.Namespace:
+    """Return a copy of ``args`` holding the settings a ``--config`` run will use.
+
+    Precedence is command line > config file > built-in default. ``args`` alone
+    only knows the first and the last: a value the user did not type is the
+    argparse *default*, even when the YAML overrides it. Used solely to make the
+    ``--log-file`` header truthful (e.g. ``cleanup_policy: delete`` in the YAML
+    must not be reported as "SAFE MODE").
+    """
+    eff = argparse.Namespace(**vars(args))
+    fields = MirrorConfig.model_fields
+    for dest in vars(args):
+        if dest in explicit or dest in _CLI_NON_CONFIG_DESTS or dest in _CLI_ONLY_LOGGING_DESTS:
+            continue
+        if dest == "cleanup_policy":
+            continue  # not a parser dest; main() derives it from --cleanup (handled below)
+        key = _CLI_DEST_TO_CONFIG_KEY.get(dest, dest)
+        if key in fields and dest not in _DOWNLOAD_MODE_DESTS:
+            setattr(eff, dest, getattr(base_config, key))
+    for dest in _DOWNLOAD_MODE_DESTS:
+        if dest not in explicit:
+            setattr(eff, dest, getattr(base_config, dest))
+    # Not CLI options at all (getattr fallbacks in the header): config-file only.
+    eff.safe_urls = base_config.safe_urls
+    eff.enable_resume = base_config.enable_resume
+    if "cleanup" not in explicit:
+        eff.cleanup_policy = base_config.cleanup_policy
+    return eff
 
 
 def _cli_overrides(args: argparse.Namespace, explicit: set) -> dict:
@@ -900,7 +948,12 @@ EXAMPLES:
     logging_grp.add_argument("--quiet", action="store_true", help="Quiet mode (WARNING+ only)")
     logging_grp.add_argument("--verbose", action="store_true", help="Verbose mode (DEBUG)")
     logging_grp.add_argument("--progress-bar", action="store_true", help="Enable tqdm progress bar")
-    logging_grp.add_argument("--stats", action="store_true", help="Show detailed statistics")
+    logging_grp.add_argument(
+        "--stats",
+        action="store_true",
+        help="Currently has no effect; accepted for backward compatibility. "
+        "The end-of-run METRICS SUMMARY is always printed in full.",
+    )
     logging_grp.add_argument(
         "--metrics-json", type=Path, metavar="PATH", help="Export metrics to JSON file"
     )
@@ -1184,7 +1237,17 @@ EXAMPLES:
 
     # Setup shared logging if requested
     if args.log_file:
-        setup_shared_logging(args)
+        effective = None
+        if args.config:
+            try:
+                effective = _effective_args(
+                    args,
+                    explicit_dests,
+                    MirrorConfig.from_yaml(Path(args.config), silent=True),
+                )
+            except Exception:
+                effective = None  # header falls back to describing the CLI values
+        setup_shared_logging(args, effective)
         use_shared = True
     else:
         use_shared = False
@@ -1347,15 +1410,7 @@ EXAMPLES:
             # NEW v3.0.6 arguments
             auto_concurrency=getattr(args, "auto_concurrency", AUTO_CONCURRENCY_ENABLED),
             health_check_port=getattr(args, "health_check_port", 8080),
-            # NEW: Auto-selection fields for benchmark
-            auto_select_method=getattr(args, "auto_select", True),
-            force_method=getattr(args, "force_method", None),
-            force_disk_type=getattr(args, "force_disk_type", None),
-            manual_network_speed_mbps=getattr(args, "network_speed", None),
             streaming_parallel=getattr(args, "streaming_parallel", True),
-            streaming_min_file_size_mb=getattr(
-                args, "streaming_min_size", STREAMING_MIN_FILE_SIZE_MB
-            ),
             sequential_downloads=getattr(args, "sequential_downloads", False),
         )
 
@@ -1511,14 +1566,6 @@ EXAMPLES:
                     ),
                     auto_concurrency=getattr(args, "auto_concurrency", AUTO_CONCURRENCY_ENABLED),
                     health_check_port=getattr(args, "health_check_port", 8080),
-                    # NEW: Auto-selection fields
-                    auto_select_method=getattr(args, "auto_select", True),
-                    force_method=getattr(args, "force_method", None),
-                    force_disk_type=getattr(args, "force_disk_type", None),
-                    manual_network_speed_mbps=getattr(args, "network_speed", None),
-                    streaming_min_file_size_mb=getattr(
-                        args, "streaming_min_size", STREAMING_MIN_FILE_SIZE_MB
-                    ),
                 )
 
         except ConfigError as e:

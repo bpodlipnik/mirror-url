@@ -122,6 +122,20 @@ def expand_env_vars(config_dict: Dict[str, Any]) -> Dict[str, Any]:
     return expanded
 
 
+# Config options that are declared (so existing YAML files keep validating) but
+# that no code reads. See ``MirrorConfig.warn_unused_fields``.
+_UNUSED_CONFIG_FIELDS = (
+    "auto_select_method",
+    "force_method",
+    "use_dedicated_download_pool",
+    "parallel_files_min_files",
+    "streaming_min_file_size_mb",
+    "streaming_min_files",
+    "traditional_min_files",
+)
+_WARNED_UNUSED_FIELDS: set = set()
+
+
 class ConfigSchema(BaseModel):
     """Strict configuration schema for validation"""
 
@@ -315,16 +329,24 @@ class MirrorConfig(BaseModel):
         default=False, description="Disable rate limiter scaling for parallel downloads"
     )
     use_dedicated_download_pool: bool = Field(
-        default=True, description="Use dedicated thread pool for downloads instead of shared"
+        default=True,
+        description=(
+            "Reserved: currently has no effect. "
+            "Use dedicated thread pool for downloads instead of shared"
+        ),
     )
 
     # NEW: Auto-selection configuration
     auto_select_method: bool = Field(
-        default=True, description="Automatically select best download method"
+        default=True,
+        description="Reserved: currently has no effect. Automatically select best download method",
     )
     force_method: Optional[str] = Field(
         default=None,
-        description="Force specific method: sequential, parallel_files, streaming_parallel, traditional_parallel",
+        description=(
+            "Reserved: currently has no effect. Force specific method: sequential, "
+            "parallel_files, streaming_parallel, traditional_parallel"
+        ),
     )
     force_disk_type: Optional[str] = Field(
         default=None, description="Force disk type: ssd, hdd, nvme"
@@ -335,14 +357,20 @@ class MirrorConfig(BaseModel):
 
     # NEW: Method-specific tuning
     parallel_files_min_files: int = Field(
-        default=3, description="Minimum files to use parallel files mode"
+        default=3,
+        description="Reserved: currently has no effect. Minimum files to use parallel files mode",
     )
     streaming_min_file_size_mb: int = Field(
-        default=100, description="Minimum file size in MB for streaming parallel"
+        default=STREAMING_MIN_FILE_SIZE_MB,
+        description="Reserved: currently has no effect. Minimum file size in MB for streaming parallel",
     )
-    streaming_min_files: int = Field(default=4, description="Minimum files for streaming parallel")
+    streaming_min_files: int = Field(
+        default=4,
+        description="Reserved: currently has no effect. Minimum files for streaming parallel",
+    )
     traditional_min_files: int = Field(
-        default=3, description="Minimum files for traditional parallel"
+        default=3,
+        description="Reserved: currently has no effect. Minimum files for traditional parallel",
     )
 
     @field_validator("base_url", mode="before")
@@ -351,6 +379,42 @@ class MirrorConfig(BaseModel):
         if isinstance(v, str):
             return trim_url(v).rstrip("/")
         return v
+
+    @field_validator("dir_suffix", mode="before")
+    @classmethod
+    def normalize_dir_suffix(cls, v: Any) -> Any:
+        """Strip leading/trailing slashes so every construction path agrees.
+
+        The non-``--config`` CLI path always did ``suf.strip("/")`` while the
+        ``--config`` path and direct ``MirrorConfig(...)`` calls passed the
+        value through untouched, so ``"/2026/"`` produced a log file named
+        ``mirror_url__2026__<ts>.log`` in one mode and ``mirror_url_2026_<ts>.log``
+        in the other. Normalising here makes the model the single source of truth.
+        """
+        if v is None:
+            return ""
+        if isinstance(v, str):
+            return v.strip("/")
+        return v
+
+    @model_validator(mode="after")
+    def warn_unused_fields(self) -> MirrorConfig:
+        """Warn (once per field per process) when a no-op option is set to a non-default.
+
+        These fields are accepted so existing YAML files keep validating
+        (``extra="forbid"`` would otherwise reject them), but nothing reads them.
+        Setting e.g. ``force_method: sequential`` and getting silently ignored is
+        the worst outcome, so say so.
+        """
+        fields = type(self).model_fields
+        for name in _UNUSED_CONFIG_FIELDS:
+            if name in self.model_fields_set and getattr(self, name) != fields[name].default:
+                if name not in _WARNED_UNUSED_FIELDS:
+                    _WARNED_UNUSED_FIELDS.add(name)
+                    logging.warning(
+                        f"Config option '{name}' is accepted but currently has no effect (ignored)."
+                    )
+        return self
 
     @model_validator(mode="after")
     def validate_download_modes(self) -> MirrorConfig:
@@ -768,12 +832,6 @@ def load_config_from_args(args: argparse.Namespace, silent: bool = False) -> Mir
         ),
         "auto_concurrency": getattr(args, "auto_concurrency", AUTO_CONCURRENCY_ENABLED),
         "health_check_port": getattr(args, "health_check_port", 8080),
-        "parallel_files_min_files": getattr(args, "parallel_files_min_files", 3),
-        "streaming_min_file_size_mb": getattr(
-            args, "streaming_min_size", STREAMING_MIN_FILE_SIZE_MB
-        ),
-        "streaming_min_files": getattr(args, "streaming_min_files", 4),
-        "traditional_min_files": getattr(args, "traditional_min_files", 3),
         # NEW: Download mode flags
         "parallel_downloads": getattr(args, "parallel_downloads", False),
         "streaming_parallel": getattr(args, "streaming_parallel", False),

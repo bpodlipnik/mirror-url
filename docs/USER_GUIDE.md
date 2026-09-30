@@ -6,8 +6,8 @@ the remote directory tree, decides which files are new or changed, and downloads
 them efficiently — with adaptive concurrency, resumable/parallel downloads,
 integrity checks, incremental caching, and an SSRF-hardened transport layer.
 
-- **Version:** 3.1.67
-- **Python:** 3.9 – 3.12 (pure Python, any OS/architecture)
+- **Version:** 3.1.68
+- **Python:** 3.9 – 3.12 (pure Python; not supported on Solaris)
 - **License:** MIT
 
 ---
@@ -81,21 +81,21 @@ On a build machine:
 
 ```bash
 pip install build
-python -m build          # produces dist/mirror_url-3.1.67-py3-none-any.whl
+python -m build          # produces dist/mirror_url-3.1.68-py3-none-any.whl
 ```
 
 Copy the wheel to the target server and install it:
 
 ```bash
 python3 -m venv /opt/mirror-url
-/opt/mirror-url/bin/pip install /tmp/mirror_url-3.1.67-py3-none-any.whl
+/opt/mirror-url/bin/pip install /tmp/mirror_url-3.1.68-py3-none-any.whl
 /opt/mirror-url/bin/mirror-url --help
 ```
 
 To include the optional speed extras:
 
 ```bash
-/opt/mirror-url/bin/pip install "/tmp/mirror_url-3.1.67-py3-none-any.whl[fast]"
+/opt/mirror-url/bin/pip install "/tmp/mirror_url-3.1.68-py3-none-any.whl[fast]"
 ```
 
 Available extras: `fast` (stringzilla + lxml), `progress` (tqdm),
@@ -104,24 +104,24 @@ Available extras: `fast` (stringzilla + lxml), `progress` (tqdm),
 ### From a Git repository
 
 ```bash
-pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.67"
+pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.68"
 # private repo over SSH:
-pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.1.67"
+pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.1.68"
 ```
 
 ### As an isolated CLI with pipx
 
 ```bash
-pipx install /tmp/mirror_url-3.1.67-py3-none-any.whl
-# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.67"
+pipx install /tmp/mirror_url-3.1.68-py3-none-any.whl
+# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.68"
 ```
 
 ### With Docker
 
 ```dockerfile
 FROM python:3.12-slim
-COPY dist/mirror_url-3.1.67-py3-none-any.whl /tmp/
-RUN pip install --no-cache-dir "/tmp/mirror_url-3.1.67-py3-none-any.whl[fast]"
+COPY dist/mirror_url-3.1.68-py3-none-any.whl /tmp/
+RUN pip install --no-cache-dir "/tmp/mirror_url-3.1.68-py3-none-any.whl[fast]"
 ENTRYPOINT ["mirror-url"]
 ```
 
@@ -270,7 +270,7 @@ list of options. The most commonly used options:
 | Option | Description |
 |---|---|
 | `--progress-bar` | Show a tqdm progress bar (needs the `progress` extra). |
-| `--stats` | Print detailed statistics at the end. |
+| `--stats` | *Currently has no effect* (accepted for backward compatibility). The end-of-run metrics summary is always printed in full. |
 | `--metrics-json FILE` | Export run metrics to a JSON file. |
 | `--log-file NAME` | Custom base name for the run's log file, replacing the default `mirror_url` prefix. See below for the exact filename format. |
 | `--verbose` / `--debug` | More logging. |
@@ -862,8 +862,10 @@ an HTML directory listing "as a single file".
 
 ## Monitoring and metrics
 
-- **`--stats`** prints a detailed summary (files downloaded/skipped/failed,
-  bytes, speed, cache hit rates, ETag stats, etc.) at the end of a run.
+- **Metrics summary.** A run logs a `METRICS SUMMARY` block at INFO level
+  (files downloaded/skipped/failed, bytes, speed, cache hit rates, ETag stats,
+  etc.). `--stats` is accepted for backward compatibility but currently has no
+  effect; the summary is always printed in full.
 - **`--metrics-json FILE`** writes the full metrics summary to JSON (skipped in
   `--dry-run`).
 - **`--progress-bar`** shows a live tqdm bar (requires the `progress` extra).
