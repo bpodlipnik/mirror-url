@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] — 3.1.69 audit fixes
+## [3.1.70] - 2026-09-30
 
 ### Fixed
 
@@ -35,9 +35,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   bounds; correct hashing, localhost, import architecture, and formatter claims.
 - Enable the live HTTP integration test with a bypass scoped to the test.
 - Add audit regression coverage; regenerate both HTML guides.
-
-
-## [Unreleased]
 
 ## [3.1.69] - 2026-09-30
 

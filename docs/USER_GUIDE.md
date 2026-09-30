@@ -6,7 +6,7 @@ the remote directory tree, decides which files are new or changed, and downloads
 them efficiently — with adaptive concurrency, resumable/parallel downloads,
 integrity checks, incremental caching, and an SSRF-hardened transport layer.
 
-- **Version:** 3.1.69
+- **Version:** 3.1.70
 - **Python:** 3.9 – 3.12 (pure Python; not supported on Solaris)
 - **License:** MIT
 
@@ -14,7 +14,7 @@ integrity checks, incremental caching, and an SSRF-hardened transport layer.
 
 ## Audit patch behavior
 
-The audit patch for 3.1.69 streams file bodies as they arrive and throttles
+The audit patch for 3.1.70 streams file bodies as they arrive and throttles
 between reads. HTTP/2 and pool limits reach the secure transport. Fixed async
 metadata checks honor `async_workers`; adaptive resizing changes the live
 admission limit. Both async modes validate every redirect and retry 429/5xx
@@ -109,21 +109,21 @@ On a build machine:
 
 ```bash
 pip install build
-python -m build          # produces dist/mirror_url-3.1.69-py3-none-any.whl
+python -m build          # produces dist/mirror_url-3.1.70-py3-none-any.whl
 ```
 
 Copy the wheel to the target server and install it:
 
 ```bash
 python3 -m venv /opt/mirror-url
-/opt/mirror-url/bin/pip install /tmp/mirror_url-3.1.69-py3-none-any.whl
+/opt/mirror-url/bin/pip install /tmp/mirror_url-3.1.70-py3-none-any.whl
 /opt/mirror-url/bin/mirror-url --help
 ```
 
 To include the optional speed extras:
 
 ```bash
-/opt/mirror-url/bin/pip install "/tmp/mirror_url-3.1.69-py3-none-any.whl[fast]"
+/opt/mirror-url/bin/pip install "/tmp/mirror_url-3.1.70-py3-none-any.whl[fast]"
 ```
 
 Available extras: `fast` (stringzilla + lxml), `progress` (tqdm),
@@ -132,24 +132,24 @@ Available extras: `fast` (stringzilla + lxml), `progress` (tqdm),
 ### From a Git repository
 
 ```bash
-pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.69"
+pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.70"
 # private repo over SSH:
-pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.1.69"
+pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.1.70"
 ```
 
 ### As an isolated CLI with pipx
 
 ```bash
-pipx install /tmp/mirror_url-3.1.69-py3-none-any.whl
-# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.69"
+pipx install /tmp/mirror_url-3.1.70-py3-none-any.whl
+# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.70"
 ```
 
 ### With Docker
 
 ```dockerfile
 FROM python:3.12-slim
-COPY dist/mirror_url-3.1.69-py3-none-any.whl /tmp/
-RUN pip install --no-cache-dir "/tmp/mirror_url-3.1.69-py3-none-any.whl[fast]"
+COPY dist/mirror_url-3.1.70-py3-none-any.whl /tmp/
+RUN pip install --no-cache-dir "/tmp/mirror_url-3.1.70-py3-none-any.whl[fast]"
 ENTRYPOINT ["mirror-url"]
 ```
 

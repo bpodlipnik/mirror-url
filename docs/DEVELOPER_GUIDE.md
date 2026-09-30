@@ -11,7 +11,7 @@ If you only want to *use* MirrorURL (install, CLI, config, Python API), read
 repeats the essentials so you can work from it alone.
 
 - **Package:** `mirror_url` (src-layout under `src/`)
-- **Version:** 3.1.69
+- **Version:** 3.1.70
 - **Python:** 3.9 – 3.12
 - **Runtime deps:** `httpx`, `pydantic` v2, `PyYAML` (optional: `stringzilla`,
   `lxml`, `tqdm`, `psutil`)
@@ -546,16 +546,23 @@ are produced from the Markdown with pandoc (embedded CSS + TOC) — regenerate
 
 ## Release process
 
-1. **Bump the version in both sources** (a test asserts they match):
-   - `pyproject.toml` → `version = "X.Y.Z"`
-   - `src/mirror_url/_version.py` → `__version__ = "X.Y.Z"`
-   - Also update the user-facing version strings in `cli.py` (banner/description)
-     and the version references in `docs/USER_GUIDE.{md,html}`.
-2. **Update `CHANGELOG.md`** — add a new section at the top following Keep a
-   Changelog (`### Added/Changed/Fixed`).
-3. **Commit everything** (`git add -A` — don't forget docs/changelog/cli), push.
-4. **Tag and push the tag:**
+1. **Bump the version with `bash scripts/bump_version.sh X.Y.Z`.** It updates
+   `pyproject.toml`, `src/mirror_url/_version.py`, and the version references in
+   both Markdown/HTML guides. The CLI imports the shared version; no separate
+   banner edit is needed. A test checks that the two version sources agree.
+2. **Update `CHANGELOG.md`.** Replace the release's `[Unreleased]` heading with
+   `## [X.Y.Z] - YYYY-MM-DD`, retain its notes, and remove any empty duplicate
+   `[Unreleased]` section. For a release with no pending changes, leave no
+   `[Unreleased]` heading. Follow Keep a Changelog (`### Added/Changed/Fixed`).
+3. **Validate and commit the release.** Run `ruff check .`,
+   `ruff format --check .`, the full `pytest` suite, `python -m build`,
+   `twine check dist/*`, and `git diff --check`. Mypy is advisory in CI.
+   Commit the source metadata, changelog, and guides; push the release branch
+   and merge its reviewed pull request.
+4. **Tag the merged release on `main` and push the tag:**
    ```bash
+   git switch main
+   git pull --ff-only origin main
    git tag -a vX.Y.Z -m "mirror-url X.Y.Z"
    git push origin vX.Y.Z
    ```
@@ -564,12 +571,10 @@ are produced from the Markdown with pandoc (embedded CSS + TOC) — regenerate
    Publishing** (OIDC — no API token). The PyPI step requires a one-time setup: a
    pending publisher on PyPI (`owner` = repo owner, workflow `release.yml`,
    environment `pypi`) and a matching `pypi` Environment in the repo settings.
-   Until that exists, the tag still builds the wheel and creates the GitHub
-   Release; only the PyPI upload is skipped/red.
-
-If you push a tag pointing at an incomplete commit, move it with
-`git tag -f -a vX.Y.Z … && git push origin vX.Y.Z --force` to re-trigger the
-release from the corrected commit.
+   The PyPI job also requires the repository variable `PUBLISH_TO_PYPI=true`.
+   Without that opt-in, it is skipped; the tag still builds the wheel and
+   creates the GitHub Release. Verify the version and changelog before creating
+   the tag.
 
 ---
 
@@ -620,5 +625,5 @@ These bit the project before; the migration plan calls them out explicitly.
 
 ---
 
-*This guide describes the architecture as of version 3.1.69. When you change the
+*This guide describes the architecture as of version 3.1.70. When you change the
 structure, update this document in the same PR.*

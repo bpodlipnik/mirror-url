@@ -264,6 +264,9 @@
     </style>
 </head>
 <body>
+<header id="title-block-header">
+<h1 class="title">MirrorURL — Developer Guide</h1>
+</header>
 <nav id="TOC" role="doc-toc">
 <ul>
 <li><a href="#mirrorurl-developer-guide"
@@ -342,7 +345,7 @@ repeats the essentials so you can work from it alone.</p>
 <ul>
 <li><strong>Package:</strong> <code>mirror_url</code> (src-layout under
 <code>src/</code>)</li>
-<li><strong>Version:</strong> 3.1.69</li>
+<li><strong>Version:</strong> 3.1.70</li>
 <li><strong>Python:</strong> 3.9 – 3.12</li>
 <li><strong>Runtime deps:</strong> <code>httpx</code>,
 <code>pydantic</code> v2, <code>PyYAML</code> (optional:
@@ -1007,38 +1010,43 @@ the corresponding <code>.md</code>.</p>
 <hr />
 <h2 id="release-process">Release process</h2>
 <ol type="1">
-<li><p><strong>Bump the version in both sources</strong> (a test asserts
-they match):</p>
-<ul>
-<li><code>pyproject.toml</code> → <code>version = "X.Y.Z"</code></li>
-<li><code>src/mirror_url/_version.py</code> →
-<code>__version__ = "X.Y.Z"</code></li>
-<li>Also update the user-facing version strings in <code>cli.py</code>
-(banner/description) and the version references in
-<code>docs/USER_GUIDE.{md,html}</code>.</li>
-</ul></li>
-<li><p><strong>Update <code>CHANGELOG.md</code></strong> — add a new
-section at the top following Keep a Changelog
-(<code>### Added/Changed/Fixed</code>).</p></li>
-<li><p><strong>Commit everything</strong> (<code>git add -A</code> —
-don’t forget docs/changelog/cli), push.</p></li>
-<li><p><strong>Tag and push the tag:</strong></p>
+<li><p><strong>Bump the version with
+<code>bash scripts/bump_version.sh X.Y.Z</code>.</strong> It updates
+<code>pyproject.toml</code>, <code>src/mirror_url/_version.py</code>,
+and the version references in both Markdown/HTML guides. The CLI imports
+the shared version; no separate banner edit is needed. A test checks
+that the two version sources agree.</p></li>
+<li><p><strong>Update <code>CHANGELOG.md</code>.</strong> Replace the
+release’s <code>[Unreleased]</code> heading with
+<code>## [X.Y.Z] - YYYY-MM-DD</code>, retain its notes, and remove any
+empty duplicate <code>[Unreleased]</code> section. For a release with no
+pending changes, leave no <code>[Unreleased]</code> heading. Follow Keep
+a Changelog (<code>### Added/Changed/Fixed</code>).</p></li>
+<li><p><strong>Validate and commit the release.</strong> Run
+<code>ruff check .</code>, <code>ruff format --check .</code>, the full
+<code>pytest</code> suite, <code>python -m build</code>,
+<code>twine check dist/*</code>, and <code>git diff --check</code>. Mypy
+is advisory in CI. Commit the source metadata, changelog, and guides;
+push the release branch and merge its reviewed pull request.</p></li>
+<li><p><strong>Tag the merged release on <code>main</code> and push the
+tag:</strong></p>
 <div class="sourceCode" id="cb6"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> tag <span class="at">-a</span> vX.Y.Z <span class="at">-m</span> <span class="st">&quot;mirror-url X.Y.Z&quot;</span></span>
-<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> push origin vX.Y.Z</span></code></pre></div></li>
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> switch main</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> pull <span class="at">--ff-only</span> origin main</span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> tag <span class="at">-a</span> vX.Y.Z <span class="at">-m</span> <span class="st">&quot;mirror-url X.Y.Z&quot;</span></span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> push origin vX.Y.Z</span></code></pre></div></li>
 <li><p>The tag triggers <code>.github/workflows/release.yml</code>,
 which builds the wheel/sdist, creates a GitHub Release, and (when
 configured) publishes to PyPI via <strong>Trusted Publishing</strong>
 (OIDC — no API token). The PyPI step requires a one-time setup: a
 pending publisher on PyPI (<code>owner</code> = repo owner, workflow
 <code>release.yml</code>, environment <code>pypi</code>) and a matching
-<code>pypi</code> Environment in the repo settings. Until that exists,
-the tag still builds the wheel and creates the GitHub Release; only the
-PyPI upload is skipped/red.</p></li>
+<code>pypi</code> Environment in the repo settings. The PyPI job also
+requires the repository variable <code>PUBLISH_TO_PYPI=true</code>.
+Without that opt-in, it is skipped; the tag still builds the wheel and
+creates the GitHub Release. Verify the version and changelog before
+creating the tag.</p></li>
 </ol>
-<p>If you push a tag pointing at an incomplete commit, move it with
-<code>git tag -f -a vX.Y.Z … &amp;&amp; git push origin vX.Y.Z --force</code>
-to re-trigger the release from the corrected commit.</p>
 <hr />
 <h2 id="known-hazards-and-gotchas">Known hazards and gotchas</h2>
 <p>These bit the project before; the migration plan calls them out
@@ -1153,7 +1161,7 @@ public)</td>
 </tbody>
 </table>
 <hr />
-<p><em>This guide describes the architecture as of version 3.1.69. When
+<p><em>This guide describes the architecture as of version 3.1.70. When
 you change the structure, update this document in the same PR.</em></p>
 </body>
 </html>
