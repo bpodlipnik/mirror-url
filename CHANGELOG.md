@@ -4,6 +4,47 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.68] - 2026-09-30
+
+### Fixed
+- **`--log-file` header described parser defaults, not the run.** With
+  `--config`, `setup_shared_logging()` read only the argparse namespace, so a
+  YAML `cleanup_policy: delete` was logged as "SAFE MODE", and
+  `safe_urls: false` / `enable_resume: false` were logged as enabled (those two
+  are not CLI options at all, so the header always claimed them). The header now
+  reflects command line > `--config` file > default. Handler set-up and log
+  levels are unchanged (`--quiet`/`--verbose`/`--debug`/`--print-logs` are
+  still CLI-only for the shared log, so the header keeps reporting the CLI
+  value for those).
+- **`dir_suffix` was normalised only on one code path.** The non-`--config` CLI
+  path stripped leading/trailing `/`; `--config` runs and direct
+  `MirrorConfig(...)` construction did not, so `/2026/` gave a log file named
+  `mirror_url__2026__<ts>.log` in one mode and `mirror_url_2026_<ts>.log` in the
+  other. `MirrorConfig` now normalises the value itself (`None` becomes `""`).
+  Mirrored files and URLs are unaffected; they already stripped the slashes.
+- Seven `MirrorConfig` options are accepted but read by no code:
+  `auto_select_method`, `force_method`, `use_dedicated_download_pool`,
+  `parallel_files_min_files`, `streaming_min_file_size_mb`,
+  `streaming_min_files`, `traditional_min_files`. They stay accepted so existing
+  YAML files keep validating, their descriptions now say so, and setting one to
+  a non-default value logs a one-time warning instead of being silently
+  ignored.
+
+### Documentation
+- `--stats` is accepted but has no effect; the METRICS SUMMARY block is always
+  printed in full. `--help`, `USER_GUIDE` (md and html) and the
+  `MetricsCollector.report()` docstring now say so instead of describing a
+  "detailed" mode that does not exist.
+- `USER_GUIDE` no longer claims "any OS/architecture": MirrorURL does not work
+  on Solaris.
+
+### Changed
+- Removed dead `getattr(args, ...)` lookups of CLI options that do not exist
+  (`streaming_min_size`, `auto_select`, `network_speed`, `force_method`,
+  `force_disk_type`, `streaming_min_files`, ...) from `cli.py` and
+  `load_config_from_args`. Every one fell back to the field default, so
+  behaviour is unchanged.
+
 ## [3.1.67] - 2026-09-29
 
 ### Fixed
