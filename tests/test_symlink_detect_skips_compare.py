@@ -77,6 +77,9 @@ class _StubMirror(ReportMixin):
     def get_remote_files(self):
         return self._remote_files
 
+    def _validate_remote_paths(self, remote_files):
+        pass  # Mapping is exercised by the full-mirror regression tests.
+
     def _check_files_sync(self, *args, **kwargs):
         self.check_files_called = True
         raise _SpyCalled("_check_files_sync() must not be called in --symlink-mode detect")

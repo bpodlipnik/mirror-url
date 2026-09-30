@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 import time
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urljoin, urlparse
@@ -15,7 +16,7 @@ from .compat import LXML_AVAILABLE, XPath, html
 from .constants import HTML_CACHE_MAX_AGE_HOURS, MAX_HTML_CACHE_SIZE, MAX_IN_MEMORY_CACHE_SIZE
 from .decorators import log_performance
 from .exceptions import ParsingError
-from .parsing import AdaptiveBatchProcessor, extract_links_fast, should_use_fast_parser
+from .parsing import AdaptiveBatchProcessor, decode_html, extract_links_fast, should_use_fast_parser
 from .primitives import LRUCache
 from .storage import FileSystemCache
 from .utils import sanitize_url_for_log, trim_url
@@ -95,12 +96,15 @@ class DirectoryScanner:
         self._maybe_cleanup_cache()
         url = trim_url(url)
 
-        cached = self.parse_cache.get(url)
+        cache_allowed = (
+            self.config.cache_html and not self.config.no_cache and not self.config.refresh_cache
+        )
+        cached = self.parse_cache.get(url) if cache_allowed else None
         if cached:
             self.metrics.increment("cache_hits")
             return cached
 
-        cached_result = self.mirror.cache_manager.get_html_cache(url)
+        cached_result = self.mirror.cache_manager.get_html_cache(url) if cache_allowed else None
         if cached_result:
             files, subdirs = cached_result
             self.parse_cache.put(url, (files, subdirs))
@@ -133,9 +137,10 @@ class DirectoryScanner:
             logging.debug(f"Not caching failed scan for {sanitize_url_for_log(url)}: {e}")
             raise
 
-        self.parse_cache.put(url, (files, subdirs))
+        if cache_allowed:
+            self.parse_cache.put(url, (files, subdirs))
 
-        if self.config.cache_html:
+        if self.config.cache_html and not self.config.no_cache:
             content_hash = hashlib.new(
                 self.config.hash_algorithm, str(files + subdirs).encode()
             ).hexdigest()
@@ -180,9 +185,14 @@ class DirectoryScanner:
                 raise ParsingError(f"HTTP {response.status_code} scanning {url}")
 
             content_length = len(response.content)
+            charset_match = re.search(
+                r"charset\s*=\s*([^;]+)", response.headers.get("Content-Type", ""), re.I
+            )
+            charset = charset_match.group(1).strip(" \"'") if charset_match else None
+            document = decode_html(response.content, charset)
 
             if should_use_fast_parser(content_length, self.config):
-                links = extract_links_fast(response.content)
+                links = extract_links_fast(document)
                 self.fast_parse_count += 1
                 self.metrics.increment("fast_parses")
                 logging.debug(
@@ -193,11 +203,11 @@ class DirectoryScanner:
                     logging.warning(
                         f"lxml not available, falling back to fast parser for {sanitize_url_for_log(url)}"
                     )
-                    links = extract_links_fast(response.content)
+                    links = extract_links_fast(document)
                     self.fast_parse_count += 1
                     self.metrics.increment("fast_parses")
                 else:
-                    tree = html.fromstring(response.content)
+                    tree = html.fromstring(document)
                     links = []
                     for link in self.LINK_XPATH(tree):
                         href = link.get("href")

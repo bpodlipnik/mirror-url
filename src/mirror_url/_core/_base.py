@@ -11,7 +11,6 @@ import asyncio
 import hashlib
 import logging
 import os
-import shlex
 import signal
 import socket
 import sys
@@ -22,7 +21,7 @@ from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 from urllib.parse import ParseResult, urlparse
 
 import httpx
@@ -33,7 +32,7 @@ from ..cache import CacheManager, NullCacheManager
 from ..compat import LXML_AVAILABLE, PSUTIL_AVAILABLE, TQDM_AVAILABLE
 from ..concurrency import UnifiedConcurrencyManager
 from ..connection import ConnectionManager
-from ..constants import ADAPTIVE_MAX_CONCURRENCY, CONTENT_HASH_THRESHOLD, DEFAULT_RATE_LIMIT
+from ..constants import ADAPTIVE_MAX_CONCURRENCY, DEFAULT_RATE_LIMIT
 from ..download import ParallelDownloadManager, PartialDownloadManager
 from ..enums import CleanupPolicy
 from ..exceptions import URLScopeError
@@ -49,7 +48,7 @@ from ..scanner import DirectoryScanner
 from ..security import PathSafety, SymlinkTracker
 from ..storage import DiskBackedSet, FileSystemCache
 from ..tuner import AutoConcurrencyTuner
-from ..utils import _log_files, sanitize_url_for_log, trim_url
+from ..utils import _log_files, sanitize_command_line, sanitize_url_for_log, trim_url
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, avoids an import cycle
     from ..config import MirrorConfig
@@ -451,7 +450,7 @@ class _MirrorBase:
         if config.auto_concurrency and config.parallel_downloads and self.parallel_manager:
             try:
                 self.auto_tuner = AutoConcurrencyTuner(
-                    start_concurrency=config.max_concurrent_downloads // 2,
+                    start_concurrency=max(1, config.max_concurrent_downloads // 2),
                     max_concurrency=config.max_concurrent_downloads,
                 )
                 logging.info(
@@ -537,7 +536,9 @@ class _MirrorBase:
 
         # Log content hash setting
         if config.content_hash_small_files:
-            logging.info(f"{prefix}🔐 Content hash: files <{CONTENT_HASH_THRESHOLD / 1024:.0f}KB")
+            logging.debug(
+                f"{prefix}Content-hash compatibility setting does not change file freshness checks"
+            )
 
         # Log parser availability
         if LXML_AVAILABLE:
@@ -571,7 +572,7 @@ class _MirrorBase:
         # Log adaptive batch processing
         if config.adaptive_batch_processing:
             logging.info(
-                f"{prefix}📈 Adaptive batch processing: initial={config.initial_batch_size}"
+                f"{prefix}Compatibility batch setting (inactive in sync): initial={config.initial_batch_size}"
             )
 
         # Log fast parsing fallback
@@ -677,10 +678,9 @@ class _MirrorBase:
             self._warm_up_connections()
 
         # ============================================================================
-        # 29. SIGNAL HANDLERS (always set, regardless of connection status)
+        # 29. SIGNAL HANDLER STATE (CLI opts in; library construction is passive)
         # ============================================================================
-        signal.signal(signal.SIGINT, self._signal_handler)
-        signal.signal(signal.SIGTERM, self._signal_handler)
+        self._previous_signal_handlers: Dict[int, Any] = {}
 
         # ============================================================================
         # 30. FINAL STATUS LOGGING
@@ -704,8 +704,21 @@ class _MirrorBase:
         self.cleanup()
         return False
 
+    def install_signal_handlers(self) -> None:
+        """Opt in to CLI interruption handling on the main thread."""
+        if threading.current_thread() is not threading.main_thread():
+            return
+        for signum in (signal.SIGINT, signal.SIGTERM):
+            self._previous_signal_handlers.setdefault(signum, signal.getsignal(signum))
+            signal.signal(signum, self._signal_handler)
+
     def cleanup(self) -> None:
         """Enhanced cleanup with proper ordering and resource management."""
+        if threading.current_thread() is threading.main_thread():
+            for signum, previous in getattr(self, "_previous_signal_handlers", {}).items():
+                if signal.getsignal(signum) == self._signal_handler:
+                    signal.signal(signum, previous)
+            self._previous_signal_handlers = {}
         logging.debug("Starting MirrorURL cleanup...")
 
         # 1. Stop health server FIRST (so no new requests come in)
@@ -1032,7 +1045,7 @@ class _MirrorBase:
         prefix = self._get_prefix()
         suffix_display = self.config.dir_suffix or "ROOT"
 
-        cmd_str = shlex.join([sys.executable] + sys.argv)
+        cmd_str = sanitize_command_line([sys.executable] + sys.argv)
         logging.info(f"{prefix}Processing directory suffix: '{suffix_display}'")
         logging.info(f"{prefix}Command: {cmd_str}")
         logging.info(f"{prefix}" + "-" * 80)

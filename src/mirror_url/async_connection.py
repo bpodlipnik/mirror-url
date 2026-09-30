@@ -13,19 +13,16 @@ import socket
 import time
 from threading import RLock
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import httpx
 
-from .async_primitives import LoopLocalPrimitive
+from .async_primitives import LoopLocalPrimitive, ResizableSemaphore
 from .circuit_breaker import CircuitBreakerManager
 from .constants import (
     ADAPTIVE_COOLDOWN_SECONDS,
-    ADAPTIVE_ERROR_THRESHOLD,
     ADAPTIVE_MAX_CONCURRENCY,
     ADAPTIVE_RTT_THRESHOLD_MS,
-    ADAPTIVE_START_CONCURRENCY,
-    ASYNC_SEMAPHORE_LIMIT,
     KNOWN_THROTTLED_DOMAINS,
     PROFILE_SAMPLE_SIZE,
 )
@@ -33,11 +30,29 @@ from .domain_health import get_domain_health_tracker
 from .models import ServerProfile
 from .rate_limiter import PerIPRateLimiter
 from .transport import SecureAsyncTransport
-from .utils import exponential_backoff
+from .utils import exponential_backoff, parse_retry_after, url_within_scope
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, avoids an import cycle
     from .config import MirrorConfig
     from .metrics import MetricsCollector
+
+
+async def _scoped_head(client, url, config, headers, timeout):
+    for hop in range(11):
+        if not url_within_scope(url, str(config.base_url)):
+            raise ValueError("Async HEAD URL is outside the configured scope")
+        response = await client.head(
+            url, headers=headers or {}, timeout=timeout, follow_redirects=False
+        )
+        if response.status_code in (301, 302, 303, 307, 308) and response.headers.get("Location"):
+            location = urljoin(url, response.headers["Location"])
+            await response.aclose()
+            if hop == 10:
+                raise ValueError("Too many async HEAD redirects")
+            url = location
+        else:
+            return response
+    raise ValueError("Too many async HEAD redirects")
 
 
 class AsyncConnectionManager:
@@ -66,7 +81,7 @@ class AsyncConnectionManager:
         if self._closed:
             raise RuntimeError("Cannot reuse closed AsyncConnectionManager")
         self._build_client()
-        self._semaphore = asyncio.Semaphore(ASYNC_SEMAPHORE_LIMIT)
+        self._semaphore = asyncio.Semaphore(self.config.async_workers)
         return self
 
     def _build_client(self) -> None:
@@ -82,8 +97,10 @@ class AsyncConnectionManager:
             http2=self.config.http2,
             limits=limits,
             timeout=timeout,
-            follow_redirects=True,
-            transport=SecureAsyncTransport(rate_limiter=self.rate_limiter),
+            follow_redirects=False,
+            transport=SecureAsyncTransport(
+                rate_limiter=self.rate_limiter, http2=self.config.http2, limits=limits
+            ),
             headers={
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/119.0",
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -109,7 +126,7 @@ class AsyncConnectionManager:
                 logging.error(f"Failed to ensure async client: {e}")
                 return False
         if self._semaphore is None:
-            self._semaphore = asyncio.Semaphore(ASYNC_SEMAPHORE_LIMIT)
+            self._semaphore = asyncio.Semaphore(self.config.async_workers)
         return True
 
     def record_result(self, url: str, success: bool, rtt_ms: float, duration: float) -> None:
@@ -140,10 +157,8 @@ class AsyncConnectionManager:
 
     def is_available(self) -> bool:
         """Check if async connection manager is available for use."""
-        return (
-            self._client is not None
-            and not self._closed
-            and not getattr(self._client, "is_closed", False)
+        return not self._closed and (
+            self._client is None or not getattr(self._client, "is_closed", False)
         )
 
     async def warm_up(self, urls: List[str]) -> None:
@@ -193,7 +208,7 @@ class AsyncConnectionManager:
             # raised AttributeError under load, and (b) creating a fresh
             # Semaphore per-call never actually limits anything. Use the
             # shared instance semaphore set up in __aenter__.
-            sem = self._semaphore or asyncio.Semaphore(ASYNC_SEMAPHORE_LIMIT)
+            sem = self._semaphore or asyncio.Semaphore(self.config.async_workers)
             async with sem:
                 # Python 3.10 fix: replaced asyncio.timeout() with asyncio.wait_for()
                 resp = await asyncio.wait_for(
@@ -249,7 +264,7 @@ class AsyncConnectionManager:
         # whenever _semaphore happened to be None. Fall back to a shared-limit
         # semaphore if somehow still unset.
         if self._semaphore is None:
-            self._semaphore = asyncio.Semaphore(ASYNC_SEMAPHORE_LIMIT)
+            self._semaphore = asyncio.Semaphore(self.config.async_workers)
 
         # DNS cache for performance
         if not hasattr(self, "_dns_cache"):
@@ -286,11 +301,27 @@ class AsyncConnectionManager:
 
                 # 2️⃣ ACQUIRE SEMAPHORE & MAKE REQUEST
                 async with self._semaphore:
-                    resp = await self._client.head(
+                    resp = await _scoped_head(
+                        self._client,
                         url,
-                        headers=headers or {},
-                        timeout=httpx.Timeout(per_request_timeout, connect=4.0),
+                        self.config,
+                        headers,
+                        httpx.Timeout(per_request_timeout, connect=4.0),
                     )
+
+                    if resp.status_code >= 400:
+                        duration = time.time() - start_time
+                        if self.circuit_breaker_manager:
+                            self.circuit_breaker_manager.record_failure(domain)
+                        self.record_result(url, False, duration * 1000, duration)
+                        retry_after = parse_retry_after(resp.headers.get("Retry-After"))
+                        retryable = resp.status_code == 429 or resp.status_code >= 500
+                        await resp.aclose()
+                        if not retryable or attempt == self.config.max_retries:
+                            return None
+                        delay = exponential_backoff(attempt, self.config.retry_delay)
+                        await asyncio.sleep(max(delay, retry_after or 0))
+                        continue
 
                     # Success path
                     duration = time.time() - start_time
@@ -409,7 +440,9 @@ class AdaptiveAsyncManager:
         self.profiles: Dict[str, ServerProfile] = {}
         self.lock = RLock()
         self._client: Optional[httpx.AsyncClient] = None
-        self._current_concurrency = ADAPTIVE_START_CONCURRENCY
+        self._current_concurrency = min(
+            config.adaptive_start_concurrency, config.async_workers, ADAPTIVE_MAX_CONCURRENCY
+        )
         self._fallback_to_sync = False
         self._profile_complete = False
         self._closed = False
@@ -426,7 +459,7 @@ class AdaptiveAsyncManager:
         # (re)initialized in _init_client() so concurrency changes take
         # effect on subsequent operations without requiring an event loop
         # at construction time.
-        self._semaphore: Optional[asyncio.Semaphore] = None
+        self._semaphore: Optional[ResizableSemaphore] = None
         self._semaphore_lock = LoopLocalPrimitive(asyncio.Lock)
 
     async def __aenter__(self):
@@ -487,7 +520,7 @@ class AdaptiveAsyncManager:
 
                 # Create new client with updated concurrency limits
                 limits = httpx.Limits(
-                    max_connections=self._current_concurrency,
+                    max_connections=min(self.config.async_workers, ADAPTIVE_MAX_CONCURRENCY),
                     max_keepalive_connections=max(2, self._current_concurrency // 3),
                     keepalive_expiry=60.0,
                 )
@@ -498,8 +531,10 @@ class AdaptiveAsyncManager:
                     http2=self.config.http2,
                     limits=limits,
                     timeout=timeout,
-                    follow_redirects=True,
-                    transport=SecureAsyncTransport(rate_limiter=self.rate_limiter),
+                    follow_redirects=False,
+                    transport=SecureAsyncTransport(
+                        rate_limiter=self.rate_limiter, http2=self.config.http2, limits=limits
+                    ),
                     headers={
                         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/119.0",
                         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -507,7 +542,7 @@ class AdaptiveAsyncManager:
                 )
                 # ✅ FIX: Recreate semaphore under same lock to ensure atomic update
                 # This guarantees no operation can observe a mismatched client/semaphore pair.
-                self._semaphore = asyncio.Semaphore(self._current_concurrency)
+                self._semaphore = ResizableSemaphore(self._current_concurrency)
                 self._client_initialized = True
                 logging.debug(f"Async client initialized: concurrency={self._current_concurrency}")
             except Exception as e:
@@ -544,6 +579,8 @@ class AdaptiveAsyncManager:
             return False
 
         profile = self._get_profile(test_urls[0] if test_urls else str(self.config.base_url))
+        if self._semaphore is not None:
+            await self._semaphore.resize(self._current_concurrency)
         logging.info(
             f"🔍 Profiling server {profile.domain} with {min(PROFILE_SAMPLE_SIZE, len(test_urls))} samples..."
         )
@@ -561,7 +598,7 @@ class AdaptiveAsyncManager:
         #
         # Bounded by self._current_concurrency, which _get_profile() (the
         # caller above) already set appropriately for this domain --
-        # ADAPTIVE_START_CONCURRENCY by default, or the conservative
+        # min(self.config.adaptive_start_concurrency, self.config.async_workers, ADAPTIVE_MAX_CONCURRENCY) by default, or the conservative
         # fallback for a KNOWN_THROTTLED_DOMAINS / learned-throttled
         # domain (see domain_health.py). So a domain already flagged as
         # sensitive is still probed gently, just concurrently within that
@@ -612,7 +649,7 @@ class AdaptiveAsyncManager:
             f"avg RTT={profile.avg_rtt_ms:.0f}ms, errors={profile.error_rate:.1%}"
         )
 
-        if profile.error_rate > ADAPTIVE_ERROR_THRESHOLD:
+        if profile.error_rate > self.config.adaptive_error_threshold:
             logging.warning(
                 f"⚠️ Server {profile.domain} error rate {profile.error_rate:.1%} > threshold, disabling async"
             )
@@ -627,7 +664,10 @@ class AdaptiveAsyncManager:
             )
             profile.recommended_concurrency = max(1, profile.recommended_concurrency // 3)
             self._current_concurrency = profile.recommended_concurrency
-            await self._init_client()  # Reinitialize with new concurrency
+            if self._semaphore is not None:
+                await self._semaphore.resize(self._current_concurrency)
+            else:
+                await self._init_client()
 
         self._profile_complete = True
         logging.info(
@@ -652,7 +692,10 @@ class AdaptiveAsyncManager:
         # ✅ FIX: Protect all state mutations with self.lock
         with self.lock:
             # Check if we need to fall back to sync
-            if profile.error_rate > ADAPTIVE_ERROR_THRESHOLD and not self._fallback_to_sync:
+            if (
+                profile.error_rate > self.config.adaptive_error_threshold
+                and not self._fallback_to_sync
+            ):
                 logging.warning(
                     f"⚠️ Error rate {profile.error_rate:.1%} exceeded, falling back to sync"
                 )
@@ -667,8 +710,14 @@ class AdaptiveAsyncManager:
                 return
 
             # Scale up logic
-            if profile.should_scale_up() and self._current_concurrency < ADAPTIVE_MAX_CONCURRENCY:
-                new_concurrency = min(ADAPTIVE_MAX_CONCURRENCY, self._current_concurrency + 2)
+            if profile.should_scale_up() and self._current_concurrency < min(
+                ADAPTIVE_MAX_CONCURRENCY, self.config.async_workers
+            ):
+                new_concurrency = min(
+                    ADAPTIVE_MAX_CONCURRENCY,
+                    self.config.async_workers,
+                    self._current_concurrency + 2,
+                )
                 if new_concurrency != self._current_concurrency:
                     logging.debug(
                         f"⚡ Adaptive scale up: {self._current_concurrency} → {new_concurrency}"
@@ -679,10 +728,22 @@ class AdaptiveAsyncManager:
 
             # NEW: Scale down logic for moderate error rates (between 2.5% and 5%)
             elif (
-                profile.error_rate > ADAPTIVE_ERROR_THRESHOLD * 0.5
-                and self._current_concurrency > ADAPTIVE_START_CONCURRENCY
+                profile.error_rate > self.config.adaptive_error_threshold * 0.5
+                and self._current_concurrency
+                > min(
+                    self.config.adaptive_start_concurrency,
+                    self.config.async_workers,
+                    ADAPTIVE_MAX_CONCURRENCY,
+                )
             ):
-                new_concurrency = max(ADAPTIVE_START_CONCURRENCY, self._current_concurrency // 2)
+                new_concurrency = max(
+                    min(
+                        self.config.adaptive_start_concurrency,
+                        self.config.async_workers,
+                        ADAPTIVE_MAX_CONCURRENCY,
+                    ),
+                    self._current_concurrency // 2,
+                )
                 if new_concurrency != self._current_concurrency:
                     logging.warning(
                         f"⚠️ Adaptive scale down (moderate errors {profile.error_rate:.1%}): "
@@ -697,9 +758,21 @@ class AdaptiveAsyncManager:
             # Also scale down if RTT is very high
             elif (
                 profile.avg_rtt_ms > ADAPTIVE_RTT_THRESHOLD_MS * 2
-                and self._current_concurrency > ADAPTIVE_START_CONCURRENCY
+                and self._current_concurrency
+                > min(
+                    self.config.adaptive_start_concurrency,
+                    self.config.async_workers,
+                    ADAPTIVE_MAX_CONCURRENCY,
+                )
             ):
-                new_concurrency = max(ADAPTIVE_START_CONCURRENCY, self._current_concurrency - 1)
+                new_concurrency = max(
+                    min(
+                        self.config.adaptive_start_concurrency,
+                        self.config.async_workers,
+                        ADAPTIVE_MAX_CONCURRENCY,
+                    ),
+                    self._current_concurrency - 1,
+                )
                 if new_concurrency != self._current_concurrency:
                     logging.debug(
                         f"📉 Adaptive scale down (high RTT {profile.avg_rtt_ms:.0f}ms): "
@@ -766,9 +839,27 @@ class AdaptiveAsyncManager:
                 for attempt in range(self.config.max_retries + 1):
                     attempt_start = time.time()  # ✅ FIX 3: Track per-attempt duration
                     try:
-                        resp = await self._client.head(
-                            url, headers=headers or {}, timeout=httpx.Timeout(12.0, connect=4.0)
+                        resp = await _scoped_head(
+                            self._client,
+                            url,
+                            self.config,
+                            headers,
+                            httpx.Timeout(12.0, connect=4.0),
                         )
+                        if resp.status_code >= 400:
+                            duration = time.time() - start_time
+                            if self.circuit_breaker_manager:
+                                self.circuit_breaker_manager.record_failure(domain)
+                            self.record_result(url, False, duration * 1000, duration)
+                            retry_after = parse_retry_after(resp.headers.get("Retry-After"))
+                            retryable = resp.status_code == 429 or resp.status_code >= 500
+                            await resp.aclose()
+                            if not retryable or attempt == self.config.max_retries:
+                                return None
+                            delay = exponential_backoff(attempt, self.config.retry_delay)
+                            await asyncio.sleep(max(delay, retry_after or 0))
+                            continue
+
                         rtt_ms = (time.time() - attempt_start) * 1000
                         self.metrics.increment("async_metadata_checks")
                         self.metrics.add_request_time(time.time() - start_time)
@@ -857,8 +948,18 @@ class AdaptiveAsyncManager:
                 logging.info(
                     f"⚡ Applying adaptive concurrency change: {self._current_concurrency} → {self._pending_concurrency}"
                 )
-                self._current_concurrency = self._pending_concurrency
-                await self._init_client()  # Reinitialize with new concurrency
+                self._current_concurrency = max(
+                    1,
+                    min(
+                        self._pending_concurrency,
+                        self.config.async_workers,
+                        ADAPTIVE_MAX_CONCURRENCY,
+                    ),
+                )
+                if self._semaphore is not None:
+                    await self._semaphore.resize(self._current_concurrency)
+                else:
+                    await self._init_client()
                 self._pending_concurrency = None
 
     def get_stats(self) -> Dict[str, Any]:
@@ -947,9 +1048,21 @@ class AdaptiveAsyncManager:
                 # is sufficient.
                 learned_throttled = get_domain_health_tracker().is_throttled(domain)
                 is_throttled = known_throttled or learned_throttled
-                start_conc = 3 if is_throttled else ADAPTIVE_START_CONCURRENCY
+                start_conc = (
+                    min(3, self.config.async_workers, self.config.adaptive_start_concurrency)
+                    if is_throttled
+                    else min(
+                        self.config.adaptive_start_concurrency,
+                        self.config.async_workers,
+                        ADAPTIVE_MAX_CONCURRENCY,
+                    )
+                )
                 self.profiles[domain] = ServerProfile(
-                    domain=domain, is_throttled=is_throttled, recommended_concurrency=start_conc
+                    domain=domain,
+                    is_throttled=is_throttled,
+                    recommended_concurrency=start_conc,
+                    error_threshold=self.config.adaptive_error_threshold,
+                    max_concurrency=min(self.config.async_workers, ADAPTIVE_MAX_CONCURRENCY),
                 )
                 if is_throttled:
                     # Also set current concurrency to conservative value

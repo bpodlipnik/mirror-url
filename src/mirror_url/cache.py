@@ -9,6 +9,7 @@ import hashlib
 import json
 import logging
 import os
+import tempfile
 import time
 from datetime import datetime
 from pathlib import Path
@@ -260,6 +261,31 @@ class CacheManager:
                     pass
             return False
 
+    def refresh_timestamp(self) -> bool:
+        """Refresh the timestamp used by cache expiry without discarding data."""
+        if self.config.no_cache or not self.cache_file.exists():
+            return False
+        temporary = None
+        try:
+            data = json.loads(self.cache_file.read_text(encoding="utf-8"))
+            data["_meta"]["last_full_run"] = datetime.now().isoformat()
+            fd, name = tempfile.mkstemp(
+                prefix=self.cache_file.name + ".", dir=self.cache_file.parent
+            )
+            temporary = Path(name)
+            with os.fdopen(fd, "w", encoding="utf-8") as file:
+                json.dump(data, file, indent=2, ensure_ascii=False)
+                file.flush()
+                os.fsync(file.fileno())
+            os.replace(temporary, self.cache_file)
+            return True
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            logging.warning(f"Cannot refresh cache timestamp: {error}")
+            return False
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+
     def get_html_cache(self, url: str) -> Optional[Tuple[List[str], List[str]]]:
         """Get cached HTML parse results."""
         if not self.config.cache_html:
@@ -498,6 +524,9 @@ class NullCacheManager:
     def save(self, directories: Dict[str, Any], file_count: int) -> bool:
         """Nothing persisted. Matches CacheManager.save()'s own
         --no-cache return value."""
+        return False
+
+    def refresh_timestamp(self) -> bool:
         return False
 
     def get_html_cache(self, url: str) -> Optional[Tuple[List[str], List[str]]]:

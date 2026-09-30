@@ -6,6 +6,8 @@ Originally extracted from ``mirror_url.py`` (orig. lines 2951-3093):
 
 from __future__ import annotations
 
+import codecs
+import re
 from collections import deque
 from html.parser import HTMLParser
 from threading import RLock
@@ -117,10 +119,28 @@ class _LinkParser(HTMLParser):
                 break
 
 
+def decode_html(content: bytes, charset: Optional[str] = None) -> str:
+    """Decode HTML without silently replacing filename bytes."""
+    if content.startswith(codecs.BOM_UTF8):
+        return content.decode("utf-8-sig")
+    if content.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)):
+        return content.decode("utf-16")
+    if charset is None:
+        match = re.search(rb"<meta\b[^>]*charset\s*=\s*[\"']?([\w.-]+)", content[:4096], re.I)
+        if match:
+            charset = match.group(1).decode("ascii")
+    if charset:
+        return content.decode(charset)
+    try:
+        return content.decode("utf-8")
+    except UnicodeDecodeError:
+        return content.decode("windows-1252")
+
+
 def extract_links_fast(html_content: Union[bytes, str]) -> List[str]:
     """Extract HTML anchor links, including entities and unquoted attributes."""
     if isinstance(html_content, bytes):
-        html_content = html_content.decode("utf-8", errors="replace")
+        html_content = decode_html(html_content)
     parser = _LinkParser()
     parser.feed(html_content)
     parser.close()

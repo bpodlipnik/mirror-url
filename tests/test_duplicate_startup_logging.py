@@ -51,10 +51,9 @@ FORMERLY_DUPLICATED_STARTUP_FRAGMENTS = [
     "Rate limiting: {delay_ms",
     "HTML caching enabled (",
     "Resume capability enabled",
-    "Adaptive batch processing: initial=",
+    "Compatibility batch setting (inactive in sync): initial=",
     "Fast parsing fallback enabled",
     "Connection pool pre-warming enabled",
-    "Content hash: files <",
 ]
 
 

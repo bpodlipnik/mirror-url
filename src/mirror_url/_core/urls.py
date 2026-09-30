@@ -7,7 +7,6 @@ Methods extracted verbatim from the original ``MirrorURL`` class
 
 from __future__ import annotations
 
-import logging
 import os
 import re
 from functools import lru_cache
@@ -16,7 +15,7 @@ from urllib.parse import ParseResult, unquote, urljoin, urlparse
 from ..compat import Str
 from ..exceptions import PathTraversalError
 from ..security import PathSafety
-from ..utils import sanitize_url_for_log
+from ..utils import url_within_scope
 
 
 @lru_cache(maxsize=10000)
@@ -130,75 +129,8 @@ class UrlMixin:
         """
         Optimized URL scope checking using StringZilla.
         """
-        try:
-            # Use fast validation
-            if not self._validate_url_scheme_fast(url):
-                return False
-
-            # Fast path extraction using StringZilla
-            url_path = self._get_url_path_fast(url)
-            if not url_path:
-                return False
-
-            # Get scope path
-            if check_base:
-                scope_path = self.base_parsed.path
-            else:
-                if not self.target_parsed:
-                    return False
-                scope_path = self.target_parsed.path
-
-            # Ensure scope_path ends with / for proper prefix matching
-            if scope_path and not scope_path.endswith("/"):
-                scope_path = scope_path + "/"
-
-            # Convert url_path to string for comparison (StringZilla Str works with startswith)
-            url_path_str = str(url_path) if hasattr(url_path, "__str__") else url_path
-
-            # Check if url_path starts with scope_path
-            if url_path_str.startswith(scope_path):
-                return True
-
-            # Also check without trailing slash for root-level files
-            if scope_path.endswith("/"):
-                scope_path_no_slash = scope_path[:-1]
-                if url_path_str == scope_path_no_slash:
-                    return True
-                if url_path_str.startswith(scope_path_no_slash + "/"):
-                    return True
-
-            # Get remaining path for traversal detection
-            remaining = url_path_str[len(scope_path.rstrip("/")) :] if scope_path else url_path_str
-
-            # Fast path traversal detection using StringZilla
-            remaining_sz = Str(remaining)
-            if remaining_sz.find("..") >= 0:
-                logging.warning(f"Path traversal attempt in URL: {sanitize_url_for_log(url)}")
-                return False
-
-            # Check for dot segments
-            if remaining_sz.find("/.") >= 0 or remaining_sz.find("./") >= 0:
-                logging.warning(f"Current directory reference in URL: {sanitize_url_for_log(url)}")
-                return False
-
-            # Check for encoded path traversal
-            remaining_str = str(remaining_sz)
-            if "%2e" in remaining_str.lower() or "%2f" in remaining_str.lower():
-                try:
-                    decoded = unquote(remaining_str)
-                    if ".." in decoded or "/." in decoded:
-                        logging.warning(
-                            f"Encoded path traversal in URL: {sanitize_url_for_log(url)}"
-                        )
-                        return False
-                except Exception:
-                    pass
-
-            return True
-
-        except Exception as e:
-            logging.debug(f"Error in URL scope check: {e}")
-            return False
+        scope = self.base_parsed if check_base else self.target_parsed
+        return bool(scope and url_within_scope(url, scope.geturl()))
 
     def _is_within_target_scope(self, url: str) -> bool:
         """
@@ -340,12 +272,5 @@ class UrlMixin:
         """
         Fast filename extraction using StringZilla.
         """
-        path_sz = self._get_url_path_fast(url)
-        if not path_sz:
-            return Str("")
-
-        last_slash = path_sz.rfind("/")
-        if last_slash >= 0:
-            return path_sz[last_slash + 1 :]
-
-        return path_sz
+        path = unquote(urlparse(url).path)
+        return Str(path.rsplit("/", 1)[-1])

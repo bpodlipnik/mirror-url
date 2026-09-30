@@ -89,7 +89,7 @@ def log_performance(operation_name: str):
                 result = func(self, *args, **kwargs)
                 duration = time.time() - start
                 if hasattr(self, "performance_monitor"):
-                    self.performance_monitor.record(operation_name, duration, True)
+                    self.performance_monitor.record(operation_name, duration, result is not False)
                 return result
             except Exception:
                 duration = time.time() - start

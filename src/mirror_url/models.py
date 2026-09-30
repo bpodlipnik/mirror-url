@@ -70,6 +70,8 @@ class ServerProfile:
     # already holds the lock. RLock lets the same thread re-enter without
     # deadlocking.
     _lock: threading.RLock = field(default_factory=threading.RLock, repr=False, compare=False)
+    error_threshold: float = ADAPTIVE_ERROR_THRESHOLD
+    max_concurrency: int = ADAPTIVE_MAX_CONCURRENCY
 
     def add_sample(self, rtt_ms: float, success: bool, duration_sec: float = 0) -> None:
         """Add a performance sample. Safe to call from multiple threads."""
@@ -106,13 +108,13 @@ class ServerProfile:
                     self.throughput_files_per_sec = len(successful) / total_time
             if (
                 self.avg_rtt_ms > ADAPTIVE_RTT_THRESHOLD_MS
-                or self.error_rate > ADAPTIVE_ERROR_THRESHOLD
+                or self.error_rate > self.error_threshold
             ):
                 self.is_throttled = True
                 self.recommended_concurrency = max(1, self.recommended_concurrency // 2)
             elif self.error_rate < 0.01 and self.throughput_files_per_sec > ADAPTIVE_THROUGHPUT_MIN:
                 self.recommended_concurrency = min(
-                    ADAPTIVE_MAX_CONCURRENCY, self.recommended_concurrency + 2
+                    self.max_concurrency, self.recommended_concurrency + 2
                 )
             self.last_adjustment = time.time()
 
