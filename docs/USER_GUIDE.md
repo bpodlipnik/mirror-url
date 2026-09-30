@@ -270,7 +270,7 @@ list of options. The most commonly used options:
 | Option | Description |
 |---|---|
 | `--progress-bar` | Show a tqdm progress bar (needs the `progress` extra). |
-| `--stats` | Print detailed statistics at the end. |
+| `--stats` | *Currently has no effect* (accepted for backward compatibility). The end-of-run metrics summary is always printed in full. |
 | `--metrics-json FILE` | Export run metrics to a JSON file. |
 | `--log-file NAME` | Custom base name for the run's log file, replacing the default `mirror_url` prefix. See below for the exact filename format. |
 | `--verbose` / `--debug` | More logging. |
@@ -862,8 +862,10 @@ an HTML directory listing "as a single file".
 
 ## Monitoring and metrics
 
-- **`--stats`** prints a detailed summary (files downloaded/skipped/failed,
-  bytes, speed, cache hit rates, ETag stats, etc.) at the end of a run.
+- **Metrics summary.** A run logs a `METRICS SUMMARY` block at INFO level
+  (files downloaded/skipped/failed, bytes, speed, cache hit rates, ETag stats,
+  etc.). `--stats` is accepted for backward compatibility but currently has no
+  effect; the summary is always printed in full.
 - **`--metrics-json FILE`** writes the full metrics summary to JSON (skipped in
   `--dry-run`).
 - **`--progress-bar`** shows a live tqdm bar (requires the `progress` extra).

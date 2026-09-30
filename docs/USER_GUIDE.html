@@ -542,7 +542,7 @@
 </tr>
 <tr class="even">
 <td><code>--stats</code></td>
-<td>Print detailed statistics at the end.</td>
+<td><em>Currently has no effect</em> (accepted for backward compatibility). The end-of-run metrics summary is always printed in full.</td>
 </tr>
 <tr class="odd">
 <td><code>--metrics-json FILE</code></td>
@@ -857,7 +857,7 @@
 <hr />
 <h2 id="monitoring-and-metrics">Monitoring and metrics</h2>
 <ul>
-<li><p><strong><code>--stats</code></strong> prints a detailed summary (files downloaded/skipped/failed, bytes, speed, cache hit rates, ETag stats, etc.) at the end of a run.</p></li>
+<li><p><strong>Metrics summary.</strong> A run logs a <code>METRICS SUMMARY</code> block at INFO level (files downloaded/skipped/failed, bytes, speed, cache hit rates, ETag stats, etc.). <code>--stats</code> is accepted for backward compatibility but currently has no effect; the summary is always printed in full.</p></li>
 <li><p><strong><code>--metrics-json FILE</code></strong> writes the full metrics summary to JSON (skipped in <code>--dry-run</code>).</p></li>
 <li><p><strong><code>--progress-bar</code></strong> shows a live tqdm bar (requires the <code>progress</code> extra).</p></li>
 <li><p><strong>Health/metrics HTTP endpoints.</strong> During a (non-dry-run) sync, a small HTTP server listens on <code>--health-check-port</code> (default 8080) and serves:</p>

@@ -900,7 +900,12 @@ EXAMPLES:
     logging_grp.add_argument("--quiet", action="store_true", help="Quiet mode (WARNING+ only)")
     logging_grp.add_argument("--verbose", action="store_true", help="Verbose mode (DEBUG)")
     logging_grp.add_argument("--progress-bar", action="store_true", help="Enable tqdm progress bar")
-    logging_grp.add_argument("--stats", action="store_true", help="Show detailed statistics")
+    logging_grp.add_argument(
+        "--stats",
+        action="store_true",
+        help="Currently has no effect; accepted for backward compatibility. "
+        "The end-of-run METRICS SUMMARY is always printed in full.",
+    )
     logging_grp.add_argument(
         "--metrics-json", type=Path, metavar="PATH", help="Export metrics to JSON file"
     )
