@@ -55,7 +55,6 @@ from .constants import (
     PARALLEL_DOWNLOAD_ENABLED,
     PARALLEL_SCAN_THRESHOLD,
     REQUEST_DELAY,
-    STREAMING_MIN_FILE_SIZE_MB,
     SYMLINK_BOMB_THRESHOLD,
     TARGET_BATCH_TIME_SECONDS,
 )
@@ -1411,15 +1410,7 @@ EXAMPLES:
             # NEW v3.0.6 arguments
             auto_concurrency=getattr(args, "auto_concurrency", AUTO_CONCURRENCY_ENABLED),
             health_check_port=getattr(args, "health_check_port", 8080),
-            # NEW: Auto-selection fields for benchmark
-            auto_select_method=getattr(args, "auto_select", True),
-            force_method=getattr(args, "force_method", None),
-            force_disk_type=getattr(args, "force_disk_type", None),
-            manual_network_speed_mbps=getattr(args, "network_speed", None),
             streaming_parallel=getattr(args, "streaming_parallel", True),
-            streaming_min_file_size_mb=getattr(
-                args, "streaming_min_size", STREAMING_MIN_FILE_SIZE_MB
-            ),
             sequential_downloads=getattr(args, "sequential_downloads", False),
         )
 
@@ -1575,14 +1566,6 @@ EXAMPLES:
                     ),
                     auto_concurrency=getattr(args, "auto_concurrency", AUTO_CONCURRENCY_ENABLED),
                     health_check_port=getattr(args, "health_check_port", 8080),
-                    # NEW: Auto-selection fields
-                    auto_select_method=getattr(args, "auto_select", True),
-                    force_method=getattr(args, "force_method", None),
-                    force_disk_type=getattr(args, "force_disk_type", None),
-                    manual_network_speed_mbps=getattr(args, "network_speed", None),
-                    streaming_min_file_size_mb=getattr(
-                        args, "streaming_min_size", STREAMING_MIN_FILE_SIZE_MB
-                    ),
                 )
 
         except ConfigError as e:
