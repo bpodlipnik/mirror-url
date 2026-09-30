@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [3.1.69] - 2026-09-30
+
 ### Fixed
 - Create async locks and semaphores on first use in the running event loop.
   Managers can be constructed after `asyncio.run()` or in worker threads on
