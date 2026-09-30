@@ -352,6 +352,23 @@ class MirrorConfig(BaseModel):
             return trim_url(v).rstrip("/")
         return v
 
+    @field_validator("dir_suffix", mode="before")
+    @classmethod
+    def normalize_dir_suffix(cls, v: Any) -> Any:
+        """Strip leading/trailing slashes so every construction path agrees.
+
+        The non-``--config`` CLI path always did ``suf.strip("/")`` while the
+        ``--config`` path and direct ``MirrorConfig(...)`` calls passed the
+        value through untouched, so ``"/2026/"`` produced a log file named
+        ``mirror_url__2026__<ts>.log`` in one mode and ``mirror_url_2026_<ts>.log``
+        in the other. Normalising here makes the model the single source of truth.
+        """
+        if v is None:
+            return ""
+        if isinstance(v, str):
+            return v.strip("/")
+        return v
+
     @model_validator(mode="after")
     def validate_download_modes(self) -> MirrorConfig:
         # Ensure only one download mode is active
