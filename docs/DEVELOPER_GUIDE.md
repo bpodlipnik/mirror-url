@@ -496,6 +496,9 @@ Test no-config, config-file override, and benchmark paths. Keep
 option's row to the `TYPED`/boolean-flag tables in
 `tests/test_cli_config_precedence.py` (a missing row fails
 `test_typed_table_covers_every_valued_option`).
+Review the complete `python -m mirror_url --help` output too: both the option
+descriptions and the parser's example epilog must agree with current behavior
+and the User Guide. Flag-existence checks alone do not verify those claims.
 
 ### Add a download mode
 

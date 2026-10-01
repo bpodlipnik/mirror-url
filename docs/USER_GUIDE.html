@@ -915,13 +915,15 @@ current pipeline use filesystem stats directly.</td>
 <p>Without <code>--log-file</code>, each <code>--dir-suffix</code> gets
 its own log file named
 <code>mirror_url_&lt;suffix&gt;_&lt;timestamp&gt;.log</code>. With
-<code>--log-file NAME</code>, the filename is always
-<code>NAME_&lt;suffix&gt;_&lt;timestamp&gt;.log</code> instead — where
+<code>--log-file NAME</code>, the filename normally follows
+<code>NAME_&lt;suffix&gt;_&lt;timestamp&gt;.log</code> — where
 <code>&lt;suffix&gt;</code> is every <code>--dir-suffix</code> value
 joined with underscores (or <code>all</code> if none were given), and
 <code>&lt;timestamp&gt;</code> is <code>YYYYMMDD_HHMMSS</code>. With
 more than one <code>--dir-suffix</code>, all of them share this single
-log file rather than each getting a separate one. This is handy for
+log file rather than each getting a separate one. Unsafe characters in
+the combined name are replaced with underscores, and long names are
+shortened with a digest to fit the filename limit. This is handy for
 wrapper scripts that invoke <code>mirror-url</code> once per date/target
 and want a recognizable, greppable filename prefix — e.g.
 <code>--log-file mirror_url_lasco_ql_nrl</code> on a run with
@@ -1436,8 +1438,9 @@ symlink-loop/bomb defenses.</li>
 <p>The secure transport rejects direct-IP, private, and loopback
 targets, including <code>localhost</code>.
 <code>--no-security-validation</code> disables the extra URL validation
-layer; it does not disable transport IP validation. There is no
-production option for mirroring private or local servers.</p>
+layer and per-IP request pacing; it does not disable transport IP
+validation. There is no production option for mirroring private or local
+servers.</p>
 </blockquote>
 <p>Symlink handling is off by default; see <a
 href="#symlink-handling">Symlink handling</a> below for how it works and

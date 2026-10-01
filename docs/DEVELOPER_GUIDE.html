@@ -889,7 +889,11 @@ Test no-config, config-file override, and benchmark paths. Keep
 <code>--help</code> text consistent with the User Guide's option tables,
 and add the new option's row to the <code>TYPED</code>/boolean-flag
 tables in <code>tests/test_cli_config_precedence.py</code> (a missing
-row fails <code>test_typed_table_covers_every_valued_option</code>).</p>
+row fails <code>test_typed_table_covers_every_valued_option</code>).
+Review the complete <code>python -m mirror_url --help</code> output too:
+both the option descriptions and the parser's example epilog must agree
+with current behavior and the User Guide. Flag-existence checks alone do
+not verify those claims.</p>
 <h3 id="add-a-download-mode">Add a download mode</h3>
 <ol type="1">
 <li>Add a value to <code>DownloadMethod</code> in

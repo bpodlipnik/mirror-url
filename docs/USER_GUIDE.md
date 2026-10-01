@@ -293,11 +293,13 @@ list of options. The most commonly used options:
 
 Without `--log-file`, each `--dir-suffix` gets its own log file named
 `mirror_url_<suffix>_<timestamp>.log`. With `--log-file NAME`, the filename
-is always `NAME_<suffix>_<timestamp>.log` instead — where `<suffix>` is
+normally follows `NAME_<suffix>_<timestamp>.log` — where `<suffix>` is
 every `--dir-suffix` value joined with underscores (or `all` if none were
 given), and `<timestamp>` is `YYYYMMDD_HHMMSS`. With more than one
 `--dir-suffix`, all of them share this single log file rather than each
-getting a separate one. This is handy for wrapper scripts that invoke
+getting a separate one. Unsafe characters in the combined name are replaced
+with underscores, and long names are shortened with a digest to fit the
+filename limit. This is handy for wrapper scripts that invoke
 `mirror-url` once per date/target and want a recognizable, greppable
 filename prefix — e.g. `--log-file mirror_url_lasco_ql_nrl` on a run with
 `--dir-suffix 260727` produces
@@ -781,8 +783,9 @@ MirrorURL ships with security protections **enabled by default**:
 
 > The secure transport rejects direct-IP, private, and loopback targets,
 > including `localhost`. `--no-security-validation` disables the extra URL
-> validation layer; it does not disable transport IP validation. There is no
-> production option for mirroring private or local servers.
+> validation layer and per-IP request pacing; it does not disable transport IP
+> validation. There is no production option for mirroring private or local
+> servers.
 
 Symlink handling is off by default; see [Symlink handling](#symlink-handling)
 below for how it works and how to use it.
