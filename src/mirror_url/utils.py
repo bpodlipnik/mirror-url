@@ -280,8 +280,8 @@ def safe_url_encode(path: str) -> str:
         path: URL path to encode (should be unencoded)
 
     Returns:
-        Properly encoded URL path. Already-valid percent-sequences
-        are preserved; invalid sequences may be partially encoded.
+        Properly encoded URL path. Existing percent-sequences are encoded
+        again, so ``%20`` becomes ``%2520``.
 
     Note:
         This function does NOT decode first. If you need to normalize
@@ -291,7 +291,7 @@ def safe_url_encode(path: str) -> str:
         return path
     parts = path.split("/")
     # quote() with default safe='/' preserves path separators
-    # Valid percent-sequences like %20 are preserved; literal % becomes %25
+    # A literal percent sign, including one in %20, becomes %25.
     return "/".join(quote(part) if part else "" for part in parts)
 
 

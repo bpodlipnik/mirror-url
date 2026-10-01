@@ -122,7 +122,10 @@ class ScanMixin:
     def is_symlink(
         self, url: str, existing_response: Optional[httpx.Response] = None, depth: int = 0
     ) -> Tuple[bool, Optional[str]]:
-        """Check if a URL points to a symlink."""
+        """Check symlink policy using the tracker and depth limit.
+
+        ``existing_response`` is accepted for compatibility and currently unused.
+        """
         try:
             if not self.config.handle_symlinks:
                 return False, None

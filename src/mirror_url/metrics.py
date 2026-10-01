@@ -115,7 +115,6 @@ class MetricsCollector:
         self.lock = RLock()
         self.start_time = time.time()
         self.parse_start_time = 0
-        self.last_memory_check = 0
 
         # IMPROVED: Use thread-safe lists for time series
         self._request_times = deque(maxlen=1000)

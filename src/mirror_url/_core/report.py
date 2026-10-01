@@ -69,7 +69,6 @@ class ReportMixin:
 
                     # Create fresh manager
                     self.adaptive_async_manager = AdaptiveAsyncManager(self.config, self.metrics)
-                    self.scanner.adaptive_manager = self.adaptive_async_manager
                     logging.debug(f"{prefix}Adaptive async manager recreated for sync")
                 else:
                     # Close old manager if it exists

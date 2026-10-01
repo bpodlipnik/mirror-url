@@ -34,9 +34,6 @@ class FileSystemCache:
         self.stat_cache: Dict[Path, Tuple[float, os.stat_result]] = {}
         self.exists_cache: Dict[Path, Tuple[float, bool]] = {}
         self.lock = RLock()
-        # Add maxsize limits for memory pressure handling
-        self.stat_cache_maxsize = 10000  # Max entries in stat cache
-        self.exists_cache_maxsize = 10000  # Max entries in exists cache
 
     def get_stat(self, path: Path) -> Optional[os.stat_result]:
         # 1. Check cache under lock (short critical section)

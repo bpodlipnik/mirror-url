@@ -39,7 +39,6 @@ from ..exceptions import URLScopeError
 from ..health import HealthChecker, HealthCheckServer
 from ..metrics import MetricsCollector
 from ..monitoring import DiskSpaceManager, MemoryMonitor, PerformanceMonitor
-from ..parsing import AdaptiveBatchProcessor
 from ..primitives import AtomicCounter, AtomicSize
 from ..progress import MultiLevelProgress
 from ..queue import DownloadQueue
@@ -165,7 +164,6 @@ class _MirrorBase:
         self.files_skipped = AtomicCounter(0)  # Changed to AtomicCounter
         self.files_failed = AtomicCounter(0)  # Changed to AtomicCounter
         self.total_downloaded_size = AtomicSize()  # Changed to AtomicSize
-        self.dir_timestamps: Dict[str, float] = {}
         self.start_time = time.time()
         self.job_start_time = datetime.now()
         self.connection_ok = True
@@ -367,15 +365,6 @@ class _MirrorBase:
         self.fs_cache = FileSystemCache(ttl_seconds=config.fs_cache_ttl)
 
         # ============================================================================
-        # 17. BATCH PROCESSOR
-        # ============================================================================
-        self.batch_processor = AdaptiveBatchProcessor(
-            initial_batch=config.initial_batch_size,
-            max_batch=config.max_batch_size,
-            target_time=config.target_batch_time,
-        )
-
-        # ============================================================================
         # 18. DISK-BACKED SET (optional)
         # ============================================================================
         self.remote_files_set = None
@@ -464,8 +453,6 @@ class _MirrorBase:
         # 23. SCANNER
         # ============================================================================
         self.scanner = DirectoryScanner(self)
-        if hasattr(self, "adaptive_async_manager") and self.adaptive_async_manager:
-            self.scanner.adaptive_manager = self.adaptive_async_manager
 
         # ============================================================================
         # 24. LOG INITIAL CONFIGURATION (partial)
@@ -990,7 +977,6 @@ class _MirrorBase:
                 )
             )
             logging.root.addHandler(file_handler)
-            self.log_handler = file_handler
             self.log_handlers = [file_handler]
             _log_files.append(file_handler)
         except (FileNotFoundError, PermissionError, OSError) as e:

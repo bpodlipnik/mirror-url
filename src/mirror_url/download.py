@@ -139,8 +139,7 @@ class ParallelDownloadManager:
                 f"📦 Using DEDICATED download thread pool: {capped_workers} threads (capped)"
             )
 
-        # Semaphore and per-IP tracking
-        self.chunk_semaphore = Semaphore(self.max_parallel_chunks)
+        # Per-IP semaphore tracking
         self._ip_semaphores: Dict[str, Semaphore] = {}
         # FIX (memory leak): _ip_semaphores previously grew without bound
         # (one Semaphore per unique IP, never removed). For mirrors that

@@ -276,7 +276,11 @@ id="toc-mirrorurl-developer-guide">MirrorURL — Developer Guide</a>
 contents</a></li>
 <li><a href="#audit-patch-implementation-notes"
 id="toc-audit-patch-implementation-notes">Audit patch implementation
-notes</a></li>
+notes</a>
+<ul>
+<li><a href="#unused-code-review" id="toc-unused-code-review">Unused
+code review</a></li>
+</ul></li>
 <li><a href="#background-the-monolith-and-the-refactor"
 id="toc-background-the-monolith-and-the-refactor">Background: the
 monolith and the refactor</a></li>
@@ -406,6 +410,28 @@ cleanup. Regression tests are in
 helpers remain available for compatibility; unused local assignments and
 duplicate state writes encountered in the changed paths have been
 removed.</p>
+<h3 id="unused-code-review">Unused code review</h3>
+<p>Vulture findings need call-site verification. Pydantic validators,
+HTTP and HTML handler hooks, signal callbacks, context managers, and
+pytest fixtures are invoked by their frameworks. Required unused
+callback arguments remain in their signatures. Reserved configuration
+fields and dataclass fields are part of their schemas even when the sync
+path does not consume them.</p>
+<p>Check the receiver of each attribute read:
+<code>DirectoryScanner.batch_processor</code> provides parser
+statistics, while the separate <code>MirrorURL.batch_processor</code>
+assignment had no reader and has been removed. The unused scanner
+filesystem cache, manager aliases, extra locks, counters, semaphore, and
+orphan limit constants have also been removed. Actual per-IP semaphores
+and cache locks remain in use.</p>
+<p>Public helpers without production callers remain available for
+library users. Examples include <code>get_remote_timestamp</code>,
+<code>AdaptiveBatchProcessor.record_batch</code>,
+<code>FileSystemCache.get_stat</code>, <code>retry_with_backoff</code>,
+and <code>compute_file_hash</code>. <code>__all__</code> exports and
+calls made only by tests do not make these helpers part of the
+production mirror workflow. Check dynamic dispatch and public exports
+before removing an apparently unused function.</p>
 <h2 id="background-the-monolith-and-the-refactor">Background: the
 monolith and the refactor</h2>
 <p>MirrorURL began as a single <code>mirror_url.py</code> of ~15,000

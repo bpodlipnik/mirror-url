@@ -61,6 +61,28 @@ in `tests/test_release_audit_regressions.py`. The public unused helpers remain
 available for compatibility; unused local assignments and duplicate state
 writes encountered in the changed paths have been removed.
 
+### Unused code review
+
+Vulture findings need call-site verification. Pydantic validators, HTTP and
+HTML handler hooks, signal callbacks, context managers, and pytest fixtures
+are invoked by their frameworks. Required unused callback arguments remain in
+their signatures. Reserved configuration fields and dataclass fields are part
+of their schemas even when the sync path does not consume them.
+
+Check the receiver of each attribute read: `DirectoryScanner.batch_processor`
+provides parser statistics, while the separate `MirrorURL.batch_processor`
+assignment had no reader and has been removed. The unused scanner filesystem
+cache, manager aliases, extra locks, counters, semaphore, and orphan limit
+constants have also been removed. Actual per-IP semaphores and cache locks
+remain in use.
+
+Public helpers without production callers remain available for library users.
+Examples include `get_remote_timestamp`, `AdaptiveBatchProcessor.record_batch`,
+`FileSystemCache.get_stat`, `retry_with_backoff`, and `compute_file_hash`.
+`__all__` exports and calls made only by tests do not make these helpers part of
+the production mirror workflow. Check dynamic dispatch and public exports
+before removing an apparently unused function.
+
 ## Background: the monolith and the refactor
 
 MirrorURL began as a single `mirror_url.py` of ~15,000 lines containing ~70
