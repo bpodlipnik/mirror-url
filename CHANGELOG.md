@@ -4,6 +4,24 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.74] - 2026-10-01
+
+### Packaging
+
+- Declare the MIT license with its SPDX expression and an explicit `LICENSE`
+  file, remove the deprecated license classifier, and require
+  `setuptools>=77.0.3` for PEP 639 metadata. Include the unchanged license text
+  in both distributions; retain Python 3.9+ support and runtime dependencies.
+
+### Documentation
+
+- Make PyPI installation, optional runtime extras, upgrades, and installation
+  checks the README's user workflow. Describe editable contributor setup
+  separately and remove obsolete refactor-status wording.
+- Use repository URLs for README documentation and license links so they also
+  work on PyPI. Synchronize the package, guide versions, and guide installation
+  examples to 3.1.74; mirroring behavior is unchanged from 3.1.73.
+
 ## [3.1.73] - 2026-10-01
 
 ### Fixed
