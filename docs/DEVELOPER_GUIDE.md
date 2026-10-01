@@ -12,8 +12,8 @@ repeats the essentials so you can work from it alone.
 
 - **Package:** `mirror_url` (src-layout under `src/`)
 - **Version:** 3.1.71
-- **Python:** 3.9 – 3.12
-- **Runtime deps:** `httpx`, `pydantic` v2, `PyYAML` (optional: `stringzilla`,
+- **Python:** 3.9 or newer; CI tests Python 3.9–3.12
+- **Runtime deps:** `httpx[http2]` (including `h2`), `pydantic` v2, `PyYAML` (optional: `stringzilla`,
   `lxml`, `tqdm`, `psutil`)
 
 ---
@@ -27,61 +27,19 @@ repeats the essentials so you can work from it alone.
 - [Module reference (by layer)](#module-reference-by-layer)
 - [The MirrorURL orchestrator and its mixins](#the-mirrorurl-orchestrator-and-its-mixins)
 - [Runtime data flow: anatomy of a sync()](#runtime-data-flow-anatomy-of-a-sync)
+- [Runtime guarantees and compatibility](#runtime-guarantees-and-compatibility)
 - [The configuration system](#the-configuration-system)
 - [Subsystem deep-dives](#subsystem-deep-dives)
 - [Extension recipes](#extension-recipes)
 - [Coding conventions](#coding-conventions)
 - [Testing](#testing)
+- [Unused code review](#unused-code-review)
 - [Build, lint, and type-check](#build-lint-and-type-check)
 - [Release process](#release-process)
 - [Known hazards and gotchas](#known-hazards-and-gotchas)
 - [Quick "where do I find…" map](#quick-where-do-i-find-map)
 
 ---
-
-## Audit patch implementation notes
-
-`ConfigSchema` is a compatibility alias for `MirrorConfig`; file validation and
-runtime construction use the same schema. CLI validation happens after merging
-file values with explicit CLI overrides, including benchmark mode. Library
-construction does not install signal handlers; the CLI opts in and cleanup
-restores previous handlers on the main thread.
-
-The current sync path uses sequential directory scanning, builds a list of
-remote files, then runs metadata checks and downloads. `scan_mode`, bounded
-`DownloadQueue`, `AdaptiveBatchProcessor`, `MemoryEfficientCache`,
-`DiskBackedSet` remote tracking, and `FileSystemCache` freshness lookups do not
-change that path. Their public APIs and compatibility settings remain accepted;
-they are not active memory bounds or alternative scan engines.
-
-The audit patch uses an owned partial-state directory, collision preflight,
-streamed response leases, live admission resizing, end-of-run cache persistence,
-and failure propagation for incomplete scans and cleanup. Regression tests are
-in `tests/test_release_audit_regressions.py`. The public unused helpers remain
-available for compatibility; unused local assignments and duplicate state
-writes encountered in the changed paths have been removed.
-
-### Unused code review
-
-Vulture findings need call-site verification. Pydantic validators, HTTP and
-HTML handler hooks, signal callbacks, context managers, and pytest fixtures
-are invoked by their frameworks. Required unused callback arguments remain in
-their signatures. Reserved configuration fields and dataclass fields are part
-of their schemas even when the sync path does not consume them.
-
-Check the receiver of each attribute read: `DirectoryScanner.batch_processor`
-provides parser statistics, while the separate `MirrorURL.batch_processor`
-assignment had no reader and has been removed. The unused scanner filesystem
-cache, manager aliases, extra locks, counters, semaphore, and orphan limit
-constants have also been removed. Actual per-IP semaphores and cache locks
-remain in use.
-
-Public helpers without production callers remain available for library users.
-Examples include `get_remote_timestamp`, `AdaptiveBatchProcessor.record_batch`,
-`FileSystemCache.get_stat`, `retry_with_backoff`, and `compute_file_hash`.
-`__all__` exports and calls made only by tests do not make these helpers part of
-the production mirror workflow. Check dynamic dispatch and public exports
-before removing an apparently unused function.
 
 ## Background: the monolith and the refactor
 
@@ -106,7 +64,7 @@ Two consequences shape how you should work in this codebase:
 
 The legacy `mirror_url.py` was retained as a frozen reference, excluded from
 lint and packaging, until the package's test suite passed with real runtime
-dependencies installed -- then deleted (v3.1.28).
+dependencies installed — then deleted before the v3.1.20 release.
 
 ---
 
@@ -154,7 +112,7 @@ mirror-url/
 ├── pyproject.toml           # packaging, deps, tool config  (the other version source)
 ├── REFACTORING_PLAN.md      # the migration plan + module/line map
 ├── CHANGELOG.md             # Keep a Changelog format
-└── .github/workflows/       # ci.yml (lint+test matrix), release.yml (tag → build → PyPI)
+└── .github/workflows/       # ci.yml (lint+test matrix), release.yml (tag → build → GitHub Release, optional PyPI)
 ```
 
 ---
@@ -186,9 +144,11 @@ Entry points: cli · __main__
   After packaging this became an intra-package import of `.core`. Avoid
   reintroducing this pattern; prefer dependency injection.
 
-To sanity-check the graph after a change, you can compile every module and import
-the package; a broken layer shows up as an `ImportError` or a circular-import
-failure immediately.
+Compile and import the package after an import change to catch syntax errors
+and common missing/circular-import failures. These checks do not prove that
+every runtime path is acyclic: inspect function-local and dynamically invoked
+imports separately. `ConnectionManager` still imports `.core` inside its scope
+check; avoid extending that back-reference.
 
 ---
 
@@ -224,6 +184,9 @@ failure immediately.
 **Layer 2 — stateless/low-state building blocks.**
 
 - `primitives.py` — `LRUCache`, `AtomicCounter`, `AtomicSize` (thread-safe).
+- `async_primitives.py` — `LoopLocalPrimitive` and `ResizableSemaphore`: bind
+  synchronization to the running event loop and resize admission without
+  abandoning active leases or waiters.
 - `parsing.py` — `extract_links_fast`, `should_use_fast_parser`,
   `AdaptiveBatchProcessor` (HTML directory-listing parsing, lxml/stringzilla
   accelerated when available).
@@ -265,10 +228,15 @@ failure immediately.
 - `scanner.py` — `DirectoryScanner`.
 - `health.py` — `HealthCheckHandler`, `HealthCheckServer`, `HealthChecker`
   (optional HTTP health endpoint).
-- `config.py` — `ConfigSchema` (file-facing pydantic schema), `MirrorConfig`
-  (the runtime config object), `validate_config_file`, `expand_env_vars`,
-  `load_config_from_args` (a separate public API; `main()` merges and constructs `MirrorConfig` directly).
+- `config.py` — `MirrorConfig` (the validated model), `ConfigSchema` (an alias
+  of that model), `validate_config_file`, `expand_env_vars`, and the public
+  argparse-namespace helper `load_config_from_args`. `cli.main()` does its own
+  file/explicit-CLI merge; it does not call that helper.
 - `tuner.py` — `AutoConcurrencyTuner`.
+- `download_integrity.py` — strong ETag parsing, exact `Content-Range`/length
+  validation, and atomic whole-file resume-metadata load/save/clear helpers.
+- `domain_health.py` — persistent per-user `DomainHealthTracker`; sync and
+  async request paths record 429/503 incidents to recognize throttled domains.
 
 **Layer 6 — orchestration.**
 
@@ -276,8 +244,8 @@ failure immediately.
 
 **Layer 7 — entry point.**
 
-- `cli.py` — `setup_shared_logging`, `main` (plus its helpers `_explicit_cli_dests`
-  and `_cli_overrides`, which decide what a `--config` run overrides).
+- `cli.py` — `setup_shared_logging`, `main` (plus its helpers `_explicit_cli_dests`,
+  `_cli_overrides`, and `_effective_args`, which decide what a `--config` run overrides).
 - `__main__.py` — thin wrapper so `python -m mirror_url` calls `cli.main`.
 
 ---
@@ -310,13 +278,13 @@ MirrorURL` is unchanged for callers.
 
 | Mixin (`_core/…`) | Responsibility | Representative methods |
 |---|---|---|
-| `_MirrorBase` (`_base.py`) | Construction, shared state, lifecycle, logging, connection bring-up, the on-disk caches, disk-space checks | `__init__`, `__enter__`/`__exit__`, `cleanup`, `setup_logging`, `test_connection`, `_warm_up_connections`, ``check_disk_space` |
-| `UrlMixin` (`urls.py`) | URL scheme/scope validation, path extraction | `_validate_url_scheme*`, `_is_url_within_scope`, `_is_within_target_scope`, `_is_dir_excluded`, `_get_target_base_url`, `_parse_url_cached`, `_get_url_path_fast`, `_get_filename_fast` |
+| `_MirrorBase` (`_base.py`) | Construction, shared state, lifecycle, logging, connection bring-up, the on-disk caches, disk-space checks | `__init__`, `__enter__`/`__exit__`, `cleanup`, `setup_logging`, `test_connection`, `_warm_up_connections`, `check_disk_space`, `install_signal_handlers` |
+| `UrlMixin` (`urls.py`) | URL scheme/scope validation, path extraction | `_validate_url_scheme`, `_validate_url_scheme_fast`, `_is_url_within_scope`, `_is_within_target_scope`, `_is_dir_excluded`, `_get_target_base_url`, `_parse_url_cached`, `_get_url_path_fast`, `_get_filename_fast` |
 | `ScanMixin` (`scan.py`) | Remote discovery, filtering, symlink tracking | `get_remote_files`, `_discover_directories_bfs`, `matches_filter`, `get_directory_signature`, `is_symlink`/`record_symlink`, `_get_local_path_from_url` |
-| `CompareMixin` (`compare.py`) | "Is the local copy up to date?" — size/timestamp/ETag/hash, sync and async | `file_exists_and_up_to_date`, `_check_files_sync`, `_check_files_async`, `check_file`, `check_one`, `get_remote_timestamp`, `get_directory_size` |
+| `CompareMixin` (`compare.py`) | "Is the local copy up to date?" — local identity plus remote size/timestamp/ETag, sync and async | `file_exists_and_up_to_date`, `_check_files_sync`, `_check_files_async`, `_comparison_metadata`, `_response_is_current`, `get_remote_timestamp`, `get_directory_size` |
 | `DownloadMixin` (`downloads.py`) | Per-file download orchestration (delegates to the `download.py` engines) | `download_file_with_resume`, `_download_file_single` |
-| `CleanupMixin` (`cleanup.py`) | Removing/moving local files no longer present remotely | `clean_obsolete`, `_count_obsolete_files` |
-| `ReportMixin` (`report.py`) | The top-level `sync()` driver, summaries, benchmarking | `sync`, `async_warm_up_worker`, `_print_early_exit_summary`, `benchmark` |
+| `CleanupMixin` (`cleanup.py`) | Removing/moving local files no longer present remotely | `clean_obsolete`, `_scan_local_tree`, `_cleanup_path_selected` |
+| `ReportMixin` (`report.py`) | The top-level `sync()` driver, summaries, benchmarking | `sync`, `_print_early_exit_summary`, `benchmark` |
 
 **Working rule:** when you add a method to `MirrorURL`, put it in the mixin whose
 responsibility it matches, and keep shared attributes initialized in
@@ -342,29 +310,86 @@ A full mirror run is driven by `ReportMixin.sync()`. The high-level path:
 3. **Scan (`ScanMixin.get_remote_files`).** Breadth-first discovery of the remote
    tree, honoring `max_depth`, `exclude_dirs`, scope enforcement, and a visited
    set (cycle-safe). Directory listings are parsed by `parsing.py`. Results feed
-   the HTML cache.
+   in-memory parsed-listing caches. The resulting remote file list is
+   deduplicated and preflighted for unsafe, reserved, or colliding local paths.
 4. **Compare (`CompareMixin`).** For each remote file, decide whether the local
    copy is current using a shared sync/async size, timestamp, and ETag policy.
    Cached ETags require matching local size/mtime/ctime metadata, and directory
    signatures never validate child file contents. When `async_metadata` is
-   enabled, HEAD checks run through the async manager for throughput; otherwise the sync path is used.
+   enabled and there are more than 80 remote files, HEAD checks can use the
+   async manager; smaller batches, dry runs, and fallback paths use sync checks.
 5. **Download (`DownloadMixin` → `download.py`).** Missing/changed files are
    fetched. `ParallelDownloadManager.auto_select_method` (or an explicit
    `DownloadMethod`) picks sequential vs. streaming-parallel vs.
    traditional-parallel chunking; `download_integrity.py` validates strong ETags,
    exact ranges, and persistent whole-file resume metadata. Streaming chunks
-   write to a staging path and publish atomically after verification. The
-   Worker pools and the coordinator impose separate limits; per-domain
-   `CircuitBreakerManager` and the rate limiter throttle on errors/bandwidth.
+   write to a staging path and publish atomically after verification.
+   Worker pools and the coordinator impose separate limits. Per-domain
+   `CircuitBreakerManager` handles request failures; the bandwidth limiter
+   throttles bytes read, and chunk work also uses `ChunkCircuitBreaker`.
 6. **Cleanup (`CleanupMixin.clean_obsolete`).** Optionally preview/move/delete
    local files no longer present remotely, per `CleanupPolicy`. Preserve paths
    omitted by the scan selection and never traverse local symlinks. MOVE
    failures leave source paths intact.
-7. **Report (`ReportMixin`).** Render the summary, persist the cache
-   (`CacheManager.save`), and optionally emit metrics JSON.
+7. **Report (`ReportMixin`).** Save cache metadata again after download and
+   cleanup work when the scan is complete, render the normal summary, and
+   optionally export metrics JSON. A failed download, incomplete scan, or
+   recorded cleanup-operation failure makes `sync()` return `False`.
 
 `MirrorURL` is a context manager — use `with MirrorURL(cfg) as mirror:` so
 `__exit__`/`cleanup` tears down pools, async loops, and the health server.
+
+---
+
+## Runtime guarantees and compatibility
+
+These invariants are part of the current implementation, regardless of which
+release introduced them:
+
+- **Publication:** whole-file partials use an owned `.mirror-url-state/` below
+  the target directory; final assembly and streaming staging stay on the
+  destination filesystem. Verification precedes `os.replace`, so failures
+  preserve an existing destination. Temporary chunk files can use another
+  filesystem. Remote collisions with reserved state or sanitized local paths
+  fail preflight.
+- **Integrity:** chunk responses need a strong ETag and exact ranges/lengths.
+  Whole-file resume metadata binds URL, size, and strong ETag. A 200 response
+  restarts a resumed file; 416 causes a fresh request. Directory validators
+  never establish child-file freshness, and no remote cryptographic digest
+  comparison is performed.
+- **Cleanup:** walk the local tree once, preserve excluded/depth-limited and
+  skipped-symlink paths, local symlinks, and reserved state. Incomplete scans
+  suppress obsolete-file actions. A complete empty scan may clean the selected
+  local files. MOVE failures preserve their source and do not become deletion.
+- **Response ownership:** streamed sync requests keep their coordinator lease
+  until the body/response is closed. Always close responses on success, error,
+  cancellation, and retry paths.
+- **Async admission:** `LoopLocalPrimitive` binds primitives only in the running
+  loop and rejects sharing across two open loops. `ResizableSemaphore` changes
+  the live limit without losing waiters or leases. Non-adaptive metadata uses
+  `async_workers`; adaptive admission is also bounded by its maximum of 50.
+- **Lifecycle:** library construction does not install process signal handlers.
+  The CLI calls `install_signal_handlers()` on the main thread; cleanup restores
+  previous handlers. Graceful CLI interruption currently exits 0, while forced
+  cleanup timeout exits 1; neither implies that an interrupted sync completed.
+
+The sync pipeline scans directories sequentially and materializes the remote
+file list in memory. `scan_mode`, `parallel_threshold`, `download_queue_size`,
+the batch-size settings, and disk-backed remote tracking do not select another
+pipeline or impose a list-memory bound. `FileSystemCache` is available as a
+component, but freshness checks use direct filesystem stats. The scanner's
+`batch_processor` supplies parser statistics; it is not a bounded download
+batch scheduler.
+
+Other accepted compatibility settings include RGET-LIST options,
+`http2_pipelining`, `circuit_breaker_downloads`, `chunk_timeout_multiplier`,
+`stats`, and `content_hash_small_files`. Check actual readers before documenting
+an effect. Seven reserved model fields also emit warnings when explicitly
+changed: see `_UNUSED_CONFIG_FIELDS` and `warn_unused_fields()` in `config.py`.
+
+The regression contracts live in `test_release_audit_regressions.py`, the
+download failure/integrity/storage-fault tests, HTTP workflow tests, and config
+precedence tests. Keep those observable contracts intact during refactoring.
 
 ---
 
@@ -384,6 +409,16 @@ config file┘   (expand environment variables, then validate merged values)
 `load_config_from_args()` remains a separate public helper. The CLI allows
 required URL/path values to come from explicit arguments before validating
 its final merged model. Benchmark mode uses the same merge precedence.
+`load_config_from_args()` maps an already populated argparse namespace; it does
+not read `args.config` or implement the CLI's explicit-override detection.
+
+Model bounds can raise pydantic `ValidationError`; cross-field/URL checks can
+raise `ConfigError`. `extra="forbid"` rejects unknown fields. Environment
+expansion leaves unset `${VAR}` placeholders intact. Logging handler setup is
+controlled by CLI logging flags, rather than config-file verbosity fields.
+For listing modes, CLI-only runs supply scratch paths and a shallow directory
+depth; config-file runs still require URL/destination/log fields and use their
+model/file depth unless explicitly overridden.
 
 ---
 
@@ -394,8 +429,9 @@ its final merged model. Benchmark mode uses the same merge precedence.
 loopback or private. This is a security boundary: do not weaken it for
 convenience. Both accept a `test_mode` flag that relaxes the guard; this is how
 integration tests hit a local server (see [Testing](#testing)). Note the flag is
-not currently wired from `MirrorConfig` — that wiring is the documented
-prerequisite for the end-to-end test.
+not wired from `MirrorConfig` and should remain test-only. Existing HTTP tests
+install scoped `monkeypatch` transport bypasses or replace the fixture's pooled
+client; they need no new production configuration flag.
 
 **Circuit breakers (`circuit_breaker.py`).** `CircuitBreakerManager` keeps one
 breaker per domain, created lazily via `get_breaker(domain)`. State transitions
@@ -412,15 +448,19 @@ responses in a `finally`.
 
 **Async path (`async_connection.py`).** `AdaptiveAsyncManager` tunes its
 concurrency from measured RTT, throughput, and error rate; `AsyncTaskManager`
-runs the metadata HEAD checks. The non-adaptive `AsyncConnectionManager` shares
-the client/semaphore plumbing — historically several "phantom attribute" bugs
-came from methods that assumed adaptive-only state, so keep the two classes'
-responsibilities distinct.
+runs the metadata HEAD checks. The non-adaptive `AsyncConnectionManager` has
+its own fixed admission and client lifecycle; do not assume adaptive-only
+attributes exist on it. Both request paths validate redirect scope and apply
+retry/backoff handling to 429 and retryable 5xx responses.
 
 **Cache (`cache.py`).** `CacheManager` owns the JSON cache lifecycle: load +
 validate (`_validate_and_sanitize_cache`), schema-version gating
 (`CACHE_SCHEMA_VERSION`), atomic save via a temp file, and corrupted-file backup.
-The cache *filename* is built in `_MirrorBase.__init__`, not here.
+The cache *filename* is built in `_MirrorBase.__init__`, not here. Directory
+metadata is saved after a completed scan and again at sync completion; file
+identity metadata is updated after successful publication. Parsed-listing LRU
+caches are in memory, not persisted/restored HTML caches. `refresh_timestamp()`
+changes expiry metadata only and is used by `quick` mode.
 
 ---
 
@@ -430,11 +470,11 @@ These are the common changes and the exact touch-points.
 
 ### Add a configuration option
 
-1. Add the field to `MirrorConfig` in `config.py` (and to `ConfigSchema` too if
-   it should be settable from a config file), with a sensible default and any
-   pydantic validation bounds.
-2. If it should be settable from the CLI, add a flag in `cli.py` and map it in
-   `load_config_from_args` (a separate public API; `main()` merges and constructs `MirrorConfig` directly).
+1. Add the field once to `MirrorConfig` in `config.py`, with a sensible default
+   and pydantic validation bounds. `ConfigSchema` is the same class, so there
+   is no second schema to edit.
+2. If it should be settable from the CLI, follow the flag recipe below: update
+   parser/mapping and direct constructors as well as the public namespace helper.
 3. Read `self.config.<field>` where the behavior lives (a mixin or a subsystem).
 4. Add a test (a config round-trip test for the field; a behavior test for the
    effect). Document it in `USER_GUIDE.md` if user-facing.
@@ -449,8 +489,9 @@ whose `dest` equals a `MirrorConfig` field automatically (via
 needs special handling, e.g. the three mutually-exclusive download-mode
 flags) needs an entry in `_CLI_DEST_TO_CONFIG_KEY` or a branch in
 `_cli_overrides`. The non-`--config` branch (`MirrorConfig(...)` call further
-down `main()`) and `load_config_from_args` (a separate public API; `main()` merges and constructs `MirrorConfig` directly) (the public, config-file-only
-entry point) each need the field passed explicitly — add it to both. Keep
+down `main()`), its benchmark constructor, and `load_config_from_args()`
+(the separate public namespace helper) also need the field passed explicitly.
+Test no-config, config-file override, and benchmark paths. Keep
 `--help` text consistent with the User Guide's option tables, and add the new
 option's row to the `TYPED`/boolean-flag tables in
 `tests/test_cli_config_precedence.py` (a missing row fails
@@ -482,7 +523,9 @@ public API, consider whether it belongs on the documented surface.
 
 ### Add a new subsystem module
 
-Place it in the correct layer (it may import only downward). Wire it into
+Place it with related responsibilities and keep module-level runtime imports
+acyclic; the historical layer numbers do not prohibit all same-layer imports.
+Wire it into
 `MirrorURL` from `_MirrorBase.__init__` (layer 6 is where composition happens).
 Add unit tests at its own layer with no higher-layer setup.
 
@@ -493,10 +536,10 @@ Add unit tests at its own layer with no higher-layer setup.
 - **`from __future__ import annotations`** at the top of every module. Annotations
   are lazy strings, which lets us reference types without import cycles and use
   modern annotation forms while still running on 3.9.
-- **Classic typing** (`Dict`, `List`, `Optional`, `Union` from `typing`) — the
-  package targets 3.9. Do not "modernize" to `dict[...]`/`X | None` in runtime
-  positions; the lint config deliberately omits pyupgrade (`UP`) and most `SIM`
-  rules for this reason.
+- **Typing style:** follow the existing `Dict`, `List`, `Optional`, and `Union`
+  conventions. Python 3.9 supports `dict[...]`, but `X | None` must not be
+  evaluated at runtime on that version. The lint config omits pyupgrade (`UP`)
+  and most `SIM` rules; avoid unrelated typing rewrites.
 - **`TYPE_CHECKING` guards** for imports needed only for annotations, to keep the
   import graph acyclic.
 - **Lint rule set:** ruff with `E, F, W, I, B, C4`. A few bugbear rules
@@ -506,23 +549,32 @@ Add unit tests at its own layer with no higher-layer setup.
 - **Type-checking:** `mypy` runs as an advisory signal (CI `continue-on-error`),
   not a gate. It is lenient by design (`no_implicit_optional = false`,
   untyped-defs allowed) because the port is largely untyped. Tightening it is a
-  welcome dedicated follow-up, not something to do piecemeal mid-feature.
+  welcome dedicated follow-up. Its configured checking target is Python 3.10;
+  this does not change the package's Python 3.9 runtime minimum.
 - **Imports:** keep the runtime graph acyclic. The layer diagram is a guide to
-  responsibilities; same-layer imports exist, so it is not a generally lower (with same-layer dependencies) rule.
+  responsibilities; inspect actual imports rather than treating the numbers as
+  a strict dependency rule.
 
 ---
 
 ## Testing
 
-The suite lives in `tests/` and runs under `pytest`. Two lanes:
+The suite lives in `tests/` and runs under `pytest`. Test lanes:
 
 - **Fast lane** (`pytest -m "not integration"`) — smoke, utilities, security, and
   subsystem-integration tests that exercise real in-process I/O (thread-safe
   primitives under concurrent load, circuit-breaker timing, `DiskBackedSet`
-  spill-to-disk, pydantic/YAML config round-trips). No network. This is what CI
-  gates on across Python 3.9–3.12.
-- **Integration lane** (`pytest -m integration`) — end-to-end runs against the
-  local `static_http_server` fixture in `conftest.py`.
+  spill-to-disk, pydantic/YAML config round-trips). This lane also includes the
+  unmarked streaming-concurrency tests, which bind a local HTTP server. It
+  therefore needs loopback sockets, although it does not require a live public
+  archive. CI runs it across Python 3.9–3.12.
+- **Integration lane** (`pytest -m integration`) — end-to-end mirrors in
+  `test_integration.py` and `test_http_mirror_workflows.py`, using the static
+  server fixture or a controllable Range/ETag/failure server.
+- **Full coverage lane** — both lanes together, plus 100% statement/branch
+  gates for the two download modules. It requires all optional dependencies
+  and local socket binding. A sandbox socket denial is an environment error,
+  not a successful full-suite run.
 
 **End-to-end tests:** `tests/test_integration.py` runs a real local HTTP
 mirror with a transport bypass installed only by `monkeypatch` in that test.
@@ -542,11 +594,41 @@ Markers are declared in `pyproject.toml` under `[tool.pytest.ini_options]`
 
 ---
 
+## Unused code review
+
+Use static findings as candidates, then verify calls and attribute receivers:
+
+```bash
+python -m pip install vulture
+python -m vulture src/mirror_url --min-confidence 80
+python -m vulture src/mirror_url tests --min-confidence 80
+```
+
+For each candidate, inspect repository call sites, `__all__` exports, inheritance,
+dynamic lookup, and framework dispatch. Pydantic validators, HTTP/HTML handler
+hooks, signals, context managers, and pytest fixtures may have no ordinary call
+expression. Required callback parameters remain even when unused. An export or
+test-only call does not prove participation in the production sync workflow.
+
+Record whether a finding is internal dead state, an intentionally dormant public
+helper, a compatibility field, or a framework hook. Do not remove a public API
+solely because the repository has no production caller. Examples retained for
+library users include `get_remote_timestamp`, `retry_with_backoff`,
+`compute_file_hash`, `AdaptiveBatchProcessor.record_batch`, and
+`FileSystemCache.get_stat`.
+
+Match receivers precisely: `DirectoryScanner.batch_processor` has parser-stat
+readers; that does not establish a reader for an attribute with the same name
+on a `MirrorURL` instance. Verify actual per-IP semaphores and cache locks before
+removing synchronization. Vulture is a review aid, not a zero-findings CI gate.
+
+---
+
 ## Build, lint, and type-check
 
 ```bash
 # editable install with the dev toolchain
-pip install -e ".[dev]"
+pip install -e ".[all,dev]"
 pre-commit install        # optional but recommended
 
 ruff check .              # lint
@@ -555,22 +637,32 @@ mypy                      # advisory type-check of src/mirror_url
 pytest -m "not integration"   # fast lane
 pytest                        # full suite (includes integration)
 pytest --cov=mirror_url --cov-branch --cov-fail-under=70 \
-  --cov-report=term-missing --cov-report=json:coverage.json --cov-report=html
+  --cov-report=term-missing --cov-report=xml:coverage.xml \
+  --cov-report=json:coverage.json --cov-report=html
 python scripts/check_download_coverage.py coverage.json  # each download module: 100%
 
 # build distributions
-pip install build
+pip install build twine
 python -m build           # wheel + sdist into dist/
+python -m twine check dist/*
+
+# regenerate both HTML guides after Markdown edits (requires pandoc)
+bash scripts/render_guides.sh
 ```
 
-CI (`.github/workflows/ci.yml`) runs lint and the fast test lane across 3.9–3.12.
+CI (`.github/workflows/ci.yml`) runs lint/format checks on Python 3.12 and the
+fast test lane across Python 3.9–3.12.
 A separate Python 3.12 coverage job installs `[all,dev]`, runs every test,
 including real local HTTP mirroring, and requires at least 70% combined
 statement/branch coverage overall. It additionally requires 100% statement and
 branch coverage separately for `download.py` and `download_integrity.py`, using
-the exact missing counts in the JSON report. It uploads HTML, JSON, and XML reports. The HTML docs
-are produced from the Markdown with pandoc (embedded CSS + TOC) — regenerate
-`docs/*.html` after editing the corresponding `.md`.
+the exact missing counts in the JSON report. It uploads HTML, JSON, and XML
+reports. `scripts/render_guides.sh` renders both Markdown guides with Pandoc and
+the committed `docs/guide-style.html`. Its Lua filter points cross-guide links
+to HTML copies. It keeps the Markdown's table of contents and emits one title
+per guide; run it after editing either guide and review the
+HTML too. Keep Ruff's version in `pyproject.toml`, `.pre-commit-config.yaml`,
+and documentation synchronized when upgrading the formatter.
 
 ---
 
@@ -580,6 +672,9 @@ are produced from the Markdown with pandoc (embedded CSS + TOC) — regenerate
    `pyproject.toml`, `src/mirror_url/_version.py`, and the version references in
    both Markdown/HTML guides. The CLI imports the shared version; no separate
    banner edit is needed. A test checks that the two version sources agree.
+   The script replaces every occurrence of the current version in those files,
+   including historical mentions of that exact version; review the diff and
+   preserve history manually when needed. Regenerate HTML after content edits.
 2. **Update `CHANGELOG.md`.** Replace the release's `[Unreleased]` heading with
    `## [X.Y.Z] - YYYY-MM-DD`, retain its notes, and remove any empty duplicate
    `[Unreleased]` section. For a release with no pending changes, leave no
@@ -587,6 +682,8 @@ are produced from the Markdown with pandoc (embedded CSS + TOC) — regenerate
 3. **Validate and commit the release.** Run `ruff check .`,
    `ruff format --check .`, the full `pytest` suite, `python -m build`,
    `twine check dist/*`, and `git diff --check`. Mypy is advisory in CI.
+   Include the full branch-coverage run and `check_download_coverage.py` gate
+   shown above, and require release PR CI to pass before tagging.
    Commit the source metadata, changelog, and guides; push the release branch
    and merge its reviewed pull request.
 4. **Tag the merged release on `main` and push the tag:**
@@ -610,7 +707,7 @@ are produced from the Markdown with pandoc (embedded CSS + TOC) — regenerate
 
 ## Known hazards and gotchas
 
-These bit the project before; the migration plan calls them out explicitly.
+Preserve these constraints when extending or refactoring the current code.
 
 - **Don't reintroduce the self-import.** `ConnectionManager`'s scope check imports
   `MirrorURL` from `.core`; the monolith's `from mirror_url import MirrorURL` was
@@ -624,7 +721,7 @@ These bit the project before; the migration plan calls them out explicitly.
 - **Shared module globals** (e.g. log bookkeeping used by `setup_shared_logging`/
   `cleanup_log_files`) must live in one module and be imported, not re-declared,
   or you get divergent copies.
-- **Preserve verbatim bug fixes.** The changelog documents subtle
+- **Preserve bug-fix behavior.** The changelog documents subtle
   attribute/phantom-method fixes (async HEAD, async transport `test_mode`,
   circuit-breaker lazy creation, redirect header preservation, MOVE-mode cleanup).
   Don't "tidy" these away while refactoring nearby code.
@@ -639,11 +736,14 @@ These bit the project before; the migration plan calls them out explicitly.
 | A tuning default or limit | `constants.py` |
 | An error type | `exceptions.py` (+ `__init__.py` if public) |
 | A run-mode / state enum | `enums.py` |
-| A config field | `config.py` (`MirrorConfig`/`ConfigSchema`) + `cli.py` |
+| A config field | `config.py` (`MirrorConfig`; `ConfigSchema` is its alias) + `cli.py` |
 | URL scope/validation logic | `_core/urls.py` |
 | How the remote tree is discovered | `_core/scan.py` (+ `parsing.py`) |
 | "Is the file up to date?" logic | `_core/compare.py` |
 | How a file is actually downloaded | `_core/downloads.py` → `download.py` |
+| Range validation / resume metadata | `download_integrity.py` |
+| Loop binding / live async admission | `async_primitives.py` |
+| Persistent throttled-domain knowledge | `domain_health.py` |
 | Obsolete-file cleanup behavior | `_core/cleanup.py` |
 | The top-level run / summary | `_core/report.py` (`sync()`) |
 | Construction / shared state / logging | `_core/_base.py` |

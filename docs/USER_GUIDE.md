@@ -7,38 +7,10 @@ them efficiently — with adaptive concurrency, resumable/parallel downloads,
 integrity checks, incremental caching, and an SSRF-hardened transport layer.
 
 - **Version:** 3.1.71
-- **Python:** 3.9 – 3.12 (pure Python; not supported on Solaris)
+- **Python:** 3.9 or newer; CI tests Python 3.9–3.12
 - **License:** MIT
 
 ---
-
-## Audit patch behavior
-
-The audit patch for 3.1.70 streams file bodies as they arrive and throttles
-between reads. HTTP/2 and pool limits reach the secure transport. Fixed async
-metadata checks honor `async_workers`; adaptive resizing changes the live
-admission limit. Both async modes validate every redirect and retry 429/5xx
-responses, honoring `Retry-After` within their overall request timeout.
-
-Whole-file partials and their resume metadata now live in the owned
-`.mirror-url-state/` directory inside the destination, so publication remains
-on the same filesystem. This name is reserved (case-insensitively): a remote file mapping under it
-causes the sync to fail. A pre-existing directory without a valid ownership
-marker is preserved and rejected; obsolete-file cleanup never enters this
-reserved directory. Legacy adjacent `*.mirror-partial` files are not resumed
-or classified as stale partials. Requested obsolete-file cleanup can still
-remove them if absent from the remote listing. Review or archive those files
-before enabling cleanup.
-
-`max_depth` counts directories below the root (root depth 0); a file in an
-immediate child directory is eligible at depth 1. Duplicate URLs are downloaded
-once. Ambiguous sanitized names abort before downloading. A complete empty
-scan can clean obsolete files when requested; an incomplete scan skips cleanup
-and reports failure. Cleanup failures also produce a failing exit status.
-
-Cache metadata is saved after downloads and cleanup. `--quick` refreshes the
-JSON timestamp used for cache expiry without scanning. Neither ETags nor
-size/mtime checks are a cryptographic content comparison against the server.
 
 ## Table of contents
 
@@ -105,7 +77,7 @@ pip install mirror-url
 
 ### From a built wheel (recommended for servers)
 
-On a build machine:
+From a checkout of the repository on a build machine:
 
 ```bash
 pip install build
@@ -167,7 +139,8 @@ command and `python -m mirror_url`.
 
 ## Quick start
 
-Mirror a remote directory to a local folder:
+Replace the example URL with your archive's directory-listing URL, then mirror
+it to a local folder:
 
 ```bash
 mirror-url \
@@ -199,8 +172,9 @@ list of options. The most commonly used options:
 
 > `--list-dirs` and `--list-files` are exceptions: since they only discover
 > and print the remote tree and never download or delete anything, neither
-> requires `--dest-path` or `--log-path` — see their entries in "Filtering
-> and scope" below.
+> requires `--dest-path` or `--log-path` when using `--url` without `--config`.
+> A config-file run still requires `base_url`, `dest_path`, and `log_path`.
+> See their entries in "Filtering and scope" below.
 
 ### Targets
 
@@ -217,7 +191,7 @@ list of options. The most commonly used options:
 | Option | Description |
 |---|---|
 | *(default)* | Auto-select the best method at runtime. |
-| `--sequential-downloads` | One file at a time, no parallelism (most conservative). |
+| `--sequential-downloads` | Download one file at a time; metadata and size probes may still run concurrently. |
 | `--parallel-downloads` | Parallel chunks via temp files, verified before assembly. |
 | `--streaming-parallel` | Parallel chunks written into a staging file, then atomically published. |
 | `--max-concurrent-downloads N` | Max files downloaded at once (default 10). |
@@ -226,7 +200,7 @@ list of options. The most commonly used options:
 | `--auto-concurrency` | Tune parallel concurrency from measured throughput. |
 | `--bandwidth-limit MB/S` | Cap total download bandwidth. |
 | `--max-parallel-chunks N` | Max chunks in flight across *all* files at once (default 50; `--max-chunks` above caps chunks *per file*). |
-| `--chunk-assembly-dir DIR` | Directory for temporary chunk files (defaults next to the destination file). |
+| `--chunk-assembly-dir DIR` | Directory for temporary chunk files (defaults to a unique directory under the system temporary directory). Final assembly and streaming staging remain beside the destination file for atomic replacement. |
 | `--chunk-timeout-multiplier MULT` | *Currently has no effect* (accepted for backward compatibility). Chunk requests use fixed multiples of `--timeout`. |
 
 ### Performance and networking
@@ -234,11 +208,12 @@ list of options. The most commonly used options:
 | Option | Description |
 |---|---|
 | `--workers N` | Sync worker threads (default 8). |
-| `--async-workers N` | Async metadata-check workers (default 50). |
+| `--async-workers N` | Async metadata-check admission limit (default 50). Normal sync uses async checks only for more than 80 remote files; smaller runs and dry runs use sync checks. |
 | `--no-async-metadata` | Disable async metadata checks (use on throttled servers). |
-| `--timeout SECS` | Per-request timeout (default 30). |
-| `--max-retries N` | Retries per request (default 3). |
-| `--retry-delay SECS` | Delay between retries (default 2). |
+| `--timeout SECS` | Base request timeout (default 30; range 3–300). Some request paths use fixed limits or multiples of this value, so this is not a whole-run deadline. |
+| `--max-retries N` | Connection-request retry budget (default 3). Chunk retries also have their own fixed budget. |
+| `--retry-delay SECS` | Base delay for retry backoff (default 2). |
+| `--request-delay SECS` | Request pacing delay (default 0.05; range 0.001–1.0). Increase it for throttled servers. |
 | `--trusted-server` | Use faster rate limiting (10 ms vs 50 ms between requests). |
 | `--no-http2` | Disable HTTP/2. |
 | `--no-http2-pipelining` | *Currently has no effect* (accepted for backward compatibility); the HTTP/2 client does not read this setting. |
@@ -253,7 +228,7 @@ list of options. The most commonly used options:
 
 | Option | Description |
 |---|---|
-| `--no-cache` | Disable the on-disk cache (always re-scan). |
+| `--no-cache` | Bypass saved metadata and parsed-listing caches; existing files are still checked for freshness. |
 | `--refresh-cache` | Force a full cache refresh this run. |
 | `--cache-max-age DAYS` | Max cache age before auto-refresh (default 7). |
 | `--no-etag` | Disable ETag-based change detection. |
@@ -271,23 +246,23 @@ list of options. The most commonly used options:
 
 | Option | Description |
 |---|---|
-| `--filter P [P ...]` | Only download matching files. Each pattern is a plain extension (`.fits`) or a regex (`'2024.*\.fits$'`). |
+| `--filter P [P ...]` | Only download matching files. Patterns can be extensions (`.fits`), plain substrings (`_fe_`), or regexes (`'2024.*\.fits$'`). Matching is case-insensitive and patterns are OR'd. |
 | `--exclude-dir D [D ...]` | Skip directories, each matched as an exact path relative to `--url` (not a suffix at any depth — see "Filtering and scope" below). |
-| `--max-depth N` | Maximum directory recursion depth (default 50; `--list-dirs` defaults to 1 instead — see below). |
+| `--max-depth N` | Maximum directory recursion depth (default 50; CLI-only `--list-dirs` defaults to 1). With a config file, its `max_depth` or the model default of 50 applies unless explicitly overridden. |
 | `--scan-mode {adaptive,sequential,parallel,async}` | Accepted for compatibility; directory discovery and parsing currently use sequential scanning regardless of this value. Async workers apply to file metadata checks. |
 | `--parallel-threshold N` | *Currently has no effect* (accepted for backward compatibility); the value is parsed but not used to choose a scan strategy. |
 | `--max-filename-len N` | Sanitize/truncate local filenames (default 255). If distinct URLs map to the same local name, the sync fails before downloading; use a larger limit or a narrower scope. |
 | `--download-queue-size N` | Accepted for compatibility; the current sync pipeline collects the full remote file list and does not enqueue downloads through the bounded queue. |
 | `--max-symlink-depth N` | With `--handle-symlinks`, how many symlink hops deep to follow before stopping (default 10). |
-| `--list-dirs [N]` | Discover and print the directory tree under `--url`/`--dir-suffix`, then exit — no file scanning, freshness checks, or downloads/deletes. Respects `--exclude-dir`/`--max-depth` (defaults to `1` — the current folder's immediate children only — unless `--max-depth` is given explicitly; every other mode still defaults to 50); `--filter` doesn't apply (files only). With `N`, shows only the last `N` directories overall, sorted **lexicographically by relative path** (a name sort, not a true timestamp sort), with the root (`.`) excluded from that ranking. Always followed by a `# Directories N/total` summary line, including unrestricted runs (`N == total`). Doesn't require `--dest-path`/`--log-path`. |
-| `--list-files [N]` | Discover and print files under `--url`/`--dir-suffix`, then exit — no freshness checks or downloads/deletes. Respects `--exclude-dir`/`--max-depth`/`--filter`. With `N`, shows only the last `N` files *per directory*, sorted **lexicographically by filename** (a name sort, not a true timestamp sort — see "Filtering and scope" below). Doesn't require `--dest-path`/`--log-path`. |
+| `--list-dirs [N]` | Discover and print the directory tree under `--url`/`--dir-suffix`, then exit — no file scanning, freshness checks, or downloads/deletes. Respects `--exclude-dir`/`--max-depth` (without `--config`, defaults to `1` — the current folder's immediate children only; config-file runs use the file/model depth unless `--max-depth` is explicit); `--filter` doesn't apply (files only). With `N`, shows only the last `N` directories overall, sorted **lexicographically by relative path** (a name sort, not a true timestamp sort), with the root (`.`) excluded from that ranking. Always followed by a `# Directories N/total` summary line, including unrestricted runs (`N == total`). Without `--config`, doesn't require `--dest-path`/`--log-path`. |
+| `--list-files [N]` | Discover and print files under `--url`/`--dir-suffix`, then exit — no freshness checks or downloads/deletes. Respects `--exclude-dir`/`--max-depth`/`--filter`. With `N`, shows only the last `N` files *per directory*, sorted **lexicographically by filename** (a name sort, not a true timestamp sort — see "Filtering and scope" below). Without `--config`, doesn't require `--dest-path`/`--log-path`. |
 
 ### Cleanup of obsolete local files
 
 | Option | Description |
 |---|---|
-| `--cleanup safe` | **Default.** Never delete anything. |
-| `--cleanup preview` | Show what *would* be deleted/moved, but do nothing. |
+| `--cleanup safe` | **Default.** Preserve obsolete local files; changed files can still be replaced. |
+| `--cleanup preview` | Report obsolete-file actions without moving/deleting those files; downloads still run. Add `--dry-run` to prevent mirrored-file changes. |
 | `--cleanup move` | Move obsolete files into the sibling `<dest>_obsolete/` folder. |
 | `--cleanup delete` | Delete obsolete files. |
 | `--confirm-delete` | Require interactive confirmation (delete mode). |
@@ -298,12 +273,13 @@ list of options. The most commonly used options:
 | Option | Description |
 |---|---|
 | `--progress-bar` | Show a tqdm progress bar (needs the `progress` extra). |
-| `--stats` | *Currently has no effect* (accepted for backward compatibility). The end-of-run metrics summary is always printed in full. |
+| `--stats` | Accepted for compatibility; does not change the normal completed-sync metrics summary. Quick mode and other early exits use shorter summaries. |
 | `--metrics-json FILE` | Export run metrics to a JSON file. |
 | `--log-file NAME` | Custom base name for the run's log file, replacing the default `mirror_url` prefix. See below for the exact filename format. |
 | `--verbose` / `--debug` | More logging. |
 | `--quiet` | Warnings and errors only. |
-| `--health-check-port N` | Port for the health/metrics HTTP server (default 8080). |
+| `--health-check-port N` | Local health/metrics server port (default 8080). The server starts only when `--metrics-json` is set and the run is not a dry run. |
+| `--print-logs` | Echo run logs to the console as well as the log file. |
 | `--version` | Print version and exit. |
 | `--no-adaptive-batch-processing` | Accepted for compatibility; the adaptive batch processor is not used by the current sync pipeline. |
 | `--initial-batch-size N` | Accepted for compatibility; currently does not change sync batching. |
@@ -341,10 +317,10 @@ mirror-url \
   --metrics-json /var/log/mirror/run.json
 ```
 
-Preview what a cleanup would remove, without touching anything:
+Preview obsolete-file actions without downloading or changing mirrored files:
 
 ```bash
-mirror-url --config mirror.yaml --cleanup preview
+mirror-url --config mirror.yaml --cleanup preview --dry-run
 ```
 
 Dry-run to see what a first sync would download:
@@ -391,7 +367,16 @@ command line overrides the same setting in the file — including a flag whose
 value happens to equal its own default (e.g. `--workers 8` overrides a file's
 `workers: 4` even though 8 is also the built-in default). A flag you don't
 type is left alone at whatever the file says. Only `base_url`, `dest_path`,
-and `log_path` are required.
+and `log_path` are required for a config-file run, including listing modes.
+Unknown keys are rejected. `dir_suffix` is one string in a config file; the
+CLI's `--dir-suffix` accepts several values. Logging controls such as
+`--print-logs`, `--quiet`, `--verbose`, `--debug`, and `--log-file` should be
+passed on the CLI to control its shared logging handlers.
+
+To enable a boolean explicitly over a false config-file value, use its positive
+flag, for example `--async-metadata`, `--adaptive-async`, `--cache-html`,
+`--http2`, `--security-validation`, `--circuit-breaker-enabled`,
+`--connection-pool-prewarm`, or `--fast-parsing-fallback`.
 
 ```yaml
 # mirror.yaml
@@ -405,6 +390,8 @@ async_metadata: true
 async_workers: 50
 timeout: 30
 max_retries: 3
+request_delay: 0.05
+http2: true
 trusted_server: false
 
 # Download method (pick at most one; omit for auto-select)
@@ -415,6 +402,7 @@ max_concurrent_downloads: 10
 max_chunks_per_file: 8
 min_chunk_size_mb: 10
 bandwidth_limit: null          # e.g. 50  (MB/s)
+enable_resume: true            # whole-file transfers; no CLI toggle
 
 # Filtering
 file_filters: [".fits", ".txt"]
@@ -440,15 +428,15 @@ circuit_breaker_enabled: true
 
 # Output
 progress_bar: false
-stats: false
-metrics_json: null             # e.g. /var/log/mirror/metrics.json
+metrics_json: null             # also enables the local health server when set
 health_check_port: 8080
 ```
 
 ### Environment variables in config
 
 String values may contain `${VAR}` placeholders, expanded from the environment
-at load time:
+at load time. An unset variable leaves its placeholder unchanged; export the
+variables before running and check the resulting paths/URL:
 
 ```yaml
 base_url: ${ARCHIVE_BASE}/mission/
@@ -467,41 +455,69 @@ from pathlib import Path; print(validate_config_file(Path('mirror.yaml')))"
 
 ## Download modes
 
-MirrorURL supports four strategies. If you specify none, it **auto-selects**
-based on file count, average size, disk type, network speed, and server Range
-support.
+Choose one of the three explicit modes, or omit the mode flags for automatic
+selection. Auto-selection considers file count and sizes, a disk-speed probe,
+an estimated network speed, and server Range support.
 
-| Mode | Flag | Best for |
+| Mode | Flag | Behavior |
 |---|---|---|
-| **Sequential** | `--sequential-downloads` | Small jobs, fragile/throttled servers, debugging. |
-| **Traditional parallel** | `--parallel-downloads` | Many files; chunks written to temp files then assembled (verified before atomic replacement, needs ~2× disk headroom per in-flight file). |
-| **Streaming parallel** | `--streaming-parallel` | A few very large files; chunks written into a pre-allocated staging file, then atomically published (~1× additional disk space). |
-| **Auto** | *(default)* | Let MirrorURL choose; good general default. |
+| **Sequential** | `--sequential-downloads` | Download one file at a time. Metadata and size probes may still run concurrently. |
+| **Traditional parallel** | `--parallel-downloads` | Download several files at once; eligible files use chunks stored in temporary files and verified before assembly. |
+| **Streaming parallel** | `--streaming-parallel` | Download several files at once; eligible chunks write to a pre-allocated staging file and publish after verification. |
+| **Auto** | *(default)* | Select sequential, traditional parallel, or streaming parallel for this run. |
 
-Parallel chunking requires byte Range support, a known size, and a **strong
-ETag**. Without these, MirrorURL falls back to a whole-file download. Each
-chunk sends `If-Range` and must return the exact requested `Content-Range`,
-length, and ETag. Existing destination files stay intact until all chunks
-have passed verification and the replacement is atomically published.
+`--max-concurrent-downloads` caps parallel files; `--max-chunks` caps chunks per
+file and `--max-parallel-chunks` caps chunk work across files. These are separate
+from metadata-worker limits. `--auto-concurrency` tunes the admitted file count
+within `--max-concurrent-downloads`.
 
-Whole-file partials can resume with `enable_resume` (on by default) when a
-matching `.partial.json` sidecar records the source URL, total size, and strong
-ETag. Legacy partials and partials without a strong validator restart from
-zero. A server response of 200 replaces the partial from zero; 416 also
-triggers a fresh full request and never certifies the partial as complete.
-`--no-etag` disables ETag freshness comparisons; range transfers still require
-ETags for representation integrity. Traditional and streaming chunk state
-is not resumed across runs; failed chunk attempts can retry within a run.
-An interruption may leave a hidden `.streaming` staging file, but never an
-incomplete file under the destination filename.
+Parallel chunking requires a known size at least `--min-chunk-size`, byte Range
+support, and a **strong ETag**. Without these, the file uses a whole-file
+transfer, which may still run alongside other files. Each chunk sends
+`If-Range` and must return the exact requested `Content-Range`, length, and ETag.
+Existing destination files stay intact until verification and atomic
+replacement succeed. These checks do not compare against a server-provided
+cryptographic content digest; `--hash-algorithm` does not add such a comparison.
+
+Traditional chunk files default to a unique directory under the system
+temporary directory, or to `--chunk-assembly-dir`. Final assembly and streaming
+staging use the destination's filesystem. Traditional mode can need roughly
+two additional file-sized copies across the temporary and destination storage;
+streaming needs roughly one additional file-sized staging allocation. Existing
+destination copies also continue to occupy space until replacement.
+
+### Interrupted downloads and reserved state
+
+Whole-file transfers use an owned `.mirror-url-state/` directory inside each
+target directory (`--dest-path` plus any `--dir-suffix`). A `.partial.json`
+sidecar records the source URL, total size, and strong ETag. With
+`enable_resume: true` (the default), matching validated partials can resume.
+Partials without a strong validator restart from zero. A response of 200 to a
+resume request restarts the transfer; 416 triggers a fresh full request and
+never certifies the partial as complete.
+
+The `.mirror-url-state` name is reserved case-insensitively. A conflicting
+remote path fails the sync before downloading. An existing directory without
+MirrorURL's valid ownership marker is preserved and rejected when partial
+state is needed; obsolete-file cleanup never enters this directory.
+
+Legacy adjacent `*.mirror-partial` files are not resumed. Review or archive
+them before enabling obsolete-file cleanup, which may remove them if they are
+absent from the selected remote listing.
+
+Traditional and streaming chunk state is not resumed across runs; failed chunks
+can retry within a run. An interruption may leave a hidden `.streaming` staging
+file, but never publishes that unfinished file under the destination filename.
+`--no-etag` disables freshness comparisons, while range transfers still require
+ETags to verify that all bytes belong to the same remote representation.
 
 ---
 
 ## Filtering and scope
 
-- **`--filter`** accepts one or more patterns. A pattern that looks like a bare
-  extension (`.fits`) matches by suffix; anything else is treated as a regular
-  expression matched against the filename. **Multiple patterns are OR'd** — a
+- **`--filter`** accepts one or more case-insensitive filename patterns. A bare
+  extension (`.fits`) matches by suffix. Plain text such as `_fe_` matches a
+  substring; patterns containing regex metacharacters use `re.search`. **Multiple patterns are OR'd** — a
   file matches if *any* pattern matches, not all of them:
 
   ```bash
@@ -526,37 +542,35 @@ incomplete file under the destination filename.
   when a filter matches more than one filename prefix in the same run.
 
 - **`--exclude-dir`** skips one or more directories, each matched as an
-  **exact path relative to `--url`** — not a suffix match at any depth. `
-  --exclude-dir lasco` excludes only `<root>/lasco/`, never
+  **exact path relative to `--url`** — not a suffix match at any depth.
+  `--exclude-dir lasco` excludes only `<root>/lasco/`, never
   `<root>/setup/lasco/` or any other directory elsewhere in the tree that
   happens to share that name. `--exclude-dir idl/beta` excludes only that
   specific two-level path. Pass several to exclude several:
   `--exclude-dir lasco idl/beta` excludes exactly those two root-relative
   paths. A pattern containing `*` is the explicit escape hatch for matching
   at any depth (`--exclude-dir '*/lasco'` also catches `<root>/setup/lasco/`)
-  — opt-in, not the default for a plain pattern. (Earlier versions matched
-  any pattern as a suffix anywhere in the tree; that was a real, silent
-  over-exclusion risk — a short pattern could quietly swallow an unrelated,
-  same-named directory elsewhere with no warning. If you relied on that
-  "anywhere" behavior, add an explicit `*/` prefix to keep it.)
+  — use both `lasco` and `*/lasco` if you want the root-level directory and
+  nested directories with that name. Patterns stay relative to `--url` when
+  `--dir-suffix` is used.
 - **`--dir-suffix`** restricts mirroring to one or more subpaths under the base
   URL and mirrors each in turn.
-- **`--max-depth`** bounds recursion. The crawler also enforces URL-scope checks
-  so it never wanders outside the configured base host/path.
+- **`--max-depth`** counts directory levels below the target root (depth 0);
+  files in its immediate child directories are eligible at depth 1. The
+  crawler stays within the configured host/path. Duplicate file URLs are
+  downloaded once, and conflicting sanitized local names fail before downloads.
 - **`--list-dirs [N]`** discovers and prints the directory tree under `--url`/
   `--dir-suffix`, then exits — it reuses the same directory-discovery walk as
   a real sync, so it respects `--exclude-dir` and `--max-depth`, but never
   scans files, checks freshness, or downloads/deletes anything. `--filter`
   doesn't apply, since it only matches filenames, not directories. Handy for
   seeing what's on a remote server before choosing a `--dir-suffix`. Unlike
-  every other mode, it does **not** require `--dest-path` or `--log-path`.
+  download modes, a CLI-only run does **not** require `--dest-path` or
+  `--log-path`; a config-file run still requires both paths.
 
-  Unlike every other mode, `--list-dirs` also defaults `--max-depth` to `1`
-  — the current folder's immediate children only — instead of the usual 50.
-  "What's in this folder" is the overwhelmingly common ask, and recursing
-  the full tree by default is easy to be surprised by on a deep archive.
-  Pass `--max-depth` explicitly to go deeper (or shallower); it always wins
-  over this default, for every mode including `--list-dirs`:
+  Without `--config`, `--list-dirs` defaults `--max-depth` to `1`: the current
+  folder's immediate children. With `--config`, the file's `max_depth` applies
+  (or 50 when omitted). Pass `--max-depth` explicitly to override either:
 
   ```bash
   # Immediate children only (the default)
@@ -611,7 +625,8 @@ incomplete file under the destination filename.
   `--exclude-dir`, `--max-depth`, **and** `--filter` (unlike `--list-dirs`,
   `--filter` *does* apply here, since it matches filenames). It never
   compares freshness or downloads/deletes anything, and — like
-  `--list-dirs` — does **not** require `--dest-path` or `--log-path`.
+  `--list-dirs` — a CLI-only run does **not** require `--dest-path` or
+  `--log-path`. Config-file runs still require both paths.
 
   With no `N`, every matching file is printed. With `N`, only the last `N`
   files **per directory** are printed (not N total across the whole run —
@@ -642,32 +657,9 @@ incomplete file under the destination filename.
   > for `--list-dirs [N]` — it is **not** based on any server-reported
   > modification time.
   >
-  > This is a deliberate tradeoff, not an oversight. Getting a true
-  > per-file timestamp would need one of two things, and both were
-  > rejected:
-  >
-  > - **Parsing the "Last modified" column some directory-listing HTML
-  >   formats include** — but that format is server-specific (Apache,
-  >   nginx, IIS/Microsoft, lighttpd, etc. all differ, and some servers
-  >   don't expose one at all), so this would make `--list-files`'s
-  >   correctness depend on which web server happens to be on the other
-  >   end.
-  > - **An extra HTTP `HEAD` request per file** to read its
-  >   `Last-Modified` header — fully server-independent, but exactly the
-  >   per-file network round-trip that `--missing-files` (see "Caching"
-  >   above) was built to *avoid*, because it doesn't scale: a directory
-  >   with tens of thousands of files would turn a `--list-files` probe
-  >   into a run lasting as long as a full sync.
-  >
-  > A lexicographic sort needs neither: it costs **zero extra network
-  > requests** beyond the directory listing itself, and works identically
-  > regardless of which web server is serving the files. The tradeoff is
-  > that it only reflects true chronological order when filenames embed a
-  > sortable date or sequence number — e.g. `..._20260722_003.fits`. That
-  > holds for the PROBA-3/STEREO archives this tool targets, where
-  > filenames are date/sequence-stamped, but is **not guaranteed** for an
-  > arbitrary directory with inconsistent naming — there, "last N" means
-  > "alphabetically last N", which may not be "most recent N".
+  > This avoids extra per-file metadata requests. It reflects chronological
+  > order only when filenames contain sortable dates or sequence numbers.
+  > For arbitrary names, it means alphabetically last, regardless of file age.
   >
   > **A sharper version of the same tradeoff bites when `--filter`
   > matches more than one filename prefix/channel in the same run** — e.g.
@@ -691,56 +683,73 @@ incomplete file under the destination filename.
   >   ```
   >   (`sort -t_ -k4` sorts from the 4th underscore-delimited field
   >   onward — i.e. from the embedded timestamp, not the channel prefix
-  >   sitting before it — so the result is chronological across channels
-  >   instead of "whichever channel's name sorts higher, wins".)
+  >   sitting before it. This assumes that filename layout; adapt the field
+  >   number for your archive.)
 
 ---
 
 ## Caching and incremental sync
 
-MirrorURL keeps a JSON cache (in `--log-path`) describing the last run, plus an
-in-memory/disk HTML-listing cache. On subsequent runs it uses this — together
-with ETags, sizes, and timestamps — to skip unchanged files and avoid
-re-fetching directory listings.
+MirrorURL stores file identity metadata and directory signatures in a JSON
+cache under `--log-path`. Keep this path stable between runs. The file name
+contains the directory suffix and a hash of the base URL, so different remote
+roots do not share one cache accidentally.
 
-- `--cache-max-age DAYS` — after this age the cache auto-refreshes.
-- `--refresh-cache` — force a full refresh now.
-- `--no-cache` — ignore the cache entirely (always full scan).
-- `--no-etag` — don't use ETags for change detection (size/time only).
-- `--missing-files` — skip freshness verification for files that already exist
-  locally; only download what's absent.
-- `--quick` — only bump the cache timestamp (no scanning/downloading).
+Normal runs still discover the remote tree and check existing files. A cached
+file ETag is trusted only when the recorded local size, modification time, and
+change time match the current file. Otherwise the file is checked again.
+Directory-listing ETags and signatures do not establish that child file
+contents are unchanged. Without usable file ETags, checks fall back to size and
+the server's `Last-Modified` header when available; changes that preserve those
+values can be missed. No remote cryptographic digest comparison is performed.
 
-`--use-disk-backed-sets` constructs a tracking component, but the current sync
-pipeline does not add remote URLs to it. Discovery still materializes the remote
-file list in memory; this option does not bound large-tree memory use.
+Parsed HTML listings also have bounded **in-memory** caches. They are not
+restored from disk on a new process launch. `--html-cache-max-age` controls their
+lifetime within the process; it does not mean a fresh CLI invocation will skip
+fetching the remote listing.
 
-`--missing-files` trades correctness for speed on datasets where a per-file
-network check on every run is expensive but rarely finds anything (a large,
-largely-static remote tree). It skips ETag/size/mtime verification entirely
-once a file's local existence is confirmed — so a file that's replaced or
-corrected in place on the server, under the same name, will not be
-re-downloaded. A reasonable pattern is running `--missing-files` on a
-frequent schedule (e.g. daily) and an occasional full run without it (e.g.
-weekly) to still catch in-place changes on a bounded delay.
+- `--cache-max-age DAYS`: discard expired JSON metadata (default 7 days).
+- `--refresh-cache`: ignore saved metadata and cached listing results for this run.
+- `--no-cache`: bypass those caches; existing files are still checked, not
+  unconditionally downloaded.
+- `--no-etag`: use size/time rather than file ETags for freshness checks.
+- `--missing-files`: download only absent files. Existing files are not checked
+  for freshness, so in-place remote changes will be missed. Use occasional
+  normal runs when those changes matter.
+- `--quick`: refresh an existing JSON cache's expiry timestamp, without scanning
+  or downloading. It does not verify that local or remote files are current and
+  does not create a missing cache. Connection setup can still contact the server.
+
+The cache can be written after a complete scan and updated again after the
+normal download/cleanup path. It is separate from resumable file state in `.mirror-url-state/`.
+
+`--use-disk-backed-sets`, `--memory-cache-size`, and `--download-queue-size` do
+not bound the current workflow's remote file list: discovery collects that list
+in memory. Scope a large archive with `--dir-suffix`, `--exclude-dir`, or
+`--max-depth` when you need smaller runs.
 
 ---
 
 ## Cleaning up obsolete files
 
-By default MirrorURL **never deletes** anything (`--cleanup safe`). To mirror
-deletions from the remote side, choose a stronger policy:
-
+By default MirrorURL preserves obsolete local files (`--cleanup safe`). It
+still replaces files that need updating. Choose `preview`, `move`, or `delete`
+to handle files absent from the current remote selection. `preview` reports
+obsolete-file actions but still allows normal downloads; add `--dry-run` for
+an observation-only run. Keep `--log-path` outside the destination tree so
+cleanup does not treat your logs and cache as obsolete mirrored files.
 
 Cleanup only acts within the current scan selection. Files excluded by
 filters, directory exclusions, depth limits, or skipped symlink subtrees are
-preserved, as are local symlinks. An incomplete remote scan skips cleanup.
+preserved, as are local symlinks and `.mirror-url-state/`. A complete empty scan can
+clean the selected local files; an incomplete scan skips cleanup and fails the
+run. Cleanup operation failures also fail the run.
 If the MOVE archive cannot be created, cleanup stops; a failed move leaves
 the source in place and never falls back to deletion.
 
 ```bash
-# See what would be removed — safe to run anytime
-mirror-url --config mirror.yaml --cleanup preview
+# Observe cleanup without downloads or changes to mirrored files
+mirror-url --config mirror.yaml --cleanup preview --dry-run
 
 # Move obsolete files into sibling <dest>_obsolete/ instead of deleting
 mirror-url --config mirror.yaml --cleanup move
@@ -750,7 +759,9 @@ mirror-url --config mirror.yaml --cleanup delete --confirm-delete
 ```
 
 Combine any of these with `--dry-run` to simulate the entire run (scan +
-download + cleanup) without making changes.
+download + cleanup) without downloading or changing mirrored files. The run
+still requests directory listings and metadata; log/cache bookkeeping may
+create directories outside the mirrored data tree.
 
 ---
 
@@ -780,131 +791,42 @@ below for how it works and how to use it.
 
 ## Symlink handling
 
-Plain HTTP directory listings (Apache-style autoindex, used by most archives
-this tool targets) give **no explicit signal** that a directory entry is a
-symlink. The server transparently resolves the symlink server-side and
-serves the target directory's listing under the link's own URL path — there
-is nothing in the HTML to tell a real directory apart from a symlinked one.
+An HTTP directory listing usually does not identify server-side symlinks.
+`--handle-symlinks` enables a heuristic: compare the basenames of each visited
+directory's immediate files and subdirectories. Two non-empty directories with
+the same entries are reported as possible duplicates, with the first visited
+directory treated as the target. For example, two paths exposing the same
+archive subtree may be detected this way.
 
-**Real example.** NASA's sohoftp SolarSoft archive has
-`.../lasco/lasco/` symlinked to `.../lasco/idl/` on disk. Both URLs return
-byte-for-byte equivalent directory listings (only the self-referential
-`href`s differ) — fetching either one looks, from the client's side,
-exactly like fetching a normal, independent directory. Without any special
-handling, MirrorURL just crawls and downloads both in full, duplicating the
-entire tree locally under two different names.
+The comparison uses listings already fetched by the scan. Directory-listing
+`Last-Modified` and ETag headers, when available, add confidence notes to the
+log; they do not decide whether the directory is flagged and do not verify
+individual files. Descendants of an already flagged subtree are not repeatedly
+reported as separate duplicates.
 
-### How detection works
+This heuristic can flag distinct directories that merely use the same entry
+names, cannot detect a target outside the visited tree, and cannot identify
+individual file symlinks. Empty directories are excluded from matching. Review
+the reported paths before choosing exclusions or enabling automatic skipping.
 
-`--handle-symlinks` turns on a heuristic, content-signature-based detector:
-for every directory scanned, MirrorURL fingerprints its immediate entries
-(the basenames of its files and subdirectories — no extra HTTP request,
-this reuses data the scan already fetched) and compares that fingerprint
-against every other non-empty directory already scanned earlier in the same
-run. If two different URLs produce an identical fingerprint, the one
-discovered second is reported as a likely symlink to the one discovered
-first.
+| Mode | Behavior with `--handle-symlinks` |
+|---|---|
+| `--symlink-mode detect` | Report possible duplicates and continue scanning. Implies `--dry-run`, so mirrored files are not downloaded or cleaned up. |
+| `--symlink-mode skip` | Skip detected duplicate subtrees; this is the default when handling is enabled. |
+| `--symlink-mode follow` | Mirror a detected duplicate only when its inferred target is inside the target scope and tracker limits allow it. |
+| `--symlink-mode treat-as-file` | Accepted for compatibility; behaves like `skip` for directory duplicates. |
 
-Only the top-level directory of a duplicated subtree is counted. Once
-`lasco/lasco/` is flagged as a duplicate of `lasco/idl/`, every directory
-*underneath* `lasco/lasco/` necessarily duplicates the corresponding one
-under `lasco/idl/` too — that's just what "this subtree is served via a
-symlink" means, not new information. MirrorURL tracks which URL prefixes
-have already been flagged and skips re-detecting (and re-logging) anything
-underneath them, so one real symlink is reported once, not once per
-directory in its subtree.
+Start with a survey:
 
-**Corroborating signal: Last-Modified and ETag.** The basename fingerprint
-is the sole deciding factor for whether something gets flagged at all, but
-every `🔗 Symlink detected` line also carries a confidence note built from
-the `Last-Modified`/`ETag` response headers of each directory's own listing
-GET — already available at zero extra cost, since it's the same request
-already made to fetch the HTML to parse. Apache's autoindex commonly
-derives a listing's `Last-Modified` from its most-recently-modified entry,
-and a symlinked directory resolves straight through to the same underlying
-files as its target, so the two paths often report an identical value —
-exactly what was observed against the real `lasco`/`idl` example (equal
-Last-Modified on both). Possible notes:
+```bash
+mirror-url --config mirror.yaml --handle-symlinks --symlink-mode detect --print-logs
+```
 
-- `[high confidence: Last-Modified & ETag both match]`
-- `[Last-Modified matches]` / `[ETag matches]` (only one header present or
-  matching)
-- `[⚠️ Last-Modified/ETag differ despite matching entries -- worth a manual
-  look]` — the basenames still matched (that's what triggered the flag),
-  but the headers disagree; this is never used to suppress the detection,
-  only to flag it as more likely a coincidence worth checking by hand
-- `[no header data captured this run for the ... path]` — the server sent
-  neither header, or that directory was served from the local HTML cache
-  this run (no request was made, so there was nothing to read headers
-  from); detection falls back to basename-only, same as before this note
-  existed
-
-This is a heuristic, not ground truth:
-
-- It can only compare against directories actually visited in the *same*
-  run — a symlink whose target lies outside the current `--url`/
-  `--dir-suffix` scope (and therefore was never itself scanned) won't
-  produce a match and will just be mirrored as an ordinary directory.
-- "Which one is the real directory and which is the symlink" is inferred
-  purely from *discovery order* (first-seen wins), which usually follows
-  the server's listing order (alphabetical, for a default Apache
-  autoindex — `idl` sorts before `lasco`, matching the real-world example
-  above) but isn't a guarantee in general.
-- Two genuinely distinct directories that happen to contain identically
-  named entries (e.g. two placeholder directories with the same file
-  names) would also be flagged. Empty directories are deliberately
-  excluded from detection for this reason — every empty directory would
-  otherwise collide trivially.
-- Only *directory* symlinks are detected this way. A symlinked individual
-  *file* can't be told apart from a normal one without downloading and
-  hashing its content, which MirrorURL does not do (it would defeat the
-  point of avoiding a redundant download).
-
-Detection has no network cost (it reuses already-fetched listings) and
-negligible CPU/memory cost — well under a millisecond of hashing per
-10,000 directories scanned in practice.
-
-### Recommended workflow
-
-1. **Survey first.** Run once with:
-
-   ```bash
-   --handle-symlinks --symlink-mode detect
-   ```
-
-   `detect` is purely observational: every detection is logged (look for
-   `🔗 Symlink detected` lines), but the crawl proceeds exactly as if
-   `--handle-symlinks` were unset — nothing is skipped or treated
-   differently. It automatically implies `--dry-run` — the scan and
-   detection still run in full, but nothing is downloaded or deleted,
-   since a "just survey the tree" pass shouldn't download the very
-   duplicate content you're trying to avoid in the first place. This
-   lets you see what's actually out there before committing to a
-   behavior change.
-
-2. **Then decide**, based on the log:
-   - **Exclude permanently** (recommended when you don't want the
-     duplicate content at all): drop `--handle-symlinks` from future runs
-     entirely and instead pass the reported symlink paths to `--exclude-dir`
-     (supports exact paths, path suffixes, and simple `*` globs). This is
-     deterministic and has zero ongoing detection overhead.
-   - **Skip on every run**: keep `--handle-symlinks --symlink-mode skip`
-     (the default `--symlink-mode` once `--handle-symlinks` is set) —
-     re-detects and re-ignores the same directories on every run instead
-     of relying on a fixed `--exclude-dir` list.
-   - **Mirror it anyway**: `--handle-symlinks --symlink-mode follow`
-     downloads the detected symlink's content like a normal directory —
-     but only when its target resolves *inside* the current `--url`/
-     `--dir-suffix` scope. A target outside that scope is always ignored
-     regardless of `--symlink-mode`; this safety boundary isn't
-     user-tunable, since a symlink pointing outside the intended scope is
-     exactly the "symlink bomb" scenario `--max-symlink-depth`,
-     `--max-symlinks-per-dir`, and `--symlink-bomb-threshold` exist to
-     guard against.
-
-`--symlink-mode treat-as-file` is accepted for forward compatibility but
-currently behaves identically to `skip` — there's no meaningful way to save
-an HTML directory listing "as a single file".
+Review the `Symlink detected` log lines. To avoid a known duplicate permanently,
+use `--exclude-dir` with its exact path relative to `--url`, or an explicit `*`
+glob for nested matches. Plain exclusions do not match arbitrary path suffixes.
+`--max-symlink-depth`, `--max-symlinks-per-dir`, and `--symlink-bomb-threshold`
+limit tracker behavior; they do not make the heuristic a definitive detector.
 
 ---
 
@@ -913,13 +835,16 @@ an HTML directory listing "as a single file".
 - **Metrics summary.** A run logs a `METRICS SUMMARY` block at INFO level
   (files downloaded/skipped/failed, bytes, speed, cache hit rates, ETag stats,
   etc.). `--stats` is accepted for backward compatibility but currently has no
-  effect; the summary is always printed in full.
+  effect; the summary is emitted in full on the normal completed-sync path.
+  Early exits such as quick mode and connection failures have shorter summaries.
 - **`--metrics-json FILE`** writes the full metrics summary to JSON (skipped in
   `--dry-run`).
 - **`--progress-bar`** shows a live tqdm bar (requires the `progress` extra).
-- **Health/metrics HTTP endpoints.** During a (non-dry-run) sync, a small HTTP
-  server listens on `--health-check-port` (default 8080) and serves:
-  - `GET /health` → JSON health status (rate-limited).
+- **Health/metrics HTTP endpoints.** Setting `--metrics-json FILE` also starts
+  a local HTTP server for a non-dry-run instance, until it is cleaned up.
+  `--health-check-port` alone does not enable it. The server binds to `localhost`
+  (default port 8080); both endpoints are rate-limited and serve:
+  - `GET /health` → JSON health status.
   - `GET /metrics` → JSON counters (files downloaded/failed/skipped, bytes,
     elapsed).
 
@@ -957,10 +882,13 @@ with MirrorURL(config) as mirror:
 print("sync succeeded" if ok else "sync failed")
 ```
 
-Using the context manager (`with`) ensures background threads, connection pools,
-and the health server are cleaned up. Always run inside one.
+Use the context manager (`with`) to clean up connection pools, background
+workers, async components, and any health server. `sync()` is blocking; library
+construction leaves signal handlers unchanged. The CLI separately opts in to
+SIGINT/SIGTERM handling. Freshness checks, resume rules, and cleanup policies
+are the same for CLI and library runs.
 
-Load configuration from a YAML/JSON file:
+Load configuration from a YAML/JSON file (`from_yaml` accepts JSON as YAML-compatible syntax):
 
 ```python
 from pathlib import Path
@@ -974,12 +902,14 @@ with MirrorURL(config) as mirror:
 Handle configuration errors:
 
 ```python
+from pathlib import Path
+from pydantic import ValidationError
 from mirror_url import MirrorConfig
 from mirror_url.exceptions import ConfigError
 
 try:
     cfg = MirrorConfig(base_url="ftp://nope", dest_path=Path("d"), log_path=Path("l"))
-except ConfigError as e:
+except (ConfigError, ValidationError) as e:
     print("bad config:", e)
 ```
 
@@ -994,10 +924,15 @@ Useful exported names: `MirrorURL`, `MirrorConfig`, `load_config_from_args`,
 
 | Code | Meaning |
 |---|---|
-| `0` | Success — all requested suffixes synced without fatal errors. |
-| `1` | One or more suffixes failed (connection failure, fatal error). |
+| `0` | The CLI finished without a recorded suffix failure, or handled a shutdown signal and completed cleanup. |
+| `1` | A recorded suffix/download/scan/cleanup failure, failed benchmark, or forced shutdown after the cleanup timeout. |
+| `2` | Command-line parsing or a configuration-file validation error reported by the argument parser. |
 
-This makes MirrorURL easy to drive from cron, systemd timers, or CI:
+The CLI currently exits `0` after graceful SIGINT/SIGTERM cleanup, even if the
+sync was interrupted. For scheduled jobs, review the completion summary when
+an interruption occurred rather than treating that exit code as proof that all
+files were mirrored. The Python API returns a boolean from `sync()` instead of
+setting a process exit code.
 
 ```bash
 mirror-url --config mirror.yaml && echo "OK" || echo "FAILED ($?)"
@@ -1013,7 +948,8 @@ The secure transport blocks private/loopback targets even with
 The loopback bypass used by integration tests is confined to those tests.
 
 **Server returns 403/429 or downloads are slow/failing.**
-The remote may be throttling you. Try `--trusted-server` off, increase
+The remote may be throttling you. Omit `--trusted-server` (or set
+`trusted_server: false` in your config), increase
 `--request-delay`, reduce `--workers`/`--max-concurrent-downloads`, add
 `--no-async-metadata`, or switch to `--sequential-downloads`.
 
@@ -1023,9 +959,9 @@ a JS-rendered page). Check your `--filter` isn't excluding everything, and try
 `--debug` to see the parsed links and scope decisions.
 
 **Parallel mode isn't kicking in.**
-The server must support HTTP Range requests and files must exceed
-`--min-chunk-size`. Otherwise MirrorURL downloads whole files. Use `--debug` to
-see the auto-select decision.
+Chunking needs a known file size of at least `--min-chunk-size`, byte Range
+support, and a strong ETag. Otherwise MirrorURL uses whole-file transfers.
+Check the log with `--print-logs --debug` for selection and fallback messages.
 
 **Progress bar / memory stats missing.**
 Install the optional extras: `pip install "mirror-url[progress,monitor]"`
@@ -1045,5 +981,8 @@ pip uninstall mirror-url
 pipx uninstall mirror-url
 ```
 
-Generated logs, cache files (in your `--log-path`), and mirrored data (in your
-`--dest-path`) are left in place — remove them manually if desired.
+Generated logs, the JSON cache under `--log-path`, mirrored data and partial
+state under `--dest-path`, and per-user domain-health metadata are left in
+place. Domain-health metadata lives under `$XDG_CACHE_HOME/mirror-url/`
+(or `~/.cache/mirror-url/`) on POSIX and under the local application-data
+`mirror-url/` directory on Windows. Remove these manually if desired.
