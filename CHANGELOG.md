@@ -4,6 +4,31 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Define the shared MirrorURL mixin contract for type checking and resolve the
+  existing mypy errors in annotations, optional state, containers, and method
+  signatures. Keep the runtime mixin bases and method resolution order intact.
+- Return explicit failures for unavailable download/async managers and missing
+  target paths; reject chunk URLs without a hostname before network admission.
+  Preserve optional disk-manager behavior and mmap assembly fallback.
+- Rename the configuration warning helper to
+  `MirrorConfig.validation_warnings(config)`, restoring Pydantic's inherited
+  `MirrorConfig.validate` model-validation contract. Python callers using
+  `validate` for warning strings must switch to `validation_warnings`.
+- Allow `PerIPRateLimiter.wait()` without an IP to use the inherited global
+  request budget; keep per-IP pacing when an IP is supplied.
+
+### Tests and CI
+
+- Require zero mypy errors in CI with the existing lenient settings, and update
+  contributor and developer instructions to match.
+- Add regression tests for model validation, missing optional state, hostname
+  guards, global pacing, and the unchanged runtime inheritance structure. Retain
+  the 100% statement and branch coverage gates for both download modules.
+
 ## [3.1.72] - 2026-10-01
 
 ### Fixed

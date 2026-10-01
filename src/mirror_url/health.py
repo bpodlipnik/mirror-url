@@ -41,7 +41,7 @@ from .models import HealthStatus
 from .utils import sanitize_url_for_log
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, avoids an import cycle
-    from .core import MirrorURL
+    from ._core._typing import MirrorHost
 
 
 # Default failure threshold for the quick is_healthy() probe. Configurable
@@ -337,7 +337,7 @@ class HealthChecker:
 
     def __init__(
         self,
-        mirror: MirrorURL,
+        mirror: MirrorHost,
         failure_threshold: int = DEFAULT_HEALTHY_FAILURE_THRESHOLD,
     ):
         """

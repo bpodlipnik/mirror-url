@@ -18,7 +18,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 import yaml
 
@@ -107,7 +107,7 @@ def setup_shared_logging(
     )
 
     # Create console handler (if print-logs is enabled)
-    handlers = [file_handler]
+    handlers: List[logging.Handler] = [file_handler]
     if args.print_logs:
         console_handler = logging.StreamHandler(sys.stderr)
         console_handler.setFormatter(

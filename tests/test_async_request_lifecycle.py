@@ -53,6 +53,12 @@ def install_client(manager, handler):
     return manager._client
 
 
+async def test_warmup_without_initialized_client_returns_false(manager):
+    manager.rate_limiter = Mock()
+    assert await manager._warm_single_connection(BASE + "a") is False
+    manager.rate_limiter.wait.assert_not_called()
+
+
 @pytest.mark.parametrize("failure", ["timeout", "connect", "read", "503", "429"])
 async def test_transient_failure_retries_and_preserves_conditional_headers(manager, failure):
     requests = []

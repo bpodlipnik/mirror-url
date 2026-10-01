@@ -173,7 +173,7 @@ class SecurityValidator:
 
             for info in infos:
                 sockaddr = info[4]
-                ip = sockaddr[0]
+                ip = str(sockaddr[0])
 
                 # Skip IPv6 link-local addresses
                 if ip.startswith("fe80::"):

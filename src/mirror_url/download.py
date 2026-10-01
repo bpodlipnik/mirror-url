@@ -50,8 +50,8 @@ from .rate_limiter import BandwidthLimiter, ChunkAwareRateLimiter
 from .utils import bounded_executor_shutdown, exponential_backoff, format_bytes
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, avoids an import cycle
+    from ._core._typing import MirrorHost
     from .config import MirrorConfig
-    from .core import MirrorURL
     from .metrics import MetricsCollector
 
 
@@ -67,7 +67,7 @@ class ParallelDownloadManager:
         connection_manager: ConnectionManager,
         bandwidth_limiter: BandwidthLimiter,
         concurrency_manager: UnifiedConcurrencyManager = None,
-        mirror: Optional[MirrorURL] = None,
+        mirror: Optional[MirrorHost] = None,
     ):
         """Initialize parallel download manager."""
         self.config = config
@@ -424,10 +424,18 @@ class ParallelDownloadManager:
     def _download_verified_chunk(self, chunk: ChunkInfo, *, streaming: bool) -> bool:
         chunk.status = "downloading"
         parsed = urlparse(chunk.file_url)
+        hostname = parsed.hostname
+        if hostname is None:
+            chunk.status = "failed"
+            logging.error("Chunk URL has no hostname")
+            with self.stats_lock:
+                self.stats["failed_chunks"] += 1
+            self.metrics.increment("chunk_failures")
+            return False
         try:
-            ip = socket.gethostbyname(parsed.hostname)
+            ip = socket.gethostbyname(hostname)
         except Exception:
-            ip = parsed.hostname
+            ip = hostname
         self.rate_limiter.register_chunk_start(ip)
         try:
             if not chunk.etag or chunk.file_size is None:
@@ -525,10 +533,11 @@ class ParallelDownloadManager:
         # bytes anywhere, so the right factor is 1x. The old check
         # incorrectly rejected streaming downloads when the user had only
         # ~file_size of headroom.
-        if hasattr(self.mirror, "disk_manager") and self.mirror.disk_manager:
+        disk_manager = getattr(self.mirror, "disk_manager", None)
+        if disk_manager is not None:
             multiplier = 1 if download.status == "streaming" else 2
             required_space = download.file_size * multiplier
-            ok, error = self.mirror.disk_manager.check_available(required_space)
+            ok, error = disk_manager.check_available(required_space)
             if not ok:
                 logging.error(f"Insufficient disk space for parallel download: {error}")
                 download.status = "failed"
@@ -537,7 +546,10 @@ class ParallelDownloadManager:
 
         # OPTIMIZATION: Apply rate limit ONCE per file, not per chunk
         parsed = urlparse(download.url)
+        ip: Optional[str]
         try:
+            if parsed.hostname is None:
+                raise ValueError("URL has no hostname")
             ip = socket.gethostbyname(parsed.hostname)
         except Exception:
             ip = parsed.hostname
@@ -851,7 +863,7 @@ class ParallelDownloadManager:
                                     f"target_end={target_end}, file_size={file_size}"
                                 )
 
-                            if USE_MMAP:
+                            if mm is not None:
                                 mm[chunk.start_byte : target_end] = data
                             else:
                                 f.seek(chunk.start_byte)
@@ -860,7 +872,7 @@ class ParallelDownloadManager:
                             del data  # Free memory immediately
 
                         # Flush to disk
-                        if USE_MMAP:
+                        if mm is not None:
                             mm.flush()
                         else:
                             f.flush()
@@ -1275,7 +1287,7 @@ class ParallelDownloadManager:
 
         return 100  # Default assumption
 
-    def _check_range_support(self, test_url: str) -> bool:
+    def _check_range_support(self, test_url: Optional[str]) -> bool:
         """Check if server supports Range requests."""
         if not test_url:
             return False
@@ -1324,7 +1336,7 @@ class PartialDownloadManager:
                 raise ValueError("Refusing to use an unowned partial-download directory")
         return state
 
-    def __init__(self, download_dir: Path, partial_suffix: str = PARTIAL_SUFFIX):
+    def __init__(self, download_dir: Optional[Path], partial_suffix: str = PARTIAL_SUFFIX):
         """
         Initialize partial download manager.
 
@@ -1355,6 +1367,8 @@ class PartialDownloadManager:
         Returns:
             Partial file path
         """
+        if self.download_dir is None:
+            raise ValueError("Partial download directory is unavailable")
         relative = final_path.resolve().relative_to(self.download_dir.resolve())
         if relative.parts[0].casefold() == self.STATE_DIRECTORY:
             raise ValueError("Remote path conflicts with the partial-download directory")

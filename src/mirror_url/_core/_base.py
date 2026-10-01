@@ -53,7 +53,15 @@ if TYPE_CHECKING:  # pragma: no cover - typing only, avoids an import cycle
     from ..config import MirrorConfig
 
 
-class _MirrorBase:
+if TYPE_CHECKING:
+    from ._typing import MirrorHost
+else:
+    MirrorHost = object
+
+
+class _MirrorBase(MirrorHost):
+    cache_manager: Union[CacheManager, NullCacheManager]
+
     def _get_prefix(self) -> str:
         """
         Get log prefix for multi-suffix operations.
@@ -1055,7 +1063,7 @@ class _MirrorBase:
 
         # Use computed target URL if target_base_url not set yet
         test_url = self.target_base_url or self._computed_target_base_url
-        logging.info(f"{prefix}Testing connection to {sanitize_url_for_log(test_url)}")
+        logging.info(f"{prefix}Testing connection to {sanitize_url_for_log(test_url or 'unknown')}")
 
         try:
             if not test_url:
@@ -1067,6 +1075,8 @@ class _MirrorBase:
                 return False
 
             parsed = urlparse(test_url)
+            if parsed.hostname is None:
+                raise ValueError("URL has no hostname")
             ip = socket.gethostbyname(parsed.hostname)
             self.per_ip_limiter.wait(ip)
 
@@ -1138,6 +1148,8 @@ class _MirrorBase:
     def check_disk_space(self, required_bytes: int) -> bool:
         """Check if enough disk space is available."""
         self.metrics.increment("disk_space_checks")
+        if self.disk_manager is None:
+            return False
         ok, error = self.disk_manager.check_available(required_bytes)
 
         if not ok:

@@ -51,8 +51,8 @@ class AdaptiveBatchProcessor:
         self.max_batch = max_batch
         self.target_time = target_time
         self.adjustment_factor = adjustment_factor
-        self.processing_times = deque(maxlen=BATCH_SAMPLE_SIZE)
-        self.items_processed = deque(maxlen=BATCH_SAMPLE_SIZE)
+        self.processing_times: deque[float] = deque(maxlen=BATCH_SAMPLE_SIZE)
+        self.items_processed: deque[int] = deque(maxlen=BATCH_SAMPLE_SIZE)
         self.lock = RLock()
 
     def record_batch(self, processing_time: float, items: int) -> None:

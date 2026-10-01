@@ -120,12 +120,12 @@ ignore = [
 "tests/*" = ["B"]
 
 [tool.mypy]
-# Advisory, lenient type-checking. This package is a verbatim port of working,
-# largely-untyped code, so mypy is run as a signal (CI uses continue-on-error),
-# not a gate. The settings below surface genuine type mismatches without
-# demanding annotations on every function or descending into untyped bodies.
+# Required, lenient type-checking. CI requires zero mypy errors. The settings
+# below check annotated code without demanding annotations on every function
+# or descending into untyped bodies. Shared mixin state and methods are declared
+# in _core/_typing.py without changing the runtime inheritance structure.
 # Tightening (disallow_untyped_defs, check_untyped_defs, strict) is a good
-# incremental follow-up, ideally alongside the core/ mixin refactor.
+# incremental follow-up.
 #
 # python_version is the oldest interpreter mypy CHECKS against here, not the
 # oldest one the package RUNS on (that's still requires-python = ">=3.9" in

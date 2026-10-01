@@ -12,7 +12,7 @@ import os
 import time
 from email.utils import parsedate_to_datetime
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import httpx
 
@@ -27,8 +27,13 @@ from ..download_integrity import (
 )
 from ..utils import exponential_backoff, format_bytes, sanitize_url_for_log, trim_url
 
+if TYPE_CHECKING:
+    from ._typing import MirrorHost
+else:
+    MirrorHost = object
 
-class DownloadMixin:
+
+class DownloadMixin(MirrorHost):
     def download_file_with_resume(
         self, remote_url: str, local_path: Path, file_size: Optional[int] = None
     ) -> bool:
@@ -62,6 +67,11 @@ class DownloadMixin:
         """Original single-threaded download method with atomic counter updates."""
         remote_url = trim_url(remote_url)
         download_start = time.time()
+        partial_manager = self.partial_manager
+        if partial_manager is None:
+            logging.error("Partial download manager is unavailable")
+            self.files_failed.increment(1)
+            return False
 
         # Connection-level circuit breaking is enforced inside
         # ConnectionManager request paths via circuit_breaker_manager
@@ -70,7 +80,7 @@ class DownloadMixin:
         # has been removed.
 
         try:
-            partial_path = self.partial_manager.register_partial(local_path, remote_url)
+            partial_path = partial_manager.register_partial(local_path, remote_url)
         except (OSError, ValueError) as error:
             logging.error(f"Cannot create partial download: {error}")
             self.files_failed.increment(1)
@@ -124,7 +134,7 @@ class DownloadMixin:
                             f"Non-200/206 status for {sanitize_url_for_log(remote_url)}: {r.status_code}"
                         )
                         self.files_failed.increment(1)
-                        self.partial_manager.complete_partial(partial_path)
+                        partial_manager.complete_partial(partial_path)
                         self.performance_monitor.record(
                             "download", time.time() - download_start, False
                         )
@@ -168,7 +178,7 @@ class DownloadMixin:
                                     raise ValueError("Download exceeds expected length")
                                 f.write(chunk)
                                 size += len(chunk)
-                                self.partial_manager.update_activity(partial_path, len(chunk))
+                                partial_manager.update_activity(partial_path, len(chunk))
                                 if self.bandwidth_limiter:
                                     self.bandwidth_limiter.throttle(len(chunk))
                         f.flush()
@@ -186,7 +196,7 @@ class DownloadMixin:
                         logging.warning(
                             f"Published file resume metadata could not be removed: {error}"
                         )
-                    self.partial_manager.complete_partial(partial_path)
+                    partial_manager.complete_partial(partial_path)
 
                     last_modified = r.headers.get("Last-Modified")
                     if last_modified:
@@ -268,7 +278,7 @@ class DownloadMixin:
                                     f"Failed to remove partial file {partial_path}: {unlink_err}"
                                 )
 
-                        self.partial_manager.complete_partial(partial_path)
+                        partial_manager.complete_partial(partial_path)
                         # This is a SKIP (the resource is gone / forbidden), not a
                         # download and not a failure. We return True so neither
                         # caller counts it as a failure (the sequential caller
@@ -295,7 +305,7 @@ class DownloadMixin:
                                 f"Failed to remove partial file {partial_path}: {unlink_err}"
                             )
 
-                    self.partial_manager.complete_partial(partial_path)
+                    partial_manager.complete_partial(partial_path)
                     self.performance_monitor.record("download", time.time() - download_start, False)
                     return False
                 finally:
@@ -326,6 +336,8 @@ class DownloadMixin:
                 except Exception as unlink_err:
                     logging.debug(f"Failed to remove partial file {partial_path}: {unlink_err}")
 
-            self.partial_manager.complete_partial(partial_path)
+            partial_manager.complete_partial(partial_path)
             self.performance_monitor.record("download", time.time() - download_start, False)
             return False
+
+        return False

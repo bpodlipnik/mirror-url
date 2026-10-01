@@ -27,7 +27,7 @@ Run the same checks CI runs:
 ```bash
 ruff check .          # lint
 ruff format .         # formatting (Ruff 0.16.8)
-mypy                  # type-check (advisory — see below)
+mypy                  # required type-check (zero errors)
 pytest                # full suite, including live HTTP integration
 ```
 
@@ -78,9 +78,11 @@ Cross-layer type-only references use `if TYPE_CHECKING:` to avoid import cycles.
   (`Dict`/`Optional`), and we avoid churning audited logic for syntax
   modernization. If 3.9 support is ever dropped, re-enable `UP` and modernize in
   one deliberate commit.
-- **Typing / mypy:** advisory, not a gate (CI uses `continue-on-error`). New code
-  should be reasonably typed, but you are not expected to fix the inherited
-  annotation backlog to land an unrelated change.
+- **Typing / mypy:** required in CI; `mypy` must report zero errors. The existing
+  settings remain lenient and do not check untyped function bodies. Update the
+  shared contract in `src/mirror_url/_core/_typing.py` when changing mixin state
+  or cross-mixin method signatures. Keep its imports under `TYPE_CHECKING` so
+  runtime inheritance and imports stay unchanged.
 - **Behavior-preserving moves:** if you relocate or split existing code (e.g. the
   planned `core/` mixin refactor, `REFACTORING_PLAN.md` §4.1), keep it verbatim
   and prove equivalence — don't mix refactors with behavior changes in one PR.

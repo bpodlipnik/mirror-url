@@ -25,7 +25,6 @@ jobs:
         run: ruff format --check .
       - name: Mypy
         run: mypy
-        continue-on-error: true   # advisory while the port is in progress
 
   test:
     runs-on: ${{ matrix.os }}

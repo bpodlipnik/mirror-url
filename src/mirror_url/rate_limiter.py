@@ -64,7 +64,7 @@ class BandwidthLimiter:
         if sleep_time > 0:
             time.sleep(sleep_time)
 
-    def get_stats(self) -> Dict[str, float]:
+    def get_stats(self) -> Dict[str, Optional[float]]:
         """
         Get bandwidth limiter statistics.
 
@@ -187,8 +187,11 @@ class PerIPRateLimiter(RateLimiter):
         self.last_requests: Dict[str, float] = {}
         # self.lock and self.total_delays are inherited from RateLimiter
 
-    def wait(self, ip: str) -> None:
-        """Synchronous wait for rate limiting (blocks thread)."""
+    def wait(self, ip: Optional[str] = None) -> None:
+        """Synchronous pacing; an omitted IP uses the global request budget."""
+        if ip is None:
+            super().wait()
+            return
         sleep_time = 0.0
         with self.lock:
             now = time.time()

@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 import time
 from threading import RLock
-from typing import TYPE_CHECKING, Callable, Dict, Optional
+from typing import TYPE_CHECKING, Callable, Dict, List, Optional
 
 from .compat import TQDM_AVAILABLE
 from .constants import (
@@ -62,8 +62,8 @@ class ProgressTracker:
         self.completed = 0
         self.lock = RLock()
         self.start_time = time.time()
-        self.last_report = 0
-        self.callbacks = []
+        self.last_report: float = 0
+        self.callbacks: List[Callable[[int, int], None]] = []
         self.use_tqdm = (
             use_tqdm and TQDM_AVAILABLE and config and config.progress_bar and self.total > 0
         )
@@ -98,7 +98,7 @@ class ProgressTracker:
         elapsed = now - self.start_time
 
         if elapsed < PROGRESS_SHORT_JOB_SECONDS:
-            if self._use_percentage_mode:
+            if self._use_percentage_mode and self._next_milestone is not None:
                 current_pct = self.completed / self.total * 100
                 if current_pct >= self._next_milestone:
                     while (

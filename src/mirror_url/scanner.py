@@ -206,7 +206,10 @@ class DirectoryScanner:
                 else:
                     tree = html.fromstring(document)
                     links = []
-                    for link in self.LINK_XPATH(tree):
+                    link_xpath = self.LINK_XPATH
+                    if link_xpath is None:
+                        raise RuntimeError("lxml XPath was not initialized")
+                    for link in link_xpath(tree):
                         href = link.get("href")
                         if href:
                             links.append(href)

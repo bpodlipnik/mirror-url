@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import re
 from functools import lru_cache
+from typing import TYPE_CHECKING
 from urllib.parse import ParseResult, unquote, urljoin, urlparse
 
 from ..compat import Str
@@ -30,7 +31,13 @@ def _parse_url_cached_module(url: str) -> ParseResult:
     return urlparse(url)
 
 
-class UrlMixin:
+if TYPE_CHECKING:
+    from ._typing import MirrorHost
+else:
+    MirrorHost = object
+
+
+class UrlMixin(MirrorHost):
     @staticmethod
     def _validate_url_scheme(url: str) -> bool:
         """

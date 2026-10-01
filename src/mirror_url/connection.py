@@ -225,7 +225,7 @@ class ConnectionPool:
             return
 
         # Group by domain
-        domains = {}
+        domains: Dict[str, List[str]] = {}
         for url in urls[:20]:  # Limit to 20 URLs for warm-up
             try:
                 parsed = urlparse(url)
@@ -693,7 +693,7 @@ class ConnectionManager:
                     try:
                         request_headers = client.headers.copy()
                     except (AttributeError, TypeError):
-                        request_headers = {}
+                        request_headers = httpx.Headers()
                     request_headers.update(caller_headers)
 
                     # FIX: Use custom timeout or default
@@ -948,6 +948,8 @@ class ConnectionManager:
             # Release thread slot if acquired
             if thread_acquired and self.concurrency_manager:
                 self.concurrency_manager.release_thread()
+
+        raise MirrorConnectionError("Request retry loop exhausted")
 
     def close(self) -> None:
         """Close all connections"""

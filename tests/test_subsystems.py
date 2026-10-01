@@ -273,7 +273,7 @@ def test_config_validate_warnings(tmp_path: Path):
         log_path=tmp_path / "l",
         hash_algorithm="md5",
     )
-    warnings = MirrorConfig.validate(cfg)
+    warnings = MirrorConfig.validation_warnings(cfg)
     assert any("MD5" in w for w in warnings)
 
 
