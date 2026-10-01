@@ -43,3 +43,31 @@ jobs:
       - run: pip install -e ".[dev]"
       - name: Run tests
         run: pytest --cov=mirror_url --cov-report=term-missing -m "not integration"
+
+  coverage:
+    name: Full suite and branch coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip
+      - run: pip install -e ".[all,dev]"
+      - name: Run all tests, including local HTTP integration
+        run: >-
+          pytest --cov=mirror_url --cov-branch --cov-fail-under=70
+          --cov-report=term-missing --cov-report=xml:coverage.xml
+          --cov-report=json:coverage.json --cov-report=html
+      - name: Require 100% statement and branch coverage for both download modules
+        run: python scripts/check_download_coverage.py coverage.json
+      - name: Save coverage reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-reports
+          path: |
+            coverage.xml
+            coverage.json
+            htmlcov/
+          if-no-files-found: ignore

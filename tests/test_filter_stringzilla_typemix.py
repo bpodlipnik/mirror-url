@@ -81,8 +81,8 @@ def test_regex_filter_still_works():
     not STRINGZILLA_AVAILABLE,
     reason=(
         "Real stringzilla is not installed in this environment. It lives in "
-        "the [fast]/[all] extras, not [dev] -- CI installs only [dev], so "
-        "this is expected to skip there on every Python version. The other "
+        "the [fast]/[all] extras, not [dev]. The fast CI matrix installs "
+        "[dev]; the full coverage job installs [all,dev]. The other "
         "tests in this file still run and pass without it, but only "
         "exercise the pure-Python compat.py fallback Str (a str subclass), "
         "which never hit the original bug. Install [fast] or [all] locally "
