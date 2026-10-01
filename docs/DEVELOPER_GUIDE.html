@@ -999,14 +999,20 @@ class="sourceCode bash"><code class="sourceCode bash"><span id="cb5-1"><a href="
 <span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a><span class="ex">mypy</span>                      <span class="co"># advisory type-check of src/mirror_url</span></span>
 <span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a><span class="ex">pytest</span> <span class="at">-m</span> <span class="st">&quot;not integration&quot;</span>   <span class="co"># fast lane</span></span>
 <span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a><span class="ex">pytest</span>                        <span class="co"># full suite (includes integration)</span></span>
-<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a><span class="co"># build distributions</span></span>
-<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> install build</span>
-<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> <span class="at">-m</span> build           <span class="co"># wheel + sdist into dist/</span></span></code></pre></div>
-<p>CI (<code>.github/workflows/ci.yml</code>) runs lint + tests across
-3.9–3.12. The HTML docs are produced from the Markdown with pandoc
-(embedded CSS + TOC) — regenerate <code>docs/*.html</code> after editing
-the corresponding <code>.md</code>.</p>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a><span class="ex">pytest</span> <span class="at">--cov</span><span class="op">=</span>mirror_url <span class="at">--cov-branch</span> <span class="at">--cov-fail-under</span><span class="op">=</span>70 <span class="dt">\</span></span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">--cov-report</span><span class="op">=</span>term-missing <span class="at">--cov-report</span><span class="op">=</span>html  <span class="co"># full coverage gate</span></span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a><span class="co"># build distributions</span></span>
+<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> install build</span>
+<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> <span class="at">-m</span> build           <span class="co"># wheel + sdist into dist/</span></span></code></pre></div>
+<p>CI (<code>.github/workflows/ci.yml</code>) runs lint and the fast
+test lane across 3.9–3.12. A separate Python 3.12 coverage job installs
+<code>[all,dev]</code>, runs every test, including real local HTTP
+mirroring, and requires at least 70% combined statement/branch coverage.
+It uploads HTML, JSON, and XML reports. The HTML docs are produced from
+the Markdown with pandoc (embedded CSS + TOC) — regenerate
+<code>docs/*.html</code> after editing the corresponding
+<code>.md</code>.</p>
 <hr />
 <h2 id="release-process">Release process</h2>
 <ol type="1">

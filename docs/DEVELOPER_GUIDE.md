@@ -532,13 +532,18 @@ ruff format --check .     # canonical formatter
 mypy                      # advisory type-check of src/mirror_url
 pytest -m "not integration"   # fast lane
 pytest                        # full suite (includes integration)
+pytest --cov=mirror_url --cov-branch --cov-fail-under=70 \
+  --cov-report=term-missing --cov-report=html  # full coverage gate
 
 # build distributions
 pip install build
 python -m build           # wheel + sdist into dist/
 ```
 
-CI (`.github/workflows/ci.yml`) runs lint + tests across 3.9–3.12. The HTML docs
+CI (`.github/workflows/ci.yml`) runs lint and the fast test lane across 3.9–3.12.
+A separate Python 3.12 coverage job installs `[all,dev]`, runs every test,
+including real local HTTP mirroring, and requires at least 70% combined
+statement/branch coverage. It uploads HTML, JSON, and XML reports. The HTML docs
 are produced from the Markdown with pandoc (embedded CSS + TOC) — regenerate
 `docs/*.html` after editing the corresponding `.md`.
 

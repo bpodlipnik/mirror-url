@@ -31,7 +31,19 @@ mypy                  # type-check (advisory — see below)
 pytest                # full suite, including live HTTP integration
 ```
 
-`pytest -m "not integration"` runs the fast lane only (what CI gates on).
+`pytest -m "not integration"` runs the fast lane across Python 3.9–3.12 in CI.
+The separate coverage job runs the full suite on Python 3.12 with all optional
+dependencies, including the local HTTP tests, and gates combined statement and
+branch coverage at 70%:
+
+```bash
+pip install -e ".[all,dev]"
+pytest --cov=mirror_url --cov-branch --cov-fail-under=70 \
+  --cov-report=term-missing --cov-report=html
+```
+
+Open `htmlcov/index.html` to inspect missed lines and branches. CI also saves
+HTML, JSON, and XML coverage reports as an artifact.
 
 A change is ready to merge when `ruff check` is clean, the formatter reports no
 diffs, and `pytest` passes.
@@ -72,10 +84,13 @@ Cross-layer type-only references use `if TYPE_CHECKING:` to avoid import cycles.
 - Put fast, deterministic tests in the normal lane so CI runs them.
 - Reserve the `@pytest.mark.integration` marker for slow or
   external/network-dependent end-to-end cases.
-- The SSRF-hardened transport refuses loopback/private targets, so a full local
-  HTTP mirror test needs a test-only bypass — see the docstring in
-  `tests/test_integration.py` for the one small wiring change required to enable
-  it.
+- The SSRF-hardened transport refuses loopback/private targets. The local HTTP
+  fixtures in `tests/test_integration.py` and `tests/test_http_mirror_workflows.py`
+  install scoped transport bypasses that pytest restores after each test.
+- Assert observable outcomes: final file contents, preservation of existing
+  data on failures, request headers and retries, response closure, and actual
+  concurrency. Exercise failure and cancellation paths as well as successful
+  requests; executing a function alone does not establish its correctness.
 
 ## Security
 
