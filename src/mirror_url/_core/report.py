@@ -13,7 +13,7 @@ import threading
 import time
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, as_completed, wait
 from pathlib import Path
-from typing import Any, Dict, Tuple
+from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
 
 from ..async_connection import AdaptiveAsyncManager, AsyncConnectionManager, AsyncTaskManager
 from ..compat import TQDM_AVAILABLE
@@ -23,8 +23,17 @@ from ..enums import CleanupPolicy, DownloadMethod
 from ..progress import ProgressTracker
 from ..utils import format_bytes, format_duration, sanitize_url_for_log
 
+if TYPE_CHECKING:
+    from ._typing import MirrorHost
+else:
+    MirrorHost = object
 
-class ReportMixin:
+
+class ReportMixin(MirrorHost):
+    adaptive_async_manager: Optional[AdaptiveAsyncManager]
+    async_connection_manager: Optional[AsyncConnectionManager]
+    async_task_manager: Optional[AsyncTaskManager]
+
     def sync(self) -> bool:
         """Main sync method - v3.0.2 with true parallel file downloads."""
         prefix = self._get_prefix()
@@ -122,7 +131,11 @@ class ReportMixin:
         try:
             if self.config.quick:
                 logging.info(f"{prefix}Quick mode - updating cache timestamp")
-                if self.cache_file.exists() and not self.config.dry_run:
+                if (
+                    self.cache_file is not None
+                    and self.cache_file.exists()
+                    and not self.config.dry_run
+                ):
                     if not self.config.no_cache and not self.cache_manager.refresh_timestamp():
                         return False
                     logging.info(f"{prefix}Cache timestamp updated")
@@ -311,7 +324,7 @@ class ReportMixin:
 
             use_async = (
                 self.config.async_metadata
-                and (self.adaptive_async_manager or self.async_connection_manager)
+                and bool(self.adaptive_async_manager or self.async_connection_manager)
                 and len(remote_files) > 80
             )
 
@@ -549,9 +562,9 @@ class ReportMixin:
                             for future in done:
                                 url, path = future_to_file.pop(future)
                                 try:
-                                    success = future.result(timeout=300)
+                                    download_success = future.result(timeout=300)
                                     downloaded_count += 1
-                                    if success:
+                                    if download_success:
                                         self.multi_progress.update("downloads")
                                     # else:
                                     #    ⛔ DO NOT increment here. _download_file_single() already

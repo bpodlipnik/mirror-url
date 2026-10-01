@@ -106,7 +106,7 @@ def expand_env_vars(config_dict: Dict[str, Any]) -> Dict[str, Any]:
             return re.sub(pattern, replace_var, value)
         return value
 
-    expanded = {}
+    expanded: Dict[str, Any] = {}
     for key, value in config_dict.items():
         if isinstance(value, dict):
             expanded[key] = expand_env_vars(value)
@@ -589,7 +589,8 @@ class MirrorConfig(BaseModel):
             raise ConfigError(f"Failed to load config from {yaml_path}: {e}") from e
 
     @classmethod
-    def validate(cls, config: MirrorConfig) -> List[str]:
+    def validation_warnings(cls, config: MirrorConfig) -> List[str]:
+        """Describe configuration tradeoffs without replacing Pydantic validation."""
         warnings = []
 
         if config.workers > 20:

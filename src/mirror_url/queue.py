@@ -81,7 +81,7 @@ class DownloadQueue:
             List of tasks
         """
         with self.lock:
-            tasks = []
+            tasks: List[DownloadTask] = []
             for priority in [DownloadPriority.HIGH, DownloadPriority.NORMAL, DownloadPriority.LOW]:
                 while len(tasks) < max_batch and self.queues[priority]:
                     task = self.queues[priority].popleft()

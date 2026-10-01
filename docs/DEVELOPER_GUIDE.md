@@ -129,6 +129,7 @@ Managers: transport · storage · circuit_breaker · rate_limiter · queue · ca
 Runtime support: metrics · progress · monitoring · connection · async_connection · concurrency
 Engines: download · download_integrity · scanner · health · domain_health · config · tuner
 Composition: core · _core/{_base,urls,scan,compare,downloads,cleanup,report}
+Static contract: _core/_typing (TYPE_CHECKING only)
 Entry points: cli · __main__
 ```
 
@@ -289,6 +290,13 @@ MirrorURL` is unchanged for callers.
 **Working rule:** when you add a method to `MirrorURL`, put it in the mixin whose
 responsibility it matches, and keep shared attributes initialized in
 `_MirrorBase.__init__`. Don't add a second `__init__` to a feature mixin.
+
+`_core/_typing.py` declares the shared state and method signatures as the
+`MirrorHost` protocol. Each mixin and `_MirrorBase` inherits this contract only
+while type checking; its runtime base remains `object`. Update the contract
+alongside changes to shared fields or cross-mixin signatures. Optional managers
+and paths must be narrowed before use. The contract has no runtime methods,
+state, or imports, and the composed class keeps the same MRO.
 
 ---
 
@@ -549,10 +557,10 @@ Add unit tests at its own layer with no higher-layer setup.
   (`B007`) and `E501`/`B008` are ignored — see `pyproject.toml`.
   `B019` and `B904` are enforced; URL parsing is cached at module scope.
 - **Formatting:** Ruff 0.16.8 (`ruff format`, line length 100), matching CI and pre-commit.
-- **Type-checking:** `mypy` runs as an advisory signal (CI `continue-on-error`),
-  not a gate. It is lenient by design (`no_implicit_optional = false`,
-  untyped-defs allowed) because the port is largely untyped. Tightening it is a
-  welcome dedicated follow-up. Its configured checking target is Python 3.10;
+- **Type-checking:** `mypy` is required in CI and must report zero errors. The
+  settings remain lenient (`no_implicit_optional = false`, untyped definitions
+  allowed, untyped bodies unchecked). This is not a strict-typing guarantee;
+  tightening the settings is a dedicated follow-up. Its checking target is Python 3.10;
   this does not change the package's Python 3.9 runtime minimum.
 - **Imports:** keep the runtime graph acyclic. The layer diagram is a guide to
   responsibilities; inspect actual imports rather than treating the numbers as
@@ -636,7 +644,7 @@ pre-commit install        # optional but recommended
 
 ruff check .              # lint
 ruff format --check .     # canonical formatter
-mypy                      # advisory type-check of src/mirror_url
+mypy                      # required type-check of src/mirror_url (zero errors)
 pytest -m "not integration"   # fast lane
 pytest                        # full suite (includes integration)
 pytest --cov=mirror_url --cov-branch --cov-fail-under=70 \
@@ -682,9 +690,9 @@ and documentation synchronized when upgrading the formatter.
    `## [X.Y.Z] - YYYY-MM-DD`, retain its notes, and remove any empty duplicate
    `[Unreleased]` section. For a release with no pending changes, leave no
    `[Unreleased]` heading. Follow Keep a Changelog (`### Added/Changed/Fixed`).
-3. **Validate and commit the release.** Run `ruff check .`,
+3. **Validate and commit the release.** Run `mypy`, `ruff check .`,
    `ruff format --check .`, the full `pytest` suite, `python -m build`,
-   `twine check dist/*`, and `git diff --check`. Mypy is advisory in CI.
+   `twine check dist/*`, and `git diff --check`. All checks must pass.
    Include the full branch-coverage run and `check_download_coverage.py` gate
    shown above, and require release PR CI to pass before tagging.
    Commit the source metadata, changelog, and guides; push the release branch

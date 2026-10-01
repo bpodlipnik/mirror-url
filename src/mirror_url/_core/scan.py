@@ -17,7 +17,7 @@ import unicodedata
 from collections import deque
 from pathlib import Path
 from re import error as re_error
-from typing import Dict, Generator, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Dict, Generator, List, Optional, Set, Tuple
 from urllib.parse import unquote, urlparse
 
 import httpx
@@ -27,8 +27,13 @@ from ..enums import MemoryPressure
 from ..security import PathSafety
 from ..utils import sanitize_url_for_log, trim_url
 
+if TYPE_CHECKING:
+    from ._typing import MirrorHost
+else:
+    MirrorHost = object
 
-class ScanMixin:
+
+class ScanMixin(MirrorHost):
     def matches_filter(self, url: str) -> bool:
         """Optimized filter matching using StringZilla for all pattern types."""
         if not self.config.file_filters:
@@ -139,9 +144,9 @@ class ScanMixin:
                 can_follow, reason = self.symlink_tracker.can_follow(url, dir_url, depth)
 
                 if not can_follow:
-                    if "loop" in reason.lower():
+                    if "loop" in (reason or "").lower():
                         self.metrics.increment("symlink_loops_detected")
-                    elif "bomb" in reason.lower():
+                    elif "bomb" in (reason or "").lower():
                         self.metrics.increment("symlink_bomb_prevented")
                     return True, None
 
@@ -189,7 +194,7 @@ class ScanMixin:
             # dedupes via processed_dirs.
 
             cache_loaded, cached_signatures = self.cache_manager.load()
-            if cache_loaded:
+            if cache_loaded and cached_signatures is not None:
                 self.scanner.cached_signatures = cached_signatures
                 logging.info(
                     f"{prefix}📖 Loaded {len(cached_signatures)} directory signatures from cache"
@@ -801,10 +806,12 @@ class ScanMixin:
                                 f"{prefix}🔗 Symlink detected (mode=detect, "
                                 f"observation only, mirroring normally): "
                                 f"{sanitize_url_for_log(url)} -> "
-                                f"{sanitize_url_for_log(target_url)}{confidence_note}"
+                                f"{sanitize_url_for_log(target_url or 'unknown')}{confidence_note}"
                             )
                         else:
-                            in_scope = bool(target_url) and self._is_within_target_scope(target_url)
+                            in_scope = (
+                                self._is_within_target_scope(target_url) if target_url else False
+                            )
                             parent_url = url.rstrip("/").rsplit("/", 1)[0] + "/"
 
                             if not in_scope:
@@ -823,7 +830,7 @@ class ScanMixin:
                                     f"{prefix}🔗 Symlink detected "
                                     f"(mode={self.config.symlink_mode}) -- ignoring: "
                                     f"{sanitize_url_for_log(url)} -> "
-                                    f"{sanitize_url_for_log(target_url)}{confidence_note}"
+                                    f"{sanitize_url_for_log(target_url or 'unknown')}{confidence_note}"
                                 )
                                 if self.symlink_tracker:
                                     self.symlink_tracker.record_skip(url)
@@ -841,7 +848,7 @@ class ScanMixin:
                                         f"{prefix}🔗 Symlink detected but blocked "
                                         f"({reason}) -- ignoring: "
                                         f"{sanitize_url_for_log(url)} -> "
-                                        f"{sanitize_url_for_log(target_url)}{confidence_note}"
+                                        f"{sanitize_url_for_log(target_url or 'unknown')}{confidence_note}"
                                     )
                                     self.metrics.increment("symlink_loops_detected")
                                     skip_this_dir = True
@@ -849,7 +856,7 @@ class ScanMixin:
                                     logging.info(
                                         f"{prefix}🔗 Symlink detected, target in scope "
                                         f"-- creating: {sanitize_url_for_log(url)} -> "
-                                        f"{sanitize_url_for_log(target_url)}{confidence_note}"
+                                        f"{sanitize_url_for_log(target_url or 'unknown')}{confidence_note}"
                                     )
                                     if self.symlink_tracker:
                                         self.symlink_tracker.record_follow(url, parent_url, depth)
@@ -871,6 +878,8 @@ class ScanMixin:
                 # there's nothing to throttle.
                 parsed = urlparse(url)
                 try:
+                    if parsed.hostname is None:
+                        raise ValueError("URL has no hostname")
                     ip = socket.gethostbyname(parsed.hostname)
                     self.per_ip_limiter.wait(ip)
                 except Exception:
@@ -891,7 +900,7 @@ class ScanMixin:
         Returns:
             Local path or None if invalid/unsafe
         """
-        if self.target_dir is None:
+        if self.target_dir is None or self.target_parsed is None:
             return None
 
         if self._target_dir_path is None:

@@ -139,6 +139,38 @@ def test_dns_failure_uses_hostname_for_chunk_accounting(manager, monkeypatch):
     manager.rate_limiter.register_chunk_complete.assert_called_once_with("example.com")
 
 
+@pytest.mark.parametrize("streaming", [False, True])
+def test_hostname_free_chunk_fails_before_network_or_admission(manager, monkeypatch, streaming):
+    download, chunk = chunk_for(manager, streaming=streaming)
+    chunk.file_url = "/relative/a"
+    dns = Mock()
+    monkeypatch.setattr("mirror_url.download.socket.gethostbyname", dns)
+    manager.connection_manager.request.reset_mock()
+    ok = manager.download_chunk_streaming(chunk) if streaming else manager.download_chunk(chunk)
+    assert ok is False
+    assert chunk.status == "failed"
+    assert manager.stats["failed_chunks"] == 1
+    assert manager.metrics.metrics["chunk_failures"] == 1
+    assert download.final_path.read_bytes() == b"original"
+    dns.assert_not_called()
+    manager.connection_manager.request.assert_not_called()
+    manager.rate_limiter.register_chunk_start.assert_not_called()
+    manager.rate_limiter.register_chunk_complete.assert_not_called()
+
+
+def test_parallel_rate_limit_falls_back_without_a_hostname(manager, monkeypatch):
+    download = make_download(manager)
+    download.url = "/relative/a"
+    download.status = "downloading"
+    dns = Mock()
+    monkeypatch.setattr("mirror_url.download.socket.gethostbyname", dns)
+    # Already verified chunks can be assembled without another network request.
+    assert manager.download_parallel(download)
+    assert download.final_path.read_bytes() == b"abcdef"
+    manager.rate_limiter.wait.assert_called_once_with(None)
+    dns.assert_not_called()
+
+
 def test_invalid_hostname_fails_before_acquiring_permit(manager):
     _, chunk = chunk_for(manager)
     chunk.file_url = "/relative/a"

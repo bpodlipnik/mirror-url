@@ -148,7 +148,7 @@ def _validate_and_sanitize_cache(data: Any) -> Dict[str, Any]:
 
         # IMPROVED: Safely handle metadata with proper error handling
         if k == "_meta" and isinstance(v, dict):
-            meta = {}
+            meta: Dict[str, Any] = {}
             for mk, mv in v.items():
                 if mk == "version" and isinstance(mv, int):
                     meta[mk] = mv

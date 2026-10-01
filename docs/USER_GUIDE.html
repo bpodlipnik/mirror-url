@@ -1592,6 +1592,15 @@ class="sourceCode python"><code class="sourceCode python"><span id="cb33-1"><a h
 <code>ConfigError</code>, <code>MirrorConnectionError</code>,
 <code>SecurityError</code>, <code>DownloadError</code>,
 <code>PathTraversalError</code>, <code>URLScopeError</code>).</p>
+<p>For a configuration dictionary, use
+<code>MirrorConfig.model_validate(data)</code> to validate it and obtain
+a model. To obtain informational warnings about an existing
+configuration, use
+<code>MirrorConfig.validation_warnings(config)</code>. Code that
+previously used <code>MirrorConfig.validate(config)</code> for warnings
+must switch to <code>validation_warnings</code>; <code>validate</code>
+now follows Pydantic's model validation API, where
+<code>model_validate</code> is preferred.</p>
 <hr />
 <h2 id="exit-codes">Exit codes</h2>
 <table>

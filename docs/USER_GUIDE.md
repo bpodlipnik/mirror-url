@@ -921,6 +921,13 @@ Useful exported names: `MirrorURL`, `MirrorConfig`, `load_config_from_args`,
 `MirrorConnectionError`, `SecurityError`, `DownloadError`,
 `PathTraversalError`, `URLScopeError`).
 
+For a configuration dictionary, use `MirrorConfig.model_validate(data)` to
+validate it and obtain a model. To obtain informational warnings about an
+existing configuration, use `MirrorConfig.validation_warnings(config)`.
+Code that previously used `MirrorConfig.validate(config)` for warnings must
+switch to `validation_warnings`; `validate` now follows Pydantic's model
+validation API, where `model_validate` is preferred.
+
 ---
 
 ## Exit codes

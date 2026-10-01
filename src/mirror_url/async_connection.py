@@ -12,7 +12,7 @@ import logging
 import socket
 import time
 from threading import RLock
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple
 from urllib.parse import urljoin, urlparse
 
 import httpx
@@ -193,10 +193,15 @@ class AsyncConnectionManager:
 
     async def _warm_single_connection(self, url: str) -> bool:
         """Warm up a single connection"""
+        client = self._client
+        if client is None:
+            return False
         try:
             if self.rate_limiter:
                 parsed = urlparse(url)
                 try:
+                    if parsed.hostname is None:
+                        raise ValueError("URL has no hostname")
                     ip = socket.gethostbyname(parsed.hostname)
                     self.rate_limiter.wait(ip)
                 except Exception:
@@ -212,7 +217,7 @@ class AsyncConnectionManager:
             async with sem:
                 # Python 3.10 fix: replaced asyncio.timeout() with asyncio.wait_for()
                 resp = await asyncio.wait_for(
-                    self._client.head(
+                    client.head(
                         url, timeout=httpx.Timeout(3.0, connect=2.0), follow_redirects=False
                     ),
                     timeout=5.0,
@@ -268,7 +273,7 @@ class AsyncConnectionManager:
 
         # DNS cache for performance
         if not hasattr(self, "_dns_cache"):
-            self._dns_cache = {}
+            self._dns_cache: Dict[str, Tuple[str, float]] = {}
             self._dns_cache_ttl = 300  # 5 minutes
 
         for attempt in range(max_retries + 1):
@@ -278,6 +283,8 @@ class AsyncConnectionManager:
                     try:
                         # Check DNS cache
                         cache_key = parsed_url.hostname
+                        if cache_key is None:
+                            raise ValueError("URL has no hostname")
                         now = time.time()
                         ip = None
 
@@ -290,9 +297,7 @@ class AsyncConnectionManager:
 
                         if ip is None:
                             loop = asyncio.get_running_loop()
-                            ip = await loop.run_in_executor(
-                                None, socket.gethostbyname, parsed_url.hostname
-                            )
+                            ip = await loop.run_in_executor(None, socket.gethostbyname, cache_key)
                             self._dns_cache[cache_key] = (ip, now)
 
                         await self.rate_limiter.async_wait(ip)
@@ -608,18 +613,23 @@ class AdaptiveAsyncManager:
         sample_semaphore = asyncio.Semaphore(max(1, self._current_concurrency))
 
         async def _sample_one(index: int, url: str) -> bool:
+            client = self._client
+            if client is None:
+                return False
             async with sample_semaphore:
                 req_start = time.time()
                 if self.rate_limiter:
                     parsed = urlparse(url)
                     try:
+                        if parsed.hostname is None:
+                            raise ValueError("URL has no hostname")
                         ip = socket.gethostbyname(parsed.hostname)
                         self.rate_limiter.wait(ip)
                     except Exception:
                         pass
                 try:
                     resp = await asyncio.wait_for(
-                        self._client.head(
+                        client.head(
                             url, timeout=httpx.Timeout(3.0, connect=2.0), follow_redirects=False
                         ),
                         timeout=5.0,
@@ -817,14 +827,14 @@ class AdaptiveAsyncManager:
                 loop = asyncio.get_running_loop()
                 # Lazy-init DNS cache to avoid blocking event loop with repeated lookups
                 if not hasattr(self, "_dns_cache"):
-                    self._dns_cache = {}
+                    self._dns_cache: Dict[str, Tuple[str, float]] = {}
                 cache_key = parsed_url.hostname
                 now = time.time()
                 cached = self._dns_cache.get(cache_key)
                 if cached and (now - cached[1]) < 300:  # 5 min TTL
                     ip = cached[0]
                 else:
-                    ip = await loop.run_in_executor(None, socket.gethostbyname, parsed_url.hostname)
+                    ip = await loop.run_in_executor(None, socket.gethostbyname, cache_key)
                     self._dns_cache[cache_key] = (ip, now)
                 # Use async_wait() instead of blocking wait()
                 await self.rate_limiter.async_wait(ip)
@@ -1012,9 +1022,14 @@ class AdaptiveAsyncManager:
 
     async def _warm_single_connection(self, url: str) -> bool:
         """Warm up a single connection"""
+        client = self._client
+        if client is None:
+            return False
         try:
             if self.rate_limiter:
                 parsed = urlparse(url)
+                if parsed.hostname is None:
+                    raise ValueError("URL has no hostname")
                 ip = socket.gethostbyname(parsed.hostname)
                 self.rate_limiter.wait(ip)
 
@@ -1023,7 +1038,7 @@ class AdaptiveAsyncManager:
             # concurrent warm-ups at all.
             sem = self._semaphore or asyncio.Semaphore(self._current_concurrency)
             async with sem:
-                resp = await self._client.head(
+                resp = await client.head(
                     url, timeout=httpx.Timeout(3.0, connect=2.0), follow_redirects=False
                 )
                 await resp.aclose()

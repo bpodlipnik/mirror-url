@@ -114,6 +114,13 @@ def partials(tmp_path):
     return PartialDownloadManager(tmp_path / "mirror")
 
 
+def test_partial_path_requires_a_destination(tmp_path):
+    manager = PartialDownloadManager(None)
+    with pytest.raises(ValueError, match="directory is unavailable"):
+        manager.get_partial_path(tmp_path / "a")
+    assert list(tmp_path.iterdir()) == []
+
+
 @pytest.mark.parametrize("marker", ["invalid-json", "other-owner", "symlink"])
 def test_unowned_partial_state_is_rejected_without_modification(partials, tmp_path, marker):
     state = partials.download_dir / partials.STATE_DIRECTORY

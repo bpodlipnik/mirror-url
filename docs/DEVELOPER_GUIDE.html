@@ -402,6 +402,7 @@ Managers: transport · storage · circuit_breaker · rate_limiter · queue · ca
 Runtime support: metrics · progress · monitoring · connection · async_connection · concurrency
 Engines: download · download_integrity · scanner · health · domain_health · config · tuner
 Composition: core · _core/{_base,urls,scan,compare,downloads,cleanup,report}
+Static contract: _core/_typing (TYPE_CHECKING only)
 Entry points: cli · __main__</code></pre>
 <p><strong>Why it matters for you:</strong></p>
 <ul>
@@ -660,6 +661,14 @@ benchmarking</td>
 matches, and keep shared attributes initialized in
 <code>_MirrorBase.__init__</code>. Don't add a second
 <code>__init__</code> to a feature mixin.</p>
+<p><code>_core/_typing.py</code> declares the shared state and method
+signatures as the <code>MirrorHost</code> protocol. Each mixin and
+<code>_MirrorBase</code> inherits this contract only while type
+checking; its runtime base remains <code>object</code>. Update the
+contract alongside changes to shared fields or cross-mixin signatures.
+Optional managers and paths must be narrowed before use. The contract
+has no runtime methods, state, or imports, and the composed class keeps
+the same MRO.</p>
 <hr />
 <h2 id="runtime-data-flow-anatomy-of-a-sync">Runtime data flow: anatomy
 of a sync()</h2>
@@ -949,11 +958,11 @@ and <code>E501</code>/<code>B008</code> are ignored — see
 enforced; URL parsing is cached at module scope.</li>
 <li><strong>Formatting:</strong> Ruff 0.16.8 (<code>ruff format</code>,
 line length 100), matching CI and pre-commit.</li>
-<li><strong>Type-checking:</strong> <code>mypy</code> runs as an
-advisory signal (CI <code>continue-on-error</code>), not a gate. It is
-lenient by design (<code>no_implicit_optional = false</code>,
-untyped-defs allowed) because the port is largely untyped. Tightening it
-is a welcome dedicated follow-up. Its configured checking target is
+<li><strong>Type-checking:</strong> <code>mypy</code> is required in CI
+and must report zero errors. The settings remain lenient
+(<code>no_implicit_optional = false</code>, untyped definitions allowed,
+untyped bodies unchecked). This is not a strict-typing guarantee;
+tightening the settings is a dedicated follow-up. Its checking target is
 Python 3.10; this does not change the package's Python 3.9 runtime
 minimum.</li>
 <li><strong>Imports:</strong> keep the runtime graph acyclic. The layer
@@ -1043,7 +1052,7 @@ class="sourceCode bash"><code class="sourceCode bash"><span id="cb6-1"><a href="
 <span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a><span class="ex">ruff</span> check .              <span class="co"># lint</span></span>
 <span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a><span class="ex">ruff</span> format <span class="at">--check</span> .     <span class="co"># canonical formatter</span></span>
-<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a><span class="ex">mypy</span>                      <span class="co"># advisory type-check of src/mirror_url</span></span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a><span class="ex">mypy</span>                      <span class="co"># required type-check of src/mirror_url (zero errors)</span></span>
 <span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a><span class="ex">pytest</span> <span class="at">-m</span> <span class="st">&quot;not integration&quot;</span>   <span class="co"># fast lane</span></span>
 <span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a><span class="ex">pytest</span>                        <span class="co"># full suite (includes integration)</span></span>
 <span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a><span class="ex">pytest</span> <span class="at">--cov</span><span class="op">=</span>mirror_url <span class="at">--cov-branch</span> <span class="at">--cov-fail-under</span><span class="op">=</span>70 <span class="dt">\</span></span>
@@ -1092,14 +1101,14 @@ empty duplicate <code>[Unreleased]</code> section. For a release with no
 pending changes, leave no <code>[Unreleased]</code> heading. Follow Keep
 a Changelog (<code>### Added/Changed/Fixed</code>).</li>
 <li><strong>Validate and commit the release.</strong> Run
-<code>ruff check .</code>, <code>ruff format --check .</code>, the full
-<code>pytest</code> suite, <code>python -m build</code>,
-<code>twine check dist/*</code>, and <code>git diff --check</code>. Mypy
-is advisory in CI. Include the full branch-coverage run and
-<code>check_download_coverage.py</code> gate shown above, and require
-release PR CI to pass before tagging. Commit the source metadata,
-changelog, and guides; push the release branch and merge its reviewed
-pull request.</li>
+<code>mypy</code>, <code>ruff check .</code>,
+<code>ruff format --check .</code>, the full <code>pytest</code> suite,
+<code>python -m build</code>, <code>twine check dist/*</code>, and
+<code>git diff --check</code>. All checks must pass. Include the full
+branch-coverage run and <code>check_download_coverage.py</code> gate
+shown above, and require release PR CI to pass before tagging. Commit
+the source metadata, changelog, and guides; push the release branch and
+merge its reviewed pull request.</li>
 <li><strong>Tag the merged release on <code>main</code> and push the
 tag:</strong>
 <div class="sourceCode" id="cb7"><pre

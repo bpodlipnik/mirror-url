@@ -37,7 +37,7 @@ class CircuitBreaker:
         self.half_open_limit = half_open_limit
         self.state = CircuitBreakerState.CLOSED
         self.failure_count = 0
-        self.last_failure_time = 0.0
+        self.last_failure_time: float = 0.0
         self.half_open_successes = 0
         self.half_open_start = 0.0
         self.half_open_permits = 0
@@ -149,7 +149,7 @@ class AsyncCircuitBreaker:
         self.failure_threshold = failure_threshold
         self.recovery_timeout = recovery_timeout
         self.failures = 0
-        self.last_failure_time = 0
+        self.last_failure_time: float = 0
         self.state = "closed"  # closed, open, half-open
         self._lock = LoopLocalPrimitive(asyncio.Lock)
         self.total_failures = 0

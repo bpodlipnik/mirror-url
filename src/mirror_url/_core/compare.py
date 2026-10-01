@@ -14,11 +14,11 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from email.utils import parsedate_to_datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, List, Optional, Tuple, Union, cast
 
 import httpx
 
-from ..async_connection import AsyncTaskManager
+from ..async_connection import AdaptiveAsyncManager, AsyncConnectionManager, AsyncTaskManager
 from ..constants import (
     ASYNC_TEST_BATCH_SIZE,
     ASYNC_TEST_MAX_SECONDS,
@@ -38,7 +38,15 @@ if TYPE_CHECKING:  # pragma: no cover - typing only, avoids an import cycle
     from ..progress import ProgressTracker
 
 
-class CompareMixin:
+if TYPE_CHECKING:
+    from ._typing import MirrorHost
+else:
+    MirrorHost = object
+
+
+class CompareMixin(MirrorHost):
+    async_task_manager: Optional[AsyncTaskManager]
+
     def _comparison_metadata(self, local_path: Path, use_cache: bool = True):
         """Only use an ETag belonging to the current local file."""
         stat = local_path.stat()
@@ -141,7 +149,9 @@ class CompareMixin:
             self.performance_monitor.record("file_check", time.time() - start_time, current)
 
     def _check_files_sync(
-        self, remote_files: List[str], progress: Optional[ProgressTracker] = None
+        self,
+        remote_files: Union[List[str], List[Tuple[str, Path]]],
+        progress: Optional[ProgressTracker] = None,
     ) -> List[Tuple[str, Path]]:
         """
         Check files synchronously to determine which need downloading.
@@ -154,6 +164,7 @@ class CompareMixin:
             List of (url, local_path) tuples for files that need downloading
         """
         to_download: List[Tuple[str, Path]] = []
+        local_path: Optional[Path]
 
         if self.symlink_tracker:
             self.symlink_tracker.clear_chain()
@@ -263,6 +274,7 @@ class CompareMixin:
 
         file_checks: List[Tuple[Path, str]] = []
         to_download: List[Tuple[str, Path]] = []
+        local_path: Optional[Path]
 
         if self.symlink_tracker:
             self.symlink_tracker.clear_chain()
@@ -274,10 +286,10 @@ class CompareMixin:
             first_item = remote_files[0]
             if isinstance(first_item, tuple):
                 # Already list of tuples
-                file_items = [(url, path) for url, path in remote_files]  # type: ignore
+                file_items = list(cast(List[Tuple[str, Path]], remote_files))
             else:
                 # List of strings - convert to tuples
-                for url in remote_files:  # type: ignore
+                for url in cast(List[str], remote_files):
                     local_path = self._get_local_path_from_url(url)
                     if local_path is None:
                         self.files_failed.increment(1)
@@ -313,9 +325,9 @@ class CompareMixin:
 
         # Determine which manager to use
         use_adaptive = self.config.adaptive_async and self.adaptive_async_manager is not None
-        manager = None
+        manager: Union[AdaptiveAsyncManager, AsyncConnectionManager]
 
-        if use_adaptive:
+        if use_adaptive and self.adaptive_async_manager is not None:
             if not self.adaptive_async_manager.is_available():
                 logging.warning("Adaptive async manager not available, falling back to sync")
                 return self._check_files_sync(file_items, progress)
@@ -393,7 +405,7 @@ class CompareMixin:
                 if sample_urls:
                     try:
                         profile_task = await self.async_task_manager.create_task(
-                            manager.profile_server(sample_urls)
+                            cast(AdaptiveAsyncManager, manager).profile_server(sample_urls)
                         )
                         profile_result = await asyncio.wait_for(profile_task, timeout=30.0)
                         if not profile_result:

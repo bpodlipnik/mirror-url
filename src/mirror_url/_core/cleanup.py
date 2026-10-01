@@ -12,15 +12,20 @@ import os
 import shutil
 import time
 from pathlib import Path
-from typing import List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, List, Optional, Set, Tuple
 from urllib.parse import quote, unquote, urlparse
 
 from ..decorators import log_performance
 from ..enums import CleanupPolicy
 from ..security import PathSafety
 
+if TYPE_CHECKING:
+    from ._typing import MirrorHost
+else:
+    MirrorHost = object
 
-class CleanupMixin:
+
+class CleanupMixin(MirrorHost):
     def _scan_local_tree(self) -> Tuple[List[Path], List[Path]]:
         """Single-pass recursive walk of target_dir, collecting both files
         and directories in one traversal via os.scandir().
@@ -43,7 +48,7 @@ class CleanupMixin:
         than aborting the whole walk -- mirrors the previous code's
         graceful handling of individual unreadable entries.
         """
-        if self.target_dir.is_symlink():
+        if self.target_dir is None or self.target_dir.is_symlink():
             return [], []
         files: List[Path] = []
         dirs: List[Path] = []
@@ -104,6 +109,8 @@ class CleanupMixin:
 
     def _cleanup_path_selected(self, path: Path, *, directory: bool = False) -> bool:
         """Protect paths the current scan deliberately did not inspect."""
+        if self.target_dir is None or self.target_parsed is None:
+            return False
         try:
             relative = path.relative_to(self.target_dir)
             if relative.parts and relative.parts[0].casefold() == ".mirror-url-state":

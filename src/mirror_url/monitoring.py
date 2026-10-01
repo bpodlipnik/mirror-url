@@ -48,7 +48,7 @@ class MemoryMonitor:
         self.warning_threshold = warning_threshold_mb * 1024 * 1024
         self.critical_threshold = critical_threshold_mb * 1024 * 1024
         self.check_interval = check_interval
-        self.last_check = 0
+        self.last_check: float = 0
         self.high_water_mark = 0
         self.lock = RLock()
         self.psutil_available = PSUTIL_AVAILABLE
@@ -122,7 +122,7 @@ class MemoryMonitor:
 class DiskSpaceManager:
     """Manage disk space and check availability"""
 
-    def __init__(self, target_dir: Path):
+    def __init__(self, target_dir: Optional[Path]):
         """
         Initialize disk space manager.
 
