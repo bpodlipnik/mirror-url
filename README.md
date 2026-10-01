@@ -1,20 +1,13 @@
 # MirrorURL
 
 [![CI](https://github.com/bpodlipnik/mirror-url/actions/workflows/ci.yml/badge.svg)](https://github.com/bpodlipnik/mirror-url/actions/workflows/ci.yml)
-[![Python](https://img.shields.io/badge/python-3.9%E2%80%933.12-blue)](https://www.python.org)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
+[![Python](https://img.shields.io/badge/python-3.9%2B-blue)](https://www.python.org)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](https://github.com/bpodlipnik/mirror-url/blob/main/LICENSE)
 
 Security-hardened remote directory mirroring tool. MirrorURL recursively
 discovers files behind an HTTP(S) directory listing and mirrors them locally
 with adaptive concurrency, resumable/partial downloads, integrity verification,
 and an SSRF-hardened transport layer.
-
-> **Status:** Refactor complete. The full implementation lives in the
-> [`src/mirror_url/`](./src/mirror_url) package, migrated verbatim
-> from the original single-file script per [`REFACTORING_PLAN.md`](./REFACTORING_PLAN.md).
-> The legacy single-file script was retained as a frozen reference until the
-> test suite passed against the package with real runtime dependencies
-> installed, then removed (v3.1.20).
 
 ## Features
 
@@ -30,13 +23,39 @@ and an SSRF-hardened transport layer.
 
 ## Installation
 
+Python 3.9 or newer is required. Install the published package from PyPI in a
+virtual environment:
+
 ```bash
-# From source (editable, recommended during the refactor)
-pip install -e ".[all,dev]"
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install mirror-url
 ```
 
-Python 3.9+ is required. Core dependencies: `httpx`, `pydantic` (v2), `PyYAML`.
-Optional extras: `fast` (stringzilla, lxml), `progress` (tqdm), `monitor` (psutil).
+To include all optional acceleration, progress, and monitoring packages:
+
+```bash
+python -m pip install "mirror-url[all]"
+```
+
+Upgrade an existing installation:
+
+```bash
+python -m pip install --upgrade mirror-url
+```
+
+Check the installed package and CLI:
+
+```bash
+python -m pip check
+mirror-url --version
+mirror-url --help
+```
+
+Core dependencies: `httpx[http2]`, `pydantic` (v2), `PyYAML`. Optional extras:
+`fast` (stringzilla, lxml), `progress` (tqdm), `monitor` (psutil), and `all`
+(all optional runtime packages). Contributor setup is described below.
 
 ## Usage
 
@@ -53,25 +72,30 @@ Run `mirror-url --help` for the full option list.
 Configuration can also be supplied via a YAML file (see `MirrorConfig` /
 `load_config_from_args`).
 
-📖 **Full documentation:** see the [User Guide](./docs/USER_GUIDE.md)
-([HTML version](./docs/USER_GUIDE.html)) for detailed installation, CLI
+📖 **Full documentation:** see the [User Guide](https://github.com/bpodlipnik/mirror-url/blob/main/docs/USER_GUIDE.md)
+([HTML version](https://github.com/bpodlipnik/mirror-url/blob/main/docs/USER_GUIDE.html)) for detailed installation, CLI
 reference, config-file format, download modes, security notes, the Python API,
 and troubleshooting.
 
-🛠 **Contributing to the code?** The [Developer Guide](./docs/DEVELOPER_GUIDE.md)
-([HTML version](./docs/DEVELOPER_GUIDE.html)) is an architecture deep-dive:
+🛠 **Contributing to the code?** The [Developer Guide](https://github.com/bpodlipnik/mirror-url/blob/main/docs/DEVELOPER_GUIDE.md)
+([HTML version](https://github.com/bpodlipnik/mirror-url/blob/main/docs/DEVELOPER_GUIDE.html)) is an architecture deep-dive:
 dependency layers, the `MirrorURL` mixin design, runtime data flow, and
 step-by-step extension recipes.
 
 ## Development
 
+From a repository checkout, create and activate a virtual environment, then
+install the editable package with its runtime extras and development tools:
+
 ```bash
-pip install -e ".[dev]"
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e ".[all,dev]"
 pre-commit install
 
 ruff check .                  # lint
 ruff format --check .         # format check (Ruff 0.16.8)
-mypy                          # type-check the new package
+mypy                          # type-check the package
 pytest -m "not integration"   # fast test lane
 pytest                        # full suite (includes integration)
 ```
@@ -92,10 +116,10 @@ pyproject.toml           # packaging, deps, tool config
 
 ## Contributing
 
-Contributions are welcome — see [CONTRIBUTING.md](./CONTRIBUTING.md) for the dev
+Contributions are welcome — see [CONTRIBUTING.md](https://github.com/bpodlipnik/mirror-url/blob/main/CONTRIBUTING.md) for the dev
 setup, the checks CI runs, and the project conventions (dependency layering,
 lint policy, behavior-preserving refactors). Notable changes are tracked in
-[CHANGELOG.md](./CHANGELOG.md).
+[CHANGELOG.md](https://github.com/bpodlipnik/mirror-url/blob/main/CHANGELOG.md).
 
 ## Authors
 
@@ -103,4 +127,4 @@ Borut Podlipnik, Max-Planck-Institute for Solar System Research, podlipnik@mps.m
 
 ## License
 
-[MIT](./LICENSE) © BP
+[MIT](https://github.com/bpodlipnik/mirror-url/blob/main/LICENSE) © BP
