@@ -39,11 +39,17 @@ branch coverage at 70%:
 ```bash
 pip install -e ".[all,dev]"
 pytest --cov=mirror_url --cov-branch --cov-fail-under=70 \
-  --cov-report=term-missing --cov-report=html
+  --cov-report=term-missing --cov-report=json:coverage.json --cov-report=html
+python scripts/check_download_coverage.py coverage.json
 ```
 
 Open `htmlcov/index.html` to inspect missed lines and branches. CI also saves
 HTML, JSON, and XML coverage reports as an artifact.
+Each of `download.py` and `download_integrity.py` must also have 100% statement
+and branch coverage. The gate checks missing counts separately for each module;
+rounded percentages and the overall average cannot hide a gap. Exercise real
+filesystem operations and inject network or disk faults to verify preservation
+of existing files, response closure, retry boundaries, and resource cleanup.
 
 A change is ready to merge when `ruff check` is clean, the formatter reports no
 diffs, and `pytest` passes.

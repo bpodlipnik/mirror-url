@@ -58,6 +58,8 @@ if TYPE_CHECKING:  # pragma: no cover - typing only, avoids an import cycle
 class ParallelDownloadManager:
     """Manages parallel chunk downloads for multiple files"""
 
+    MMAP_MAX_FILE_SIZE = 50 * 1024**3
+
     def __init__(
         self,
         config: MirrorConfig,
@@ -436,7 +438,8 @@ class ParallelDownloadManager:
                 "If-Range": chunk.etag,
                 "Accept-Encoding": "identity",
             }
-            for attempt in range(3):
+            attempt = 0
+            while True:
                 response = None
                 try:
                     # Both modes share scope checks, manual redirects, retry
@@ -492,10 +495,10 @@ class ParallelDownloadManager:
                         raise
                     logging.debug(f"Chunk {chunk.chunk_id} retry: {e}")
                     time.sleep(exponential_backoff(attempt))
+                    attempt += 1
                 finally:
                     if response is not None:
                         response.close()
-            return False
         except Exception as e:
             logging.error(f"Chunk {chunk.chunk_id} failed: {e}")
             chunk.status = "failed"
@@ -810,7 +813,7 @@ class ParallelDownloadManager:
                     os.fsync(f.fileno())
 
                 # Decide whether to use mmap (failsafe for >50GB files)
-                USE_MMAP = file_size < 50 * 1024**3  # 50GB threshold
+                USE_MMAP = file_size < self.MMAP_MAX_FILE_SIZE
                 mm = None
 
                 with open(temp_assembly, "r+b") as f:
@@ -1214,23 +1217,22 @@ class ParallelDownloadManager:
                     break
 
             # Fallback: Test random write speed
-            if self.mirror.target_dir:
-                try:
-                    # Use an exclusively created file: fixed probe names can
-                    # overwrite mirror data or follow a pre-existing symlink.
-                    with tempfile.TemporaryFile(dir=self.mirror.target_dir) as f:
-                        f.truncate(10 * 1024 * 1024)
-                        start = time.time()
-                        for _ in range(100):  # 100 random writes
-                            f.seek(random.randint(0, 10 * 1024 * 1024))
-                            f.write(b"x" * 1024)
-                        f.flush()
-                        duration = time.time() - start
+            try:
+                # Use an exclusively created file: fixed probe names can
+                # overwrite mirror data or follow a pre-existing symlink.
+                with tempfile.TemporaryFile(dir=self.mirror.target_dir) as f:
+                    f.truncate(10 * 1024 * 1024)
+                    start = time.time()
+                    for _ in range(100):  # 100 random writes
+                        f.seek(random.randint(0, 10 * 1024 * 1024))
+                        f.write(b"x" * 1024)
+                    f.flush()
+                    duration = time.time() - start
 
-                    # SSDs handle random writes much faster (<0.5s)
-                    return duration < 0.5
-                except Exception:
-                    pass
+                # SSDs handle random writes much faster (<0.5s)
+                return duration < 0.5
+            except Exception:
+                pass
         except Exception:
             pass
 

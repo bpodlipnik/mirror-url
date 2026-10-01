@@ -59,6 +59,8 @@ jobs:
           pytest --cov=mirror_url --cov-branch --cov-fail-under=70
           --cov-report=term-missing --cov-report=xml:coverage.xml
           --cov-report=json:coverage.json --cov-report=html
+      - name: Require 100% statement and branch coverage for both download modules
+        run: python scripts/check_download_coverage.py coverage.json
       - name: Save coverage reports
         if: always()
         uses: actions/upload-artifact@v7
