@@ -340,131 +340,86 @@ def _cli_overrides(args: argparse.Namespace, explicit: set) -> dict:
 def main() -> None:
     """Main entry point with true parallel file downloads"""
     parser = argparse.ArgumentParser(
-        description=f"MirrorURL v{__version__} - Security-Hardened Remote Directory Mirroring Tool with True Parallel Downloads",
+        description=f"MirrorURL v{__version__} - HTTP(S) directory-listing mirroring",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=f"""
-╔══════════════════════════════════════════════════════════════════════════════════════╗
-║{f"MIRRORURL v{__version__}".center(88 - 2)}║
-║{"USAGE GUIDE".center(88 - 2)}║
-╚══════════════════════════════════════════════════════════════════════════════════════╝
-"""
-        + """
-REQUIRED ARGUMENTS (ONE of these two options):
-────────────────────────────────────────────────────────────────────────────────────────
-Option 1: Use configuration file
-  --config CONFIG       YAML/JSON configuration file (validated against schema)
+        epilog=r"""
+ARGUMENT SOURCES:
+  Supply --config FILE, or --url URL --dest-path DIR --log-path DIR.
+  CLI-only --list-dirs/--list-files need only --url. Config-file runs still
+  require URL, destination and log fields (from the file or explicit flags).
+  Explicit CLI flags override file values; omitted flags preserve them.
 
-Option 2: Use command-line arguments
-  --url URL             Base URL to mirror (e.g., https://example.com/files/)
-  --dest-path PATH      Destination directory for downloaded files
-  --log-path PATH       Directory for log files
+DOWNLOAD AND INTEGRITY:
+  Omit mode flags for auto-selection, or choose one download mode.
+  Chunking needs a known size >= --min-chunk-size, Range support and a strong
+  ETag. Exact ranges/lengths/ETags are checked before atomic publication.
+  Whole-file partials can resume from an owned .mirror-url-state/ directory;
+  chunks do not resume across runs. No remote cryptographic digest is checked.
 
-────────────────────────────────────────────────────────────────────────────────────────
-DOWNLOAD MODES (select ONE):
-────────────────────────────────────────────────────────────────────────────────────────
-  --parallel-downloads     Traditional parallel mode (temp files, safe, supports resume)
-  --streaming-parallel     Streaming parallel mode (direct write, faster for huge files)
-  --sequential-downloads   Sequential mode (no parallelism, one file at a time)
-  (no argument)            Auto-select mode (intelligent decision based on conditions)
+FILTERS:
+  Patterns match filenames only, case-insensitively; multiple patterns are OR'd.
+  --filter .fits .txt                 # extensions
+  --filter _fe_                      # substring
+  --filter '2024.*\.fits$'            # regex
+  Use --dir-suffix/--exclude-dir to select directory paths.
 
-────────────────────────────────────────────────────────────────────────────────────────
-FILTER PATTERNS (--filter option):
-────────────────────────────────────────────────────────────────────────────────────────
-The --filter option supports both simple extensions and powerful regex patterns:
+EXAMPLES (replace the example URL with your archive's directory listing):
+  # Discover immediate child directories
+  %(prog)s --url https://example.com/data/ --list-dirs
 
-  SIMPLE EXTENSIONS (backward compatible):
-    --filter .fits .txt .jpg    # Match multiple extensions
-    --filter .fts               # Match single extension (case-insensitive)
+  # Mirror FITS files using automatic download selection
+  %(prog)s --url https://example.com/data/ --dest-path ./data \
+    --log-path ./logs --filter .fits
 
-  REGEX PATTERNS (full power):
-    --filter '2024.*\\.fits$'              # .fits files from 2024
-    --filter 'L1.*\\.(fits|txt)$'          # L1 files with .fits or .txt
-    --filter 'IMG_[0-9]{4}\\.jpg'          # Images with 4-digit numbers
-    --filter '^(?!temp_).*\\.dat$'         # All .dat files except temp_
-    --filter 'L[0-9]{2}/v[0-9]/.*\\.fits'  # Deep path patterns
+  # Verified streaming chunks for eligible files
+  %(prog)s --url https://example.com/data/ --dest-path ./data \
+    --log-path ./logs --streaming-parallel --max-chunks 8
 
-────────────────────────────────────────────────────────────────────────────────────────
-PARALLEL DOWNLOAD OPTIONS:
-────────────────────────────────────────────────────────────────────────────────────────
-  --max-chunks N                Maximum chunks per file (default: 8)
-  --min-chunk-size MB           Minimum chunk size in MB (default: 10MB)
-  --max-parallel-chunks N       Maximum total parallel chunks (default: 50)
-  --max-concurrent-downloads N  Maximum files to download simultaneously (default: 10)
-  --auto-concurrency            Automatically tune parallel download concurrency based on
-                                measured throughput (finds optimal setting for each server)
+  # Observe obsolete-file actions without changing mirrored files
+  %(prog)s --config mirror.yaml --cleanup preview --dry-run
 
-  Examples:
-  # Traditional parallel (temp files) - SAFE default for parallel
-  %(prog)s --url https://example.com/data/ --dest-path ./data --log-path ./logs \\
-           --parallel-downloads --max-chunks 5 --max-concurrent-downloads 20
+  # Conservative downloads for a throttled server
+  %(prog)s --config mirror.yaml --sequential-downloads \
+    --no-async-metadata --workers 2 --request-delay 0.2
 
-  # Streaming parallel (direct write) - FASTER for huge files
-  %(prog)s --url https://example.com/data/ --dest-path ./data --log-path ./logs \\
-           --streaming-parallel --max-chunks 8
-
-  # Sequential - MOST RELIABLE for problematic connections
-  %(prog)s --url https://example.com/data/ --dest-path ./data --log-path ./logs \\
-           --sequential-downloads
-
-  # Auto-select - LET SYSTEM DECIDE
-  %(prog)s --url https://example.com/data/ --dest-path ./data --log-path ./logs
-
-  All safety features preserved:
-  ✅ Per-IP rate limiting adapts to chunk count
-  ✅ Circuit breaker tracks chunk failures per file/server
-  ✅ Resume capability works per chunk
-  ✅ Graceful fallback if server doesn't support Range
-  ✅ Files download in parallel for maximum throughput
-
-────────────────────────────────────────────────────────────────────────────────────────
-EXAMPLES:
-────────────────────────────────────────────────────────────────────────────────────────
-  # Basic mirroring with simple filters
-  %(prog)s --url https://example.com/files/ --dest-path ./downloads \\
-           --log-path ./logs --filter .fits .txt
-
-  # Maximum performance parallel downloads
-  %(prog)s --url https://example.com/data/ --dest-path ./data \\
-           --log-path ./logs --parallel-downloads --max-chunks 8 \\
-           --max-concurrent-downloads 20 --max-parallel-chunks 100
-
-  # Conservative for throttled servers
-  %(prog)s --url https://throttled-server.com/ --dest-path ./downloads \\
-           --log-path ./logs --parallel-downloads --max-chunks 3 \\
-           --max-concurrent-downloads 3 --request-delay 0.2
-
-  # Production setup with config file
-  %(prog)s --config /etc/mirrorurl/production.yaml
+Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
 """,
     )
 
-    basic = parser.add_argument_group("Required Options")
-    basic.add_argument("--url", help="Base URL to mirror (required if --config not used)")
+    basic = parser.add_argument_group("Target Options")
+    basic.add_argument("--url", help="Base directory-listing URL (required without --config)")
     basic.add_argument(
-        "--dest-path", type=Path, help="Destination directory (required if --config not used)"
+        "--dest-path",
+        type=Path,
+        help="Destination directory (required without --config except for --list-dirs/--list-files)",
     )
     basic.add_argument(
-        "--log-path", type=Path, help="Log directory (required if --config not used)"
+        "--log-path",
+        type=Path,
+        help="Logs and JSON cache directory (required without --config except for --list-dirs/--list-files; keep outside destination)",
     )
-    basic.add_argument("--config", help="Configuration file (YAML/JSON)")
+    basic.add_argument(
+        "--config",
+        help="YAML/JSON config; explicit CLI flags override file values, even when equal to defaults",
+    )
 
     # Create mutually exclusive group for download modes
-    download_mode_group = parser.add_argument_group("Download Mode Options (select ONE)")
+    download_mode_group = parser.add_argument_group("Download Modes (omit for auto-selection)")
     mode_group = download_mode_group.add_mutually_exclusive_group()
     mode_group.add_argument(
         "--parallel-downloads",
         action="store_true",
-        help="Traditional parallel downloads (temp files, safe, supports resume)",
+        help="Parallel files; eligible files use verified temporary chunks. Whole-file fallbacks can resume; chunks do not resume across runs",
     )
     mode_group.add_argument(
         "--streaming-parallel",
         action="store_true",
-        help="Streaming parallel downloads (direct write, faster for huge files)",
+        help="Parallel files; eligible chunks write to a staging file and publish atomically after verification",
     )
     mode_group.add_argument(
         "--sequential-downloads",
         action="store_true",
-        help="Sequential downloads (no parallelism, one file at a time)",
+        help="Download one file at a time; metadata and size probes may still run concurrently",
     )
 
     # Parallel Download Options (shared settings)
@@ -506,7 +461,7 @@ EXAMPLES:
         "--chunk-assembly-dir",
         type=Path,
         metavar="DIR",
-        help="Directory for temporary chunk storage",
+        help="Temporary chunk directory (default: unique system-temp directory); final assembly/staging stay beside the destination",
     )
     parallel_grp.add_argument(
         "--chunk-timeout-multiplier",
@@ -525,11 +480,7 @@ EXAMPLES:
         nargs="*",
         default=[],
         metavar="PATTERN",
-        help="File patterns to include (can be simple extension like .fits or regex pattern). "
-        "Examples:\n"
-        "  --filter .fits .txt .jpg           # Multiple simple extensions\n"
-        "  --filter '.*\\.fits$'               # Regex: any .fits files\n"
-        "  --filter '2024.*\\.fits' .txt       # Mixed regex and extensions",
+        help="Case-insensitive filename patterns, OR'd: extensions (.fits), substrings (_fe_), or regexes ('2024.*\\.fits$'). Does not match directory paths",
     )
 
     directory = parser.add_argument_group("Directory Options")
@@ -546,20 +497,7 @@ EXAMPLES:
         default=[],
         metavar="DIR",
         help=(
-            "Directories to exclude from the crawl, one or more, "
-            "space-separated. Each pattern is matched as an EXACT path "
-            "relative to --url, never a suffix match at any depth: "
-            "'--exclude-dir lasco' excludes only <root>/lasco/, never "
-            "<root>/setup/lasco/ or any other nested directory that "
-            "happens to share that name elsewhere in the tree. "
-            "'--exclude-dir idl/beta' excludes only the specific "
-            "two-level path <root>/idl/beta/. Pass several to exclude "
-            "several: '--exclude-dir lasco idl/beta' excludes exactly "
-            "those two root-relative paths and nothing else. A pattern "
-            "containing '*' is the explicit escape hatch for matching "
-            "at any depth (e.g. '--exclude-dir */lasco' matches "
-            "<root>/setup/lasco/ too) -- opt-in, not the default for a "
-            "plain pattern."
+            "Exclude exact paths relative to --url, including with --dir-suffix. Use quoted '*' globs for nested matches: lasco matches the root child; '*/lasco' matches nested children. Use both to cover both"
         ),
     )
     directory.add_argument(
@@ -570,14 +508,7 @@ EXAMPLES:
         default=None,
         metavar="N",
         help=(
-            "List the directory tree under the target URL/--dir-suffix and exit -- "
-            "does not scan files, compare freshness, or download/delete anything. "
-            "Respects --exclude-dir and --max-depth; ignores --filter (which only "
-            "applies to files). Useful for discovering what's available before "
-            "picking a --dir-suffix. With no N, every directory is printed in "
-            "discovery order; with N, only the last N directories are printed, "
-            "sorted lexicographically by relative path (like --list-files[N]), "
-            "with the root ('.') excluded from that ranking."
+            "List directories and exit without file checks/downloads/cleanup. Respects exclusions/depth; ignores filters. Optional N selects the lexicographically last N paths across this target, excluding the root. CLI-only runs need no destination/log paths"
         ),
     )
     directory.add_argument(
@@ -588,16 +519,7 @@ EXAMPLES:
         default=None,
         metavar="N",
         help=(
-            "List files under the target URL/--dir-suffix and exit -- does not "
-            "compare freshness or download/delete anything. Respects "
-            "--exclude-dir, --max-depth, and --filter. With no N, lists every "
-            "file; with N, lists only the last N files per directory, sorted "
-            "lexicographically by filename (server-independent -- no extra "
-            "requests, no reliance on any web server's directory-listing "
-            "format or Last-Modified metadata). This is a name sort, not a "
-            "true timestamp sort: it only reflects chronological order if "
-            "filenames embed a sortable date/sequence, as PROBA-3/STEREO "
-            "filenames do. See USER_GUIDE.md for details."
+            "List matching files and exit without freshness checks/downloads/cleanup. Respects exclusions/depth/filters. Optional N selects the lexicographically last N filenames per directory, not timestamps. CLI-only runs need no destination/log paths"
         ),
     )
 
@@ -614,21 +536,21 @@ EXAMPLES:
         type=int,
         default=DEFAULT_TIMEOUT,
         metavar="SECS",
-        help=f"Request timeout (default: {DEFAULT_TIMEOUT}s)",
+        help=f"Base request timeout (default: {DEFAULT_TIMEOUT}s; range: 3-300); some paths use fixed limits/multiples, not a whole-run deadline",
     )
     performance.add_argument(
         "--max-retries",
         type=int,
         default=DEFAULT_MAX_RETRIES,
         metavar="N",
-        help=f"Max retries per request (default: {DEFAULT_MAX_RETRIES})",
+        help=f"Connection-request retry budget (default: {DEFAULT_MAX_RETRIES}); chunk retries also have their own fixed budget",
     )
     performance.add_argument(
         "--retry-delay",
         type=int,
         default=DEFAULT_RETRY_DELAY,
         metavar="SECS",
-        help=f"Delay between retries (default: {DEFAULT_RETRY_DELAY}s)",
+        help=f"Base retry-backoff delay (default: {DEFAULT_RETRY_DELAY}s)",
     )
     performance.add_argument(
         "--trusted-server",
@@ -640,15 +562,23 @@ EXAMPLES:
         type=float,
         default=REQUEST_DELAY,
         metavar="SECS",
-        help=f"Request delay (default: {REQUEST_DELAY}s)",
+        help=f"Request pacing delay (default: {REQUEST_DELAY}s; range: 0.001-1.0)",
     )
     performance.add_argument(
         "--bandwidth-limit", type=float, metavar="MB/S", help="Limit download bandwidth (MB/s)"
     )
 
     cache = parser.add_argument_group("Cache Options")
-    cache.add_argument("--no-cache", action="store_true", help="Disable cache")
-    cache.add_argument("--refresh-cache", action="store_true", help="Force cache refresh")
+    cache.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="Bypass saved metadata and process-local parsed-listing caches; existing files are still checked for freshness",
+    )
+    cache.add_argument(
+        "--refresh-cache",
+        action="store_true",
+        help="Ignore saved metadata and cached listings for this run",
+    )
     cache.add_argument(
         "--cache-max-age",
         type=int,
@@ -660,24 +590,27 @@ EXAMPLES:
         "--cache-html",
         action="store_true",
         default=True,
-        help="Cache parsed HTML content (default: enabled)",
+        help="Cache parsed listings in memory within this process (default: enabled); not restored on a new launch",
     )
     cache.add_argument(
-        "--no-cache-html", action="store_false", dest="cache_html", help="Disable HTML caching"
+        "--no-cache-html",
+        action="store_false",
+        dest="cache_html",
+        help="Disable process-local parsed-listing caches",
     )
     cache.add_argument(
         "--html-cache-max-age",
         type=int,
         default=HTML_CACHE_MAX_AGE_HOURS,
         metavar="HOURS",
-        help=f"HTML cache max age (default: {HTML_CACHE_MAX_AGE_HOURS}h)",
+        help=f"Process-local parsed-listing cache age (default: {HTML_CACHE_MAX_AGE_HOURS}h)",
     )
     cache.add_argument(
         "--hash-algorithm",
         type=str,
         default="md5",
         choices=["md5", "sha256", "blake2b"],
-        help="Hash algorithm for file integrity (default: md5)",
+        help="Hash for directory/cache signatures (default: md5); no comparison with a remote cryptographic file digest",
     )
     cache.add_argument(
         "--no-rget-list",
@@ -702,7 +635,11 @@ EXAMPLES:
             "Currently has no effect; accepted for backward compatibility."
         ),
     )
-    cache.add_argument("--no-etag", action="store_true", help="Disable ETag verification")
+    cache.add_argument(
+        "--no-etag",
+        action="store_true",
+        help="Disable ETag-based freshness checks; range transfers still require strong ETags for integrity",
+    )
     cache.add_argument(
         "--missing-files",
         action="store_true",
@@ -721,7 +658,7 @@ EXAMPLES:
         "--async-metadata",
         action="store_true",
         default=True,
-        help="Enable async metadata checks (default: enabled)",
+        help="Enable async metadata checks (default: enabled); normal sync uses them only for more than 80 remote files, outside dry runs",
     )
     async_grp.add_argument(
         "--no-async-metadata",
@@ -734,7 +671,7 @@ EXAMPLES:
         type=int,
         default=DEFAULT_ASYNC_WORKERS,
         metavar="N",
-        help=f"Async metadata workers (default: {DEFAULT_ASYNC_WORKERS})",
+        help=f"Async metadata admission limit (default: {DEFAULT_ASYNC_WORKERS}); adaptive admission is also capped at {ADAPTIVE_MAX_CONCURRENCY}",
     )
     async_grp.add_argument(
         "--adaptive-async",
@@ -746,21 +683,21 @@ EXAMPLES:
         "--no-adaptive-async",
         action="store_false",
         dest="adaptive_async",
-        help="Disable adaptive async",
+        help="Use fixed --async-workers admission instead of adaptive metadata concurrency",
     )
     async_grp.add_argument(
         "--adaptive-start-concurrency",
         type=int,
         default=ADAPTIVE_START_CONCURRENCY,
         metavar="N",
-        help=f"Starting async concurrency (default: {ADAPTIVE_START_CONCURRENCY})",
+        help=f"Starting async metadata concurrency (default: {ADAPTIVE_START_CONCURRENCY}), bounded by --async-workers and {ADAPTIVE_MAX_CONCURRENCY}",
     )
     async_grp.add_argument(
         "--adaptive-error-threshold",
         type=float,
         default=ADAPTIVE_ERROR_THRESHOLD,
         metavar="RATE",
-        help=f"Error rate threshold for fallback (default: {ADAPTIVE_ERROR_THRESHOLD})",
+        help=f"Adaptive metadata fallback error rate (range: 0-1; default: {ADAPTIVE_ERROR_THRESHOLD})",
     )
 
     cleanup = parser.add_argument_group("Cleanup & Safety Options")
@@ -769,7 +706,7 @@ EXAMPLES:
         type=str,
         choices=["safe", "preview", "delete", "move"],
         default=argparse.SUPPRESS,
-        help="Cleanup policy: safe, preview, delete, move",
+        help="Obsolete-file policy (default: safe): safe preserves obsolete files; preview reports actions but downloads still run; move archives; delete removes. Changed files may still be replaced",
     )
     cleanup.add_argument(
         "--confirm-delete",
@@ -777,10 +714,14 @@ EXAMPLES:
         help="Require confirmation before deletion (delete mode only)",
     )
     cleanup.add_argument(
-        "--dry-run", action="store_true", help="Simulate without downloading/deleting"
+        "--dry-run",
+        action="store_true",
+        help="Scan/check without downloading or changing mirrored files; still makes requests and may create log/cache bookkeeping directories",
     )
     cleanup.add_argument(
-        "--quick", action="store_true", help="Quick mode (update cache timestamp only)"
+        "--quick",
+        action="store_true",
+        help="Refresh an existing JSON cache's expiry timestamp only; does not verify the mirror or create a missing cache. Connection setup may still make requests",
     )
 
     security = parser.add_argument_group("Security Options")
@@ -788,13 +729,13 @@ EXAMPLES:
         "--security-validation",
         action="store_true",
         default=True,
-        help="Enable SSRF/path protection (default: enabled)",
+        help="Enable extra URL validation and per-IP pacing (default: enabled); transport IP restrictions are independent",
     )
     security.add_argument(
         "--no-security-validation",
         action="store_false",
         dest="security_validation",
-        help="Disable security validation (NOT recommended)",
+        help="Disable extra URL validation and per-IP pacing; secure transport still rejects private/loopback targets",
     )
     security.add_argument(
         "--circuit-breaker-enabled",
@@ -815,26 +756,7 @@ EXAMPLES:
         action="store_true",
         default=False,
         help=(
-            "Detect directory-level symlinks during the scan and log every one "
-            "found. Off by default -- with this unset, a symlinked directory is "
-            "just crawled and mirrored like any other, with no detection and no "
-            "extra cost. Plain HTTP directory listings (Apache-style autoindex, "
-            "used by most archives this tool targets) give no explicit 'this is "
-            "a symlink' signal: the server transparently resolves the symlink "
-            "and serves the target's listing under the link's own URL path, "
-            "with nothing in the HTML to tell them apart. Detection here is "
-            "therefore a heuristic, not a real symlink check: each scanned "
-            "directory's entries (file/subdir basenames -- no extra request, "
-            "reuses data already fetched) are fingerprinted, and if two "
-            "different URLs in the same run produce the same fingerprint, the "
-            "one discovered second is reported as a likely symlink to the one "
-            "discovered first. Recommended first step: run once with "
-            "--symlink-mode detect and check the log for '🔗 Symlink detected' "
-            "lines, then decide what to do about the ones found -- either "
-            "rerun with --symlink-mode skip/follow, or drop --handle-symlinks "
-            "entirely and permanently exclude the known-duplicate paths with "
-            "--exclude-dir instead. See USER_GUIDE.md for the full writeup, "
-            "worked example, and caveats."
+            "Report possible duplicate directory subtrees by matching non-empty entry names (default: disabled). This heuristic can flag unrelated directories and does not detect file symlinks. Start with --symlink-mode detect --print-logs and review the paths"
         ),
     )
     symlink.add_argument(
@@ -842,34 +764,7 @@ EXAMPLES:
         choices=["detect", "follow", "skip", "treat-as-file"],
         default="skip",
         help=(
-            "What to do with a directory flagged by --handle-symlinks (which "
-            "must also be set -- this option has no effect on its own). Every "
-            "mode logs the detection; they differ in what happens to the "
-            "directory afterward. 'detect' (recommended starting point): purely "
-            "observational -- report it, then crawl and mirror it exactly as if "
-            "--handle-symlinks were unset. Implies --dry-run automatically: "
-            "the scan and detection still run in full, but nothing is "
-            "downloaded or deleted -- otherwise a 'just survey the tree' pass "
-            "would download the very duplicate content you're trying to "
-            "avoid. Use this first to see what's out there before choosing a "
-            "stronger mode. 'skip' (default once "
-            "--handle-symlinks is set): report it, then don't descend into it "
-            "or download anything under it -- avoids re-downloading duplicate "
-            "content, at the cost of one wasted request for the initial "
-            "directory listing that was needed to detect it. 'follow': report "
-            "it, then mirror it like a normal directory -- but ONLY if its "
-            "detected target resolves inside the current --url/--dir-suffix "
-            "scope; a target outside that scope is always skipped instead, "
-            "regardless of this setting -- that safety boundary isn't "
-            "user-tunable, since it's exactly the scenario "
-            "--max-symlink-depth/--max-symlinks-per-dir/"
-            "--symlink-bomb-threshold guard against. 'treat-as-file': accepted "
-            "for forward compatibility but has no distinct meaning for a "
-            "directory symlink (there's no sensible way to save an HTML "
-            "listing 'as a file'), so it currently behaves identically to "
-            "'skip'. Note: this only ever detects directory symlinks -- a "
-            "symlinked individual file can't be told apart from a real one "
-            "without downloading and hashing it, which isn't done here."
+            "Requires --handle-symlinks. detect reports and keeps scanning, implying --dry-run; skip omits detected duplicates (default); follow mirrors within scope/tracker limits; treat-as-file behaves like skip"
         ),
     )
     symlink.add_argument(
@@ -897,15 +792,14 @@ EXAMPLES:
         "--circuit-breaker-downloads",
         action="store_true",
         default=True,
-        help="Enable circuit breaker for downloads (default: enabled)",
+        help="Compatibility setting (default: enabled); has no effect on sync. --circuit-breaker-enabled controls download breakers",
     )
     symlink.add_argument(
         "--no-circuit-breaker-downloads",
         action="store_false",
         dest="circuit_breaker_downloads",
         help=(
-            "Disable circuit breaker for downloads. Currently has no effect "
-            "(use --no-circuit-breaker); accepted for backward compatibility."
+            "Compatibility setting; has no effect on sync. Use --no-circuit-breaker to disable download breakers"
         ),
     )
 
@@ -916,12 +810,7 @@ EXAMPLES:
         "--log-file",
         metavar="NAME",
         help=(
-            "Custom base name for the run's log file, replacing the default "
-            "'mirror_url' prefix. The full filename is always assembled as "
-            "NAME_SUFFIX_TIMESTAMP.log, where SUFFIX is the underscore-joined "
-            "--dir-suffix value(s) (or 'all' if none given) and TIMESTAMP is "
-            "YYYYMMDD_HHMMSS. With more than one --dir-suffix, all suffixes "
-            "share this single log file instead of getting one file each."
+            "Custom log prefix: NAME_SUFFIX_TIMESTAMP.log, with suffixes joined by underscores (or all) and YYYYMMDD_HHMMSS. Unsafe characters are replaced and long names are shortened. Multiple suffixes share one log file"
         ),
     )
     logging_grp.add_argument("--quiet", action="store_true", help="Quiet mode (WARNING+ only)")
@@ -930,11 +819,13 @@ EXAMPLES:
     logging_grp.add_argument(
         "--stats",
         action="store_true",
-        help="Currently has no effect; accepted for backward compatibility. "
-        "The end-of-run METRICS SUMMARY is always printed in full.",
+        help="Compatibility setting; no effect. The normal completed-sync path emits the full metrics summary; early exits use shorter summaries",
     )
     logging_grp.add_argument(
-        "--metrics-json", type=Path, metavar="PATH", help="Export metrics to JSON file"
+        "--metrics-json",
+        type=Path,
+        metavar="PATH",
+        help="Export metrics to JSON and enable the localhost health/metrics server; both are disabled in dry runs",
     )
 
     scan = parser.add_argument_group("Scan & Path Options")
@@ -942,7 +833,7 @@ EXAMPLES:
         "--scan-mode",
         choices=["sequential", "parallel", "adaptive", "async"],
         default="adaptive",
-        help="Directory scan mode (default: adaptive)",
+        help="Compatibility scan-mode setting (default: adaptive); sync currently scans directories sequentially regardless of this value",
     )
     scan.add_argument(
         "--parallel-threshold",
@@ -960,10 +851,7 @@ EXAMPLES:
         default=None,
         metavar="N",
         help=(
-            f"Maximum directory depth (default: {MAX_DIRECTORY_DEPTH}; "
-            f"--list-dirs defaults to {LIST_DIRS_DEFAULT_MAX_DEPTH} -- the "
-            "current folder's immediate children only -- unless --max-depth "
-            "is given explicitly)"
+            f"Target-root recursion depth (root: 0; default: {MAX_DIRECTORY_DEPTH}). CLI-only --list-dirs defaults to {LIST_DIRS_DEFAULT_MAX_DEPTH}; --config uses its file/model depth unless explicitly overridden"
         ),
     )
     scan.add_argument(
@@ -971,14 +859,14 @@ EXAMPLES:
         type=int,
         default=MAX_FILENAME_LENGTH,
         metavar="N",
-        help=f"Maximum filename length (default: {MAX_FILENAME_LENGTH})",
+        help=f"Local filename sanitization/truncation limit (default: {MAX_FILENAME_LENGTH}); colliding sanitized paths fail before downloads",
     )
     scan.add_argument(
         "--download-queue-size",
         type=int,
         default=1000,
         metavar="N",
-        help="Download queue size (default: 1000)",
+        help="Compatibility queue capacity (default: 1000); sync materializes the remote file list and does not use the bounded queue",
     )
 
     advanced = parser.add_argument_group("Advanced Performance Options")
@@ -986,69 +874,77 @@ EXAMPLES:
         "--adaptive-batch-processing",
         action="store_true",
         default=True,
-        help="Enable adaptive batch sizing (default: enabled)",
+        help="Compatibility setting (default: enabled); does not change sync batching",
     )
     advanced.add_argument(
         "--no-adaptive-batch-processing",
         action="store_false",
         dest="adaptive_batch_processing",
-        help="Disable adaptive batch sizing",
+        help="Compatibility setting; does not change sync batching",
     )
     advanced.add_argument(
         "--initial-batch-size",
         type=int,
         default=BATCH_SIZE,
         metavar="N",
-        help=f"Initial batch size (default: {BATCH_SIZE})",
+        help=f"Compatibility initial batch size (default: {BATCH_SIZE}); does not change sync batching",
     )
     advanced.add_argument(
         "--max-batch-size",
         type=int,
         default=MAX_BATCH_SIZE,
         metavar="N",
-        help=f"Maximum batch size (default: {MAX_BATCH_SIZE})",
+        help=f"Compatibility maximum batch size (default: {MAX_BATCH_SIZE}); does not change sync batching",
     )
     advanced.add_argument(
         "--target-batch-time",
         type=float,
         default=TARGET_BATCH_TIME_SECONDS,
         metavar="SECS",
-        help=f"Target batch processing time (default: {TARGET_BATCH_TIME_SECONDS}s)",
+        help=f"Compatibility target batch time (default: {TARGET_BATCH_TIME_SECONDS}s); does not change sync batching",
     )
     advanced.add_argument(
         "--memory-cache-size",
         type=int,
         default=MEMORY_CACHE_MAX_SIZE,
         metavar="N",
-        help=f"Memory cache size (default: {MEMORY_CACHE_MAX_SIZE})",
+        help=f"Optional tracking-component threshold (default: {MEMORY_CACHE_MAX_SIZE}); does not bound sync's remote file list or active metadata-cache capacities",
     )
     advanced.add_argument(
         "--use-disk-backed-sets",
         action="store_true",
-        help="Use disk for large file sets (saves memory)",
+        help="Configure optional disk-backed tracking; sync does not populate it or spill its remote file list to disk",
     )
     advanced.add_argument(
-        "--disk-cache-dir", type=Path, metavar="DIR", help="Directory for disk-backed cache"
+        "--disk-cache-dir",
+        type=Path,
+        metavar="DIR",
+        help="Cache/tracking component directory; does not spill sync's remote file list",
     )
     advanced.add_argument(
         "--fast-parsing-fallback",
         action="store_true",
         default=True,
-        help="Use fast parser for large HTML (default: enabled)",
+        help="Allow lightweight-parser fallback after lxml fails (default: enabled); large listings/no lxml select the lightweight parser independently",
     )
     advanced.add_argument(
         "--no-fast-parsing-fallback",
         action="store_false",
         dest="fast_parsing_fallback",
-        help="Disable fast parsing fallback",
+        help="Disable fallback after lxml failure; large listings/no lxml still select the lightweight parser",
     )
-    advanced.add_argument("--http2", action="store_true", default=True, help=argparse.SUPPRESS)
+    advanced.add_argument(
+        "--http2",
+        action="store_true",
+        default=True,
+        help="Enable HTTP/2 (default: enabled); overrides http2: false in a config file",
+    )
     advanced.add_argument("--no-http2", action="store_false", dest="http2", help="Disable HTTP/2")
     advanced.add_argument(
         "--http2-pipelining",
         action="store_true",
         default=True,
-        help="Enable HTTP/2 pipelining (default: enabled)",
+        help="Compatibility setting (default: enabled); the HTTP/2 client does not read this setting",
     )
     advanced.add_argument(
         "--no-http2-pipelining",
@@ -1073,14 +969,14 @@ EXAMPLES:
         type=float,
         default=FS_CACHE_TTL_SECONDS,
         metavar="SECS",
-        help=f"File system cache TTL (default: {FS_CACHE_TTL_SECONDS}s)",
+        help=f"Standalone filesystem-cache TTL (default: {FS_CACHE_TTL_SECONDS}s); sync freshness checks use direct filesystem stats",
     )
     advanced.add_argument(
         "--no-content-hash",
         action="store_false",
         dest="content_hash_small_files",
         default=True,
-        help="Disable content hash verification for small files",
+        help="Compatibility setting; has no effect on file freshness checks",
     )
 
     # NEW v3.0.0 parallel download arguments
@@ -1093,7 +989,7 @@ EXAMPLES:
         type=int,
         default=8080,
         metavar="PORT",
-        help="Health check server port (default: 8080)",
+        help="Localhost health/metrics port (default: 8080); enabled only with --metrics-json outside dry runs",
     )
 
     args = parser.parse_args()
