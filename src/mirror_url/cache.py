@@ -53,7 +53,6 @@ class CacheManager:
             ttl_seconds=self.config.html_cache_max_age * 3600,  # Convert hours to seconds
             name="html_cache",
         )
-        self.html_cache_lock = RLock()
         self.lru_file_cache = LRUCache(
             maxsize=MAX_CACHE_METADATA_ENTRIES,
             ttl_seconds=self.config.cache_max_age * 86400,

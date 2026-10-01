@@ -55,7 +55,6 @@ class UnifiedConcurrencyManager:
 
         # Track active resources
         self.active_threads = 0
-        self.active_async_tasks = 0
         self.pending_operations = 0
 
         # FIX: Add missing lock attribute
@@ -63,7 +62,6 @@ class UnifiedConcurrencyManager:
 
         # Locks and conditions
         self.thread_lock = RLock()
-        self.async_lock = RLock()
         self.thread_condition = threading.Condition(self.thread_lock)
 
         # Statistics
@@ -159,6 +157,9 @@ class UnifiedConcurrencyManager:
     def acquire_thread(self, concurrency_type: ConcurrencyType = ConcurrencyType.SYNC) -> bool:
         """
         Acquire a thread slot.
+
+        ``concurrency_type`` is accepted for compatibility; all callers share
+        the same thread budget.
 
         Returns:
             True if slot acquired, False if at limit

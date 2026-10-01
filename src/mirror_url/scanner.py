@@ -18,7 +18,6 @@ from .decorators import log_performance
 from .exceptions import ParsingError
 from .parsing import AdaptiveBatchProcessor, decode_html, extract_links_fast, should_use_fast_parser
 from .primitives import LRUCache
-from .storage import FileSystemCache
 from .utils import sanitize_url_for_log, trim_url
 
 
@@ -52,11 +51,9 @@ class DirectoryScanner:
             name="html_cache",
         )
         self.batch_processor = AdaptiveBatchProcessor()
-        self.fs_cache = FileSystemCache()
         self.fast_parse_count = 0
         self.lxml_parse_count = 0
         self.cached_signatures: Dict[str, str] = {}
-        self.adaptive_manager = None
         self.scan_count = 0
         # Last-Modified/ETag captured from each directory listing's own
         # GET response -- zero extra cost, this is the same request

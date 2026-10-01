@@ -516,6 +516,10 @@ class MirrorConfig(BaseModel):
 
     @classmethod
     def from_dict(cls, config_dict: Dict[str, Any], silent: bool = False) -> MirrorConfig:
+        """Build validated config; ``silent`` is a compatibility argument.
+
+        The stored flag currently does not suppress validation warnings.
+        """
         if "dest_path" in config_dict and isinstance(config_dict["dest_path"], str):
             config_dict["dest_path"] = Path(config_dict["dest_path"])
         if "log_path" in config_dict and isinstance(config_dict["log_path"], str):
