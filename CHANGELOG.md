@@ -4,6 +4,35 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.71] - 2026-10-01
+
+### Changed
+
+- Remove verified unused internal state, duplicate helper allocations, spare
+  locks/counters/semaphores, and eight orphan constants after Vulture and manual
+  call-site checks. Remove the unread private config flag and unused test fixture
+  override; retain public helpers, accepted arguments, and framework hooks.
+- Factor the mmap assembly threshold for deterministic fault tests, preserving
+  the existing 50 GiB limit, and simplify unreachable download checks and retry
+  exits without changing the retry budget.
+
+### Tests and CI
+
+- Add 317 tests covering cache recovery, async request lifecycles, connection and
+  storage management, local HTTP mirror workflows, download integrity, and
+  storage/network failures.
+- Reach 100% statement and branch coverage separately for `download.py` and
+  `download_integrity.py`, with a CI gate that rejects any missing line or branch.
+- Run the full suite, including local HTTP integration, with a 70% overall
+  statement/branch coverage gate and save HTML, XML, and JSON coverage reports.
+
+### Documentation
+
+- Explain dormant public helpers and framework-dispatched callbacks, document
+  ignored compatibility arguments, and correct the URL-encoding docstring.
+- Update the developer guide and contributor instructions for coverage checks
+  and unused-code review; update the guide versions and installation examples.
+
 ## [3.1.70] - 2026-09-30
 
 ### Fixed
