@@ -63,7 +63,6 @@ def mirror(tmp_path):
     m.scan_incomplete = False
     m.suffix_index = 0
     m.total_suffixes = 1
-    m.get_remote_timestamp = lambda url: None
     m._get_filename_fast = lambda url: unquote(urlparse(url).path.rsplit("/", 1)[-1])
     m.connection_manager = Mock()
     yield m
