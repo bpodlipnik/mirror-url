@@ -4,7 +4,37 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.1.70] - 2026-09-30
+
+### Fixed
+
+- Protect existing data from disk probes, partial-file/sidecar collisions, and
+  stale-partial cleanup; reserve an owned `.mirror-url-state` directory.
+- Deduplicate discovered URLs and reject ambiguous local filename mappings
+  before downloading. Count directory depth consistently and fix dot-leading
+  regular expressions and filenames containing URL query strings.
+- Stream file and chunk responses, pace every chunk through a shared byte budget,
+  and retain concurrency leases until closure;
+  honor secure-transport HTTP/2/pool settings and preserve ports, bodies, and
+  timeout extensions across DNS retries.
+- Initialize fixed async metadata checks, honor configured worker/threshold
+  values, resize the live gate, validate redirect scope, and retry 429/5xx.
+- Apply file autotuning to pending work and support a concurrency ceiling of 1.
+- Honor cache bypass/refresh settings, persist final file metadata, and refresh
+  the cache's actual expiry timestamp in quick mode.
+- Run requested cleanup for complete empty scans; fail incomplete scans and
+  cleanup failures. Treat post-publication cache failures as advisory.
+- Validate merged CLI/config settings consistently, including benchmarks;
+  sanitize command/log filenames and redact URL secrets in command headers.
+- Keep signal handling opt-in for library users, restore CLI handlers, report
+  bounded parse samples and actual progress, and count half-open permits.
+
+### Documentation and verification
+
+- Describe dormant settings without promising active scan engines or memory
+  bounds; correct hashing, localhost, import architecture, and formatter claims.
+- Enable the live HTTP integration test with a bypass scoped to the test.
+- Add audit regression coverage; regenerate both HTML guides.
 
 ## [3.1.69] - 2026-09-30
 

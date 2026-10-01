@@ -34,8 +34,18 @@ class SecureTransport(httpx.HTTPTransport):
     IP_CACHE_MAX_SIZE = 1000  # FIX: Prevent unbounded growth
     IP_CACHE_CLEANUP_INTERVAL = 60  # FIX: Cleanup every 60 seconds
 
-    def __init__(self, rate_limiter: Optional[PerIPRateLimiter] = None, test_mode: bool = False):
-        super().__init__()
+    def __init__(
+        self,
+        rate_limiter: Optional[PerIPRateLimiter] = None,
+        test_mode: bool = False,
+        *,
+        http2: bool = False,
+        limits: Optional[httpx.Limits] = None,
+    ):
+        if limits is None:
+            super().__init__(http2=http2)
+        else:
+            super().__init__(http2=http2, limits=limits)
         self._test_mode = test_mode  # ✅ Instance-level flag (eliminates global test pollution)
         self._resolved_ips: Dict[str, Tuple[str, float]] = {}
         self._ip_lock = RLock()
@@ -133,7 +143,7 @@ class SecureTransport(httpx.HTTPTransport):
         # But preserve the Host header for virtual hosting
         new_url = request.url.copy_with(host=safe_ip)
         new_headers = request.headers.copy()
-        new_headers["Host"] = hostname
+        new_headers["Host"] = request.url.netloc.decode("ascii")
         new_extensions = dict(request.extensions) if request.extensions else {}
         new_extensions["sni_hostname"] = hostname
         new_request = httpx.Request(
@@ -146,6 +156,8 @@ class SecureTransport(httpx.HTTPTransport):
         try:
             return super().handle_request(new_request)
         except httpx.ConnectError:
+            if not isinstance(request.stream, httpx.ByteStream):
+                raise  # A consumed producer cannot be safely replayed.
             # DNS rotation or dead IP: clear cache and retry once
             with self._ip_lock:
                 self._resolved_ips.pop(hostname, None)
@@ -155,8 +167,9 @@ class SecureTransport(httpx.HTTPTransport):
             new_request_retry = httpx.Request(
                 method=request.method,
                 url=new_url_retry,
-                headers=request.headers,
-                extensions={"sni_hostname": hostname},
+                headers=new_headers,
+                stream=request.stream,
+                extensions=new_extensions,
             )
             return super().handle_request(new_request_retry)
 
@@ -184,8 +197,18 @@ class SecureAsyncTransport(httpx.AsyncHTTPTransport):
     IP_CACHE_MAX_SIZE = 1000  # FIX: Prevent unbounded growth
     IP_CACHE_CLEANUP_INTERVAL = 60  # FIX: Cleanup every 60 seconds
 
-    def __init__(self, rate_limiter: Optional[PerIPRateLimiter] = None, test_mode: bool = False):
-        super().__init__()
+    def __init__(
+        self,
+        rate_limiter: Optional[PerIPRateLimiter] = None,
+        test_mode: bool = False,
+        *,
+        http2: bool = False,
+        limits: Optional[httpx.Limits] = None,
+    ):
+        if limits is None:
+            super().__init__(http2=http2)
+        else:
+            super().__init__(http2=http2, limits=limits)
         self._resolved_ips: Dict[str, Tuple[str, float]] = {}
         self._ip_lock = LoopLocalPrimitive(asyncio.Lock)
         self.rate_limiter = rate_limiter

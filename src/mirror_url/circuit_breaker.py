@@ -55,7 +55,7 @@ class CircuitBreaker:
                 if time.time() - self.last_failure_time >= self.recovery_timeout:
                     self.state = CircuitBreakerState.HALF_OPEN
                     self.half_open_successes = 0
-                    self.half_open_permits = 0
+                    self.half_open_permits = 1
                     self.half_open_start = time.time()
                     logging.info("Circuit breaker half-open - testing recovery")
                     return True

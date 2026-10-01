@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import os
 import shutil
+import tempfile
 import time
 import uuid
 from pathlib import Path
@@ -33,7 +34,6 @@ class FileSystemCache:
         self.stat_cache: Dict[Path, Tuple[float, os.stat_result]] = {}
         self.exists_cache: Dict[Path, Tuple[float, bool]] = {}
         self.lock = RLock()
-        self._access_count = 0
         # Add maxsize limits for memory pressure handling
         self.stat_cache_maxsize = 10000  # Max entries in stat cache
         self.exists_cache_maxsize = 10000  # Max entries in exists cache
@@ -41,7 +41,6 @@ class FileSystemCache:
     def get_stat(self, path: Path) -> Optional[os.stat_result]:
         # 1. Check cache under lock (short critical section)
         with self.lock:
-            self._access_count += 1
             if path in self.stat_cache:
                 timestamp, stat = self.stat_cache[path]
                 # FIX: Always check TTL, not just every 100th access
@@ -64,7 +63,6 @@ class FileSystemCache:
     def exists(self, path: Path) -> Optional[bool]:
         # 1. Check cache under lock
         with self.lock:
-            self._access_count += 1
             if path in self.exists_cache:
                 timestamp, exists = self.exists_cache[path]
                 if time.time() - timestamp >= self.ttl:
@@ -171,9 +169,8 @@ class DiskBackedSet:
         try:
             temp_dir.mkdir(parents=True, exist_ok=True)
             # Verify writability
-            test_file = temp_dir / ".write_test"
-            test_file.touch()
-            test_file.unlink()
+            with tempfile.TemporaryFile(dir=temp_dir):
+                pass
         except OSError as e:
             raise CacheError(f"Cannot create/write to cache directory {temp_dir}: {e}") from e
 
@@ -240,9 +237,7 @@ class DiskBackedSet:
             )
             items_to_write = items_to_write[:MAX_BATCH_ITEMS]
             # Keep remaining items in buffer for next flush
-            self._write_buffer = (
-                self._write_buffer[MAX_BATCH_ITEMS:] + self._write_buffer[MAX_BATCH_ITEMS:]
-            )
+            self._write_buffer = self._write_buffer[MAX_BATCH_ITEMS:]
         else:
             self._write_buffer.clear()
 

@@ -69,7 +69,12 @@ class DownloadMixin:
         # ``connection_manager.circuit_breaker`` attribute was dead code and
         # has been removed.
 
-        partial_path = self.partial_manager.register_partial(local_path, remote_url)
+        try:
+            partial_path = self.partial_manager.register_partial(local_path, remote_url)
+        except (OSError, ValueError) as error:
+            logging.error(f"Cannot create partial download: {error}")
+            self.files_failed.increment(1)
+            return False
         logging.debug(f"Partial path: {partial_path}")
 
         try:
@@ -98,7 +103,7 @@ class DownloadMixin:
 
                     start = time.time()
                     r = self.connection_manager.request(
-                        remote_url, method="GET", timeout=30, headers=headers
+                        remote_url, method="GET", timeout=30, headers=headers, stream=True
                     )
                     if metadata and r.status_code == 416:
                         # A 416 never proves local contents are complete, even
@@ -109,6 +114,7 @@ class DownloadMixin:
                             method="GET",
                             timeout=30,
                             headers={"Accept-Encoding": "identity"},
+                            stream=True,
                         )
                         mode, bytes_already, metadata = "wb", 0, None
                         clear_resume_metadata(partial_path)
@@ -117,6 +123,7 @@ class DownloadMixin:
                         logging.warning(
                             f"Non-200/206 status for {sanitize_url_for_log(remote_url)}: {r.status_code}"
                         )
+                        self.files_failed.increment(1)
                         self.partial_manager.complete_partial(partial_path)
                         self.performance_monitor.record(
                             "download", time.time() - download_start, False
@@ -173,7 +180,12 @@ class DownloadMixin:
                     self.metrics.add_download_time(download_time)
 
                     os.replace(partial_path, local_path)
-                    clear_resume_metadata(partial_path)
+                    try:
+                        clear_resume_metadata(partial_path)
+                    except OSError as error:
+                        logging.warning(
+                            f"Published file resume metadata could not be removed: {error}"
+                        )
                     self.partial_manager.complete_partial(partial_path)
 
                     last_modified = r.headers.get("Last-Modified")
@@ -186,12 +198,20 @@ class DownloadMixin:
 
                     remote_etag = r.headers.get("ETag")
                     if remote_etag:
-                        self.cache_manager.save_file_metadata(
-                            local_path, remote_etag, time.time(), size
-                        )
+                        try:
+                            self.cache_manager.save_file_metadata(
+                                local_path, remote_etag, time.time(), size
+                            )
+                        except Exception as error:
+                            logging.warning(f"Published file metadata could not be cached: {error}")
 
                     if hasattr(self, "fs_cache"):
-                        self.fs_cache.invalidate(local_path)
+                        try:
+                            self.fs_cache.invalidate(local_path)
+                        except Exception as error:
+                            logging.warning(
+                                f"Published file filesystem cache could not be invalidated: {error}"
+                            )
 
                     # FIX v3.0.6: Update counters using atomic methods
                     downloaded_bytes = size - bytes_already

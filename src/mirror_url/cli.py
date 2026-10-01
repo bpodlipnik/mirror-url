@@ -13,7 +13,7 @@ import copy
 import hashlib
 import json
 import logging
-import shlex
+import re
 import sys
 import tempfile
 import time
@@ -24,7 +24,7 @@ import yaml
 
 from ._version import __version__
 from .compat import LXML_AVAILABLE, PSUTIL_AVAILABLE, TQDM_AVAILABLE
-from .config import MirrorConfig, expand_env_vars, validate_config_file
+from .config import MirrorConfig, expand_env_vars
 from .constants import (
     ADAPTIVE_ASYNC_ENABLED,
     ADAPTIVE_ERROR_THRESHOLD,
@@ -33,7 +33,6 @@ from .constants import (
     AUTO_CONCURRENCY_ENABLED,
     BATCH_SIZE,
     CHUNK_TIMEOUT_MULTIPLIER,
-    CONTENT_HASH_THRESHOLD,
     DEFAULT_ASYNC_WORKERS,
     DEFAULT_CACHE_MAX_AGE_DAYS,
     DEFAULT_MAX_RETRIES,
@@ -61,7 +60,7 @@ from .constants import (
 from .core import MirrorURL
 from .enums import CleanupPolicy, ScanMode
 from .exceptions import ConfigError, PathTraversalError, URLScopeError
-from .utils import _log_files
+from .utils import _log_files, sanitize_command_line
 
 
 def setup_shared_logging(
@@ -73,42 +72,22 @@ def setup_shared_logging(
     :func:`_effective_args`) is only used for the informational header written
     at the top of the log; when omitted the header describes ``args`` itself.
     """
-    # Create log filename with suffixes properly separated by underscores
-    suffixes_str = "_".join(args.dir_suffix) if args.dir_suffix else "all"
     timestamp = time.strftime("%Y%m%d_%H%M%S")
-
-    # Guard against the constructed filename exceeding the filesystem's
-    # limit (typically 255 bytes) when many --dir-suffix values are
-    # passed -- e.g. a full month of daily suffixes joined with
-    # underscores easily exceeds this, and logging.FileHandler crashes
-    # with OSError: [Errno 36] File name too long before the run even
-    # starts. This is the shared-log *filename* itself; the existing
-    # --log-path scratch-dir fallback (see connection.py/_core/_base.py)
-    # only guards against a bad *directory*, not an overly long
-    # *filename* built from this method's own string concatenation, so
-    # it doesn't help here.
-    #
-    # Fixed overhead in the final filename besides log_file/suffixes_str:
-    # "_" + timestamp ("YYYYMMDD_HHMMSS", 15 chars) + ".log", plus a
-    # margin for safety.
-    fixed_overhead = len(args.log_file) + 1 + len(timestamp) + len(".log") + 10
-    suffix_budget = max(20, MAX_FILENAME_LENGTH - fixed_overhead)
-
-    if len(suffixes_str) > suffix_budget:
-        # Summarize instead of truncating blindly: a short preview of the
-        # first few suffixes stays human-readable in a directory listing,
-        # and a hash of the *full sorted* suffix list guarantees two
-        # different large suffix sets never collide on the same
-        # summarized filename (sorted so the same set of suffixes always
-        # hashes the same way regardless of the order they were passed
-        # in).
-        suffix_hash = hashlib.sha256("_".join(sorted(args.dir_suffix)).encode()).hexdigest()[:8]
-        preview_count = 3
-        preview = "_".join(args.dir_suffix[:preview_count])
-        remaining = len(args.dir_suffix) - preview_count
-        suffixes_str = f"{preview}_plus{remaining}more_{suffix_hash}"
-
-    log_filename = f"{args.log_file}_{suffixes_str}_{timestamp}.log"
+    raw = f"{args.log_file}_{'_'.join(args.dir_suffix) if args.dir_suffix else 'all'}"
+    safe = re.sub(r"[^\w.-]", "_", raw)
+    # Bound bytes, not characters, including a digest when shortening.
+    budget = MAX_FILENAME_LENGTH - len(f"_{timestamp}.log".encode())
+    if len(safe.encode("utf-8")) > budget:
+        digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:8]
+        preview = re.sub(r"[^\w.-]", "_", "_".join(args.dir_suffix[:3]))
+        summary = f"_plus{max(0, len(args.dir_suffix) - 3)}more_{digest}"
+        prefix = re.sub(r"[^\w.-]", "_", args.log_file) + "_" + preview
+        safe = (
+            prefix.encode("utf-8")[: budget - len(summary)].decode("utf-8", errors="ignore")
+            + summary
+        )
+    log_filename = f"{safe}_{timestamp}.log"
+    Path(args.log_path).mkdir(parents=True, exist_ok=True)
     log_path = Path(args.log_path) / log_filename
 
     # Remove ALL existing handlers
@@ -208,7 +187,7 @@ def setup_shared_logging(
         else:
             logging.info(f"⚡ Async meta {eff.async_workers} workers")
     if eff.content_hash_small_files:
-        logging.info(f"🔐 Content hash: <{CONTENT_HASH_THRESHOLD / 1024:.0f}KB")
+        logging.debug("Content-hash compatibility setting does not change file freshness checks")
 
     delay_ms = eff.request_delay * 1000
     logging.info(f"⚡ Rate limit: {delay_ms:.1f}ms{' (trusted)' if eff.trusted_server else ''}")
@@ -223,11 +202,11 @@ def setup_shared_logging(
         logging.info(f"🔗 Symlink handling: {eff.symlink_mode}")
     if getattr(eff, "adaptive_batch_processing", True):
         logging.info(
-            f"📈 Adaptive batch processing: initial={getattr(eff, 'initial_batch_size', BATCH_SIZE)}"
+            f"Compatibility batch setting (inactive in sync): initial={getattr(eff, 'initial_batch_size', BATCH_SIZE)}"
         )
     if getattr(eff, "use_disk_backed_sets", False):
         logging.info(
-            f"💾 Disk-backed sets: memory={getattr(eff, 'memory_cache_size', MEMORY_CACHE_MAX_SIZE)}"
+            f"Compatibility tracking setting (does not bound sync memory): memory={getattr(eff, 'memory_cache_size', MEMORY_CACHE_MAX_SIZE)}"
         )
     if getattr(eff, "fast_parsing_fallback", True):
         logging.info("⚡ Fast parsing fallback enabled")
@@ -1143,10 +1122,6 @@ EXAMPLES:
 
     # Handle config file
     if args.config:
-        valid, error = validate_config_file(Path(args.config))
-        if not valid:
-            parser.error(f"Invalid configuration file: {error}")
-
         try:
             with open(args.config) as f:
                 if Path(args.config).suffix.lower() in [".yaml", ".yml"]:
@@ -1155,6 +1130,8 @@ EXAMPLES:
                     config_dict = json.load(f)
 
                 config_dict = expand_env_vars(config_dict)
+                if not isinstance(config_dict, dict):
+                    raise ValueError("Configuration must be an object")
 
             missing = []
             if "base_url" not in config_dict and not args.url:
@@ -1311,7 +1288,7 @@ EXAMPLES:
 
     if args.print_logs and args.log_file:
         logging.info("Command line used:")
-        cmd_str = shlex.join([sys.executable] + sys.argv)
+        cmd_str = sanitize_command_line([sys.executable] + sys.argv)
         logging.info(cmd_str)
         logging.info("-" * min(80, len(cmd_str) + 4))
 
@@ -1414,9 +1391,27 @@ EXAMPLES:
             sequential_downloads=getattr(args, "sequential_downloads", False),
         )
 
+        if args.config:
+            benchmark_config = MirrorConfig.from_dict(
+                {
+                    **config_dict,
+                    "base_url": args.url,
+                    "dest_path": args.dest_path,
+                    "log_path": args.log_path,
+                    **_cli_overrides(args, explicit_dests),
+                    "dir_suffix": benchmark_suffix,
+                    "benchmark": True,
+                },
+                silent=use_shared,
+            )
+        benchmark_ok = False
         with MirrorURL(benchmark_config) as mirror:
+            mirror.install_signal_handlers()
             if hasattr(mirror, "connection_manager") and mirror.connection_manager:
-                mirror.benchmark()
+                result = mirror.benchmark()
+                benchmark_ok = bool(result.get("connection_test")) and not getattr(
+                    mirror, "scan_incomplete", False
+                )
                 logging.info("Benchmark completed")
 
                 if hasattr(mirror.scanner, "get_parse_stats"):
@@ -1440,7 +1435,7 @@ EXAMPLES:
             else:
                 logging.error("Benchmark failed")
 
-        sys.exit(0)
+        sys.exit(0 if benchmark_ok else 1)
 
     # Process suffixes
     suffixes = args.dir_suffix if args.dir_suffix else [""]
@@ -1452,7 +1447,16 @@ EXAMPLES:
     for i, suf in enumerate(suffixes, 1):
         try:
             if args.config:
-                base_config = MirrorConfig.from_yaml(Path(args.config))
+                base_config = MirrorConfig.from_dict(
+                    {
+                        **config_dict,
+                        "base_url": args.url,
+                        "dest_path": args.dest_path,
+                        "log_path": args.log_path,
+                        **_cli_overrides(args, explicit_dests),
+                    },
+                    silent=True,
+                )
                 # Start from *every* field of the file's config (a hand-copied subset
                 # used to drop health_check_port, parallel_optimization_mode, ...),
                 # then layer on only the options that were typed on the command line.
@@ -1585,6 +1589,7 @@ EXAMPLES:
 
         try:
             with MirrorURL(suffix_config, suffix_index=i, total_suffixes=total) as mirror:
+                mirror.install_signal_handlers()
                 if not hasattr(mirror, "connection_manager") or not mirror.connection_manager:
                     logging.warning(f"[{i}/{total}] No connection manager for {suf or 'ROOT'}")
                     skipped.append(suf or "ROOT")

@@ -1,3 +1,8 @@
+> Historical migration plan. The modular migration is complete. References
+> below to a live monolith or placeholder modules describe the starting state,
+> not the current checkout. Unchecked items are follow-up proposals.
+> The repository does not currently run a scheduled nightly integration workflow.
+
 # MirrorURL — Refactoring & Modularization Plan
 
 `mirror_url.py` is a single **15,145-line** file containing ~70 classes and

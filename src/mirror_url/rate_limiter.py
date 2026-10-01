@@ -32,6 +32,7 @@ class BandwidthLimiter:
         self.lock = RLock()
         self.peak_rate = 0.0
         self.average_rate = 0.0
+        self._next_available = 0.0
 
     def throttle(self, bytes_count: int) -> None:
         """
@@ -40,9 +41,14 @@ class BandwidthLimiter:
         Args:
             bytes_count: Number of bytes just downloaded
         """
-        if not self.max_bytes_per_second:
+        if not self.max_bytes_per_second or bytes_count <= 0:
             return
         with self.lock:
+            now_monotonic = time.monotonic()
+            self._next_available = (
+                max(now_monotonic, self._next_available) + bytes_count / self.max_bytes_per_second
+            )
+            sleep_time = self._next_available - now_monotonic
             self.bytes_downloaded += bytes_count
             now = time.time()
             elapsed = now - self.last_check
@@ -53,10 +59,10 @@ class BandwidthLimiter:
                 self.average_rate = self.average_rate * 0.9 + current_rate * 0.1
                 self.bytes_downloaded = 0
                 self.last_check = now
-            elif self.bytes_downloaded > self.max_bytes_per_second:
-                sleep_time = (self.bytes_downloaded / self.max_bytes_per_second) - elapsed
-                if sleep_time > 0:
-                    time.sleep(sleep_time)
+        # Reserve bytes atomically across all callers, then sleep without
+        # blocking another caller from reserving its own place in the budget.
+        if sleep_time > 0:
+            time.sleep(sleep_time)
 
     def get_stats(self) -> Dict[str, float]:
         """
@@ -91,7 +97,7 @@ class RateLimiter:
             per_ip: Whether to rate limit per IP
         """
         self.min_interval = max(1.0 / requests_per_second, delay)
-        self.last_request = 0
+        self.last_request = 0.0
         self.per_ip = per_ip
         self.ip_last_requests: Dict[str, float] = {}
         self.lock = RLock()
@@ -297,7 +303,7 @@ class ChunkAwareRateLimiter(RateLimiter):
                 active_chunks = self.active_chunks_per_ip.get(ip, 1)
 
         # Calculate delay inside lock, sleep outside to prevent blocking other IPs
-        sleep_time = 0
+        sleep_time = 0.0
         with self._wait_lock:
             now = time.time()
             if self.per_ip and ip:
@@ -314,6 +320,8 @@ class ChunkAwareRateLimiter(RateLimiter):
                     # FIX: Update timestamp BEFORE releasing lock to atomically reserve the slot
                     self.ip_last_requests[ip] = now + sleep_time
                     self.total_delays += 1
+                else:
+                    self.ip_last_requests[ip] = now
             else:
                 elapsed = now - self.last_request
                 if elapsed < self.min_interval:
@@ -321,6 +329,8 @@ class ChunkAwareRateLimiter(RateLimiter):
                     # FIX: Update timestamp BEFORE releasing lock
                     self.last_request = now + sleep_time
                     self.total_delays += 1
+                else:
+                    self.last_request = now
 
         # Sleep OUTSIDE the lock (prevents blocking concurrent threads for other IPs)
         if sleep_time > 0:

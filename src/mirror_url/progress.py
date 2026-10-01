@@ -64,18 +64,13 @@ class ProgressTracker:
         self.start_time = time.time()
         self.last_report = 0
         self.callbacks = []
-        self._last_logged_completed = -1
-        self._last_logged_pct = -1
         self.use_tqdm = (
             use_tqdm and TQDM_AVAILABLE and config and config.progress_bar and self.total > 0
         )
         self.tqdm_bar = None
-        self._fallback_mode = False
         self._use_percentage_mode = self.total >= PROGRESS_MIN_FILES_FOR_PCT
         self._milestone_index = 0
         self._next_milestone = PROGRESS_PCT_MILESTONES[0] if self._use_percentage_mode else None
-        self._pending_updates = 0
-        self._update_threshold = 10 if not self.use_tqdm else 1
 
         if self.use_tqdm:
             try:
@@ -91,9 +86,7 @@ class ProgressTracker:
     def reset_rate_after_fallback(self):
         """Reset rate timer after fallback"""
         with self.lock:
-            self._fallback_mode = True
             self.start_time = time.time()
-            self._last_logged_completed = self.completed
             logging.debug("Progress rate timer reset after fallback to sync")
 
     def _should_report(self) -> bool:
@@ -167,25 +160,19 @@ class ProgressTracker:
                     logging.info(f"[long][{self.level}] {report_msg}")
 
                 self.last_report = time.time()
-                self._last_logged_completed = self.completed
 
-                if self._use_percentage_mode:
-                    self._last_logged_pct = self.completed / self.total * 100
+        self._trigger_callbacks()
 
     def report_final(self) -> str:
         """Report final progress"""
         with self.lock:
             logging.debug(f"report_final: before - completed={self.completed}, total={self.total}")
 
-            if self.completed < self.total:
-                logging.debug("report_final: completed < total, setting to total")
-                self.completed = self.total
-
             self.last_report = time.time()
 
             if self.use_tqdm and self.tqdm_bar:
                 try:
-                    self.tqdm_bar.n = self.tqdm_bar.total
+                    self.tqdm_bar.n = self.completed
                     self.tqdm_bar.refresh()
                     self.tqdm_bar.close()
                 except Exception:
@@ -201,8 +188,6 @@ class ProgressTracker:
                     logging.info(f"[final-medium][{self.level}] {report_msg}")
                 else:
                     logging.info(f"[final-long][{self.level}] {report_msg}")
-
-            self._last_logged_completed = self.completed
             logging.debug(f"report_final: after - completed={self.completed}, total={self.total}")
 
             return report_msg
@@ -217,7 +202,7 @@ class ProgressTracker:
             rate = self.completed / total_elapsed if total_elapsed > 0 else 0
             report = (
                 f"{self.prefix}Progress [{self.level}]: {self.completed}/{self.total} {self.name} "
-                f"({percentage:.1f}%) - Complete! (Overall rate: {rate:.1f} {self.name}/s)"
+                f"({percentage:.1f}%) - Finished (Overall rate: {rate:.1f} {self.name}/s)"
             )
         else:
             rate = self.completed / total_elapsed if total_elapsed > 0 else 0
@@ -246,13 +231,17 @@ class ProgressTracker:
 
     def add_callback(self, callback: Callable) -> None:
         """Add progress callback"""
-        self.callbacks.append(callback)
+        with self.lock:
+            self.callbacks.append(callback)
 
     def _trigger_callbacks(self) -> None:
         """Trigger progress callbacks"""
-        for callback in self.callbacks:
+        with self.lock:
+            callbacks = tuple(self.callbacks)
+            completed, total = self.completed, self.total
+        for callback in callbacks:
             try:
-                callback(self.completed, self.total)
+                callback(completed, total)
             except Exception as e:
                 logging.debug(f"Callback error: {e}")
 

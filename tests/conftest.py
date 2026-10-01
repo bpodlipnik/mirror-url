@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import http.server
 import threading
 from pathlib import Path
@@ -23,9 +24,10 @@ def static_http_server(tmp_path: Path):
 
     Yields the base URL (e.g. ``http://127.0.0.1:54321/``).
     """
-    handler = http.server.SimpleHTTPRequestHandler
+    served = tmp_path / "served"
+    served.mkdir(exist_ok=True)
+    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(served))
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
-    server.directory = str(tmp_path)  # type: ignore[attr-defined]
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     host, port = server.server_address[:2]
@@ -33,4 +35,5 @@ def static_http_server(tmp_path: Path):
         yield f"http://{host}:{port}/"
     finally:
         server.shutdown()
+        server.server_close()
         thread.join(timeout=5)

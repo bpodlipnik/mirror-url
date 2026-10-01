@@ -200,7 +200,8 @@ class MetricsCollector:
             elapsed = time.time() - self.parse_start_time
             with self.lock:
                 self.metrics["parse_time_seconds"] += elapsed
-                self.metrics["parse_times"].append(elapsed)
+                with self._times_lock:
+                    self._parse_times.append(elapsed)
             self.parse_start_time = 0
 
     def update_queue_metrics(self, queue_size: int, max_size: int) -> None:

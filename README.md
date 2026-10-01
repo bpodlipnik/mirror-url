@@ -26,7 +26,7 @@ and an SSRF-hardened transport layer.
 - **Resilience** — per-domain circuit breakers, exponential backoff, rate limiting.
 - **Security** — path-traversal and symlink-bomb defenses, private-IP/SSRF guards, URL-scope enforcement.
 - **Operability** — metrics collection, multi-level progress, optional HTTP health-check server.
-- **Caching** — filesystem and disk-backed indexes to skip unchanged content.
+- **Caching** — directory listings and file metadata; discovery currently keeps the remote file list in memory.
 
 ## Installation
 
@@ -70,7 +70,7 @@ pip install -e ".[dev]"
 pre-commit install
 
 ruff check .                  # lint
-black --check .               # format check
+ruff format --check .         # format check (Ruff 0.16.8)
 mypy                          # type-check the new package
 pytest -m "not integration"   # fast test lane
 pytest                        # full suite (includes integration)

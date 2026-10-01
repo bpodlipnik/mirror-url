@@ -59,7 +59,6 @@ from .constants import (
     MAX_WORKERS_HARD_LIMIT,
     MEMORY_CACHE_MAX_SIZE,
     MIN_TIMEOUT,
-    PARALLEL_DOWNLOAD_ENABLED,
     PARALLEL_SCAN_THRESHOLD,
     REQUEST_DELAY,
     STREAMING_MIN_FILE_SIZE_MB,
@@ -136,53 +135,6 @@ _UNUSED_CONFIG_FIELDS = (
 _WARNED_UNUSED_FIELDS: set = set()
 
 
-class ConfigSchema(BaseModel):
-    """Strict configuration schema for validation"""
-
-    base_url: str
-    dest_path: str
-    log_path: str
-    dir_suffix: Optional[str] = ""
-    workers: int = Field(default=DEFAULT_WORKERS, ge=1, le=MAX_WORKERS_HARD_LIMIT)
-    timeout: int = Field(default=DEFAULT_TIMEOUT, ge=MIN_TIMEOUT, le=MAX_TIMEOUT)
-    max_retries: int = Field(default=DEFAULT_MAX_RETRIES, ge=0, le=10)
-    retry_delay: int = Field(default=DEFAULT_RETRY_DELAY, ge=1, le=60)
-    cache_max_age: int = Field(default=DEFAULT_CACHE_MAX_AGE_DAYS, ge=0, le=MAX_CACHE_AGE_DAYS)
-    max_depth: int = Field(default=MAX_DIRECTORY_DEPTH, ge=1, le=100)
-    max_filename_len: int = Field(default=MAX_FILENAME_LENGTH, ge=1, le=512)
-    bandwidth_limit: Optional[float] = Field(default=None, gt=0, le=1000)
-    trusted_server: bool = False
-    missing_files: bool = False
-    list_dirs: bool = False
-    list_dirs_n: int = 0
-    list_files: bool = False
-    list_files_n: int = 0
-    security_validation: bool = True
-    http2: bool = True
-    cleanup_policy: str = "safe"
-    # NEW v3.0.0 fields
-    parallel_downloads: bool = Field(default=PARALLEL_DOWNLOAD_ENABLED)
-    max_chunks_per_file: int = Field(default=MAX_CHUNKS_PER_FILE, ge=1, le=20)
-    min_chunk_size_mb: int = Field(default=10, ge=1, le=100)
-    max_parallel_chunks_total: int = Field(default=MAX_PARALLEL_CHUNKS_TOTAL, ge=10, le=200)
-    chunk_assembly_dir: Optional[str] = None
-
-    @field_validator("base_url")
-    @classmethod
-    def validate_url(cls, v: str) -> str:
-        if not v.startswith(("http://", "https://")):
-            raise ValueError("URL must start with http:// or https://")
-        return v.rstrip("/")
-
-    @field_validator("cleanup_policy")
-    @classmethod
-    def validate_cleanup_policy(cls, v: str) -> str:
-        allowed = ["safe", "preview", "delete", "move"]
-        if v not in allowed:
-            raise ValueError(f"cleanup_policy must be one of {allowed}")
-        return v
-
-
 def validate_config_file(config_path: Path) -> Tuple[bool, Optional[str]]:
     """
     Validate configuration file against schema.
@@ -201,7 +153,7 @@ def validate_config_file(config_path: Path) -> Tuple[bool, Optional[str]]:
                 config_data = json.load(f)
 
         config_data = expand_env_vars(config_data)
-        ConfigSchema(**config_data)
+        MirrorConfig.from_dict(config_data, silent=True)
         return True, None
     except ValidationError as e:
         return False, f"Validation error: {e}"
@@ -220,8 +172,8 @@ class MirrorConfig(BaseModel):
     dir_suffix: str = ""
     workers: int = Field(default=DEFAULT_WORKERS, ge=1, le=MAX_WORKERS_HARD_LIMIT)
     timeout: int = Field(default=DEFAULT_TIMEOUT, ge=MIN_TIMEOUT, le=MAX_TIMEOUT)
-    max_retries: int = DEFAULT_MAX_RETRIES
-    retry_delay: int = DEFAULT_RETRY_DELAY
+    max_retries: int = Field(default=DEFAULT_MAX_RETRIES, ge=0, le=10)
+    retry_delay: int = Field(default=DEFAULT_RETRY_DELAY, ge=1, le=60)
     debug: bool = False
     dry_run: bool = False
     file_filters: List[str] = Field(default_factory=list)
@@ -267,8 +219,8 @@ class MirrorConfig(BaseModel):
         description="Hash algorithm for file integrity checks",
     )
     adaptive_async: bool = ADAPTIVE_ASYNC_ENABLED
-    adaptive_error_threshold: float = ADAPTIVE_ERROR_THRESHOLD
-    adaptive_start_concurrency: int = ADAPTIVE_START_CONCURRENCY
+    adaptive_error_threshold: float = Field(default=ADAPTIVE_ERROR_THRESHOLD, ge=0, le=1)
+    adaptive_start_concurrency: int = Field(default=ADAPTIVE_START_CONCURRENCY, ge=1, le=200)
     security_validation: bool = True
     circuit_breaker_enabled: bool = True
     bandwidth_limit: Optional[float] = Field(default=None, gt=0)
@@ -295,9 +247,9 @@ class MirrorConfig(BaseModel):
 
     # NEW v3.0.0 fields
     # Bounds enforced by model_validator (raising ConfigError) when parallel mode is on.
-    max_chunks_per_file: int = Field(default=MAX_CHUNKS_PER_FILE)
-    min_chunk_size_mb: int = Field(default=10)
-    max_parallel_chunks_total: int = Field(default=MAX_PARALLEL_CHUNKS_TOTAL)
+    max_chunks_per_file: int = Field(default=MAX_CHUNKS_PER_FILE, ge=1, le=20)
+    min_chunk_size_mb: int = Field(default=10, ge=1, le=100)
+    max_parallel_chunks_total: int = Field(default=MAX_PARALLEL_CHUNKS_TOTAL, ge=10, le=200)
     chunk_assembly_dir: Optional[Path] = Field(default=None)
     chunk_timeout_multiplier: float = Field(default=CHUNK_TIMEOUT_MULTIPLIER, ge=1.0, le=3.0)
     # NEW v3.0.6 fields
@@ -735,6 +687,11 @@ def _resolve_max_depth(args: argparse.Namespace) -> int:
     if getattr(args, "list_dirs", None) is not None:
         return LIST_DIRS_DEFAULT_MAX_DEPTH
     return MAX_DIRECTORY_DEPTH
+
+
+# One schema for file validation and runtime construction. Keep the public
+# name as an alias for callers using older versions.
+ConfigSchema = MirrorConfig
 
 
 def load_config_from_args(args: argparse.Namespace, silent: bool = False) -> MirrorConfig:

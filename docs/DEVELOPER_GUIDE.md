@@ -11,7 +11,7 @@ If you only want to *use* MirrorURL (install, CLI, config, Python API), read
 repeats the essentials so you can work from it alone.
 
 - **Package:** `mirror_url` (src-layout under `src/`)
-- **Version:** 3.1.69
+- **Version:** 3.1.70
 - **Python:** 3.9 – 3.12
 - **Runtime deps:** `httpx`, `pydantic` v2, `PyYAML` (optional: `stringzilla`,
   `lxml`, `tqdm`, `psutil`)
@@ -39,11 +39,33 @@ repeats the essentials so you can work from it alone.
 
 ---
 
+## Audit patch implementation notes
+
+`ConfigSchema` is a compatibility alias for `MirrorConfig`; file validation and
+runtime construction use the same schema. CLI validation happens after merging
+file values with explicit CLI overrides, including benchmark mode. Library
+construction does not install signal handlers; the CLI opts in and cleanup
+restores previous handlers on the main thread.
+
+The current sync path uses sequential directory scanning, builds a list of
+remote files, then runs metadata checks and downloads. `scan_mode`, bounded
+`DownloadQueue`, `AdaptiveBatchProcessor`, `MemoryEfficientCache`,
+`DiskBackedSet` remote tracking, and `FileSystemCache` freshness lookups do not
+change that path. Their public APIs and compatibility settings remain accepted;
+they are not active memory bounds or alternative scan engines.
+
+The audit patch uses an owned partial-state directory, collision preflight,
+streamed response leases, live admission resizing, end-of-run cache persistence,
+and failure propagation for incomplete scans and cleanup. Regression tests are
+in `tests/test_release_audit_regressions.py`. The public unused helpers remain
+available for compatibility; unused local assignments and duplicate state
+writes encountered in the changed paths have been removed.
+
 ## Background: the monolith and the refactor
 
 MirrorURL began as a single `mirror_url.py` of ~15,000 lines containing ~70
 classes and ~25 module-level functions. It was split into the modular
-`src/mirror_url/` package (30 modules across 7 dependency layers) by a
+`src/mirror_url/` package (43 Python files, organized by responsibilities) by a
 **behavior-preserving** migration: code was relocated verbatim and class/function
 method sets were verified identical to the original via AST comparison. Logic
 changes were kept out of the migration and made only in separate, reviewable
@@ -77,10 +99,10 @@ changes — most review feedback traces back to one of these.
 2. **One concern per module.** Each module is independently readable and
    testable. If a change makes a module "about two things," that is a signal to
    split it.
-3. **Acyclic dependency layering.** A module may import only from *strictly
-   lower* layers (plus stdlib / third-party). No sideways cycles, no upward
-   imports. This is the property that keeps the package importable and testable
-   in isolation. See [the layer architecture](#the-dependency-layer-architecture).
+3. **Acyclic dependencies.** Keep imports acyclic. Same-layer imports already
+   exist (for example, `connection.py` imports `metrics.py` and `concurrency.py`),
+   so the diagram below is a responsibility map rather than an enforced
+   strictly downward layering invariant.
 4. **Small, verifiable steps.** Keep the fast test lane green after every change.
 
 ---
@@ -89,7 +111,7 @@ changes — most review feedback traces back to one of these.
 
 ```
 mirror-url/
-├── src/mirror_url/          # the package (30 modules, dependency-layered)
+├── src/mirror_url/          # the package (43 Python files including private helpers)
 │   ├── __init__.py          # public API re-exports
 │   ├── __main__.py          # `python -m mirror_url`
 │   ├── _version.py          # __version__, __author__  (one of two version sources)
@@ -117,24 +139,18 @@ mirror-url/
 
 ## The dependency-layer architecture
 
-Every module is assigned to a layer. **Imports only point downward.** This is the
-single most important structural invariant in the project.
+The historical layers summarize responsibilities; runtime imports can cross
+those groupings. The important invariant is an acyclic runtime import graph.
 
 ```
-Layer 0  _version · compat · constants · exceptions · enums
-Layer 1  models · decorators · utils
-Layer 2  primitives · parsing · security
-Layer 3  transport · storage · circuit_breaker · rate_limiter · queue
-Layer 4  metrics · progress · monitoring · connection · async_connection · concurrency · cache
-Layer 5  download · scanner · health · config · tuner
-Layer 6  core   (MirrorURL — the only place that wires many subsystems together)
-Layer 7  cli  →  __main__ / console entry point
+Foundations: _version · compat · constants · exceptions · enums · utils
+Data and primitives: models · async_primitives · primitives · parsing · security
+Managers: transport · storage · circuit_breaker · rate_limiter · queue · cache
+Runtime support: metrics · progress · monitoring · connection · async_connection · concurrency
+Engines: download · download_integrity · scanner · health · domain_health · config · tuner
+Composition: core · _core/{_base,urls,scan,compare,downloads,cleanup,report}
+Entry points: cli · __main__
 ```
-
-**The rule:** a module in layer *N* may import from layers *0…N-1*, from the
-standard library, and from third-party deps — never from layer *N* in a cycle,
-and never from a higher layer. `core.py` (layer 6) is the only module permitted
-to compose many layer-4/5 subsystems at once; that is its job.
 
 **Why it matters for you:**
 
@@ -216,8 +232,7 @@ failure immediately.
   path, retries, redirects-preserving-headers).
 - `async_connection.py` — `AsyncConnectionManager`, `AdaptiveAsyncManager`
   (self-tuning concurrency), `AsyncTaskManager` (async metadata checks).
-- `concurrency.py` — `UnifiedConcurrencyManager` (single global cap across sync/
-  async/parallel thread pools).
+- `concurrency.py` — `UnifiedConcurrencyManager` (coordinator used by selected sync/chunk paths).
 - `cache.py` — `CacheManager` (the on-disk JSON cache: load/validate/save,
   schema-version checks, corrupted-file backup).
 
@@ -230,7 +245,7 @@ failure immediately.
   (optional HTTP health endpoint).
 - `config.py` — `ConfigSchema` (file-facing pydantic schema), `MirrorConfig`
   (the runtime config object), `validate_config_file`, `expand_env_vars`,
-  `load_config_from_args`.
+  `load_config_from_args` (a separate public API; `main()` merges and constructs `MirrorConfig` directly).
 - `tuner.py` — `AutoConcurrencyTuner`.
 
 **Layer 6 — orchestration.**
@@ -273,7 +288,7 @@ MirrorURL` is unchanged for callers.
 
 | Mixin (`_core/…`) | Responsibility | Representative methods |
 |---|---|---|
-| `_MirrorBase` (`_base.py`) | Construction, shared state, lifecycle, logging, connection bring-up, the on-disk caches, disk-space checks | `__init__`, `__enter__`/`__exit__`, `cleanup`, `setup_logging`, `test_connection`, `_warm_up_connections`, `get_html_cache`/`set_html_cache`, `get_file_metadata`/`save_file_metadata`, `handle_memory_pressure`, `_get_cached_filename`, `check_disk_space` |
+| `_MirrorBase` (`_base.py`) | Construction, shared state, lifecycle, logging, connection bring-up, the on-disk caches, disk-space checks | `__init__`, `__enter__`/`__exit__`, `cleanup`, `setup_logging`, `test_connection`, `_warm_up_connections`, ``check_disk_space` |
 | `UrlMixin` (`urls.py`) | URL scheme/scope validation, path extraction | `_validate_url_scheme*`, `_is_url_within_scope`, `_is_within_target_scope`, `_is_dir_excluded`, `_get_target_base_url`, `_parse_url_cached`, `_get_url_path_fast`, `_get_filename_fast` |
 | `ScanMixin` (`scan.py`) | Remote discovery, filtering, symlink tracking | `get_remote_files`, `_discover_directories_bfs`, `matches_filter`, `get_directory_signature`, `is_symlink`/`record_symlink`, `_get_local_path_from_url` |
 | `CompareMixin` (`compare.py`) | "Is the local copy up to date?" — size/timestamp/ETag/hash, sync and async | `file_exists_and_up_to_date`, `_check_files_sync`, `_check_files_async`, `check_file`, `check_one`, `get_remote_timestamp`, `get_directory_size` |
@@ -317,7 +332,7 @@ A full mirror run is driven by `ReportMixin.sync()`. The high-level path:
    traditional-parallel chunking; `download_integrity.py` validates strong ETags,
    exact ranges, and persistent whole-file resume metadata. Streaming chunks
    write to a staging path and publish atomically after verification. The
-   `UnifiedConcurrencyManager` enforces a single global thread cap; per-domain
+   Worker pools and the coordinator impose separate limits; per-domain
    `CircuitBreakerManager` and the rate limiter throttle on errors/bandwidth.
 6. **Cleanup (`CleanupMixin.clean_obsolete`).** Optionally preview/move/delete
    local files no longer present remotely, per `CleanupPolicy`. Preserve paths
@@ -333,33 +348,20 @@ A full mirror run is driven by `ReportMixin.sync()`. The high-level path:
 
 ## The configuration system
 
-There are **two** config objects; know which is which:
-
-- **`ConfigSchema`** (pydantic `BaseModel`) — the *file-facing* schema. It mirrors
-  what a user may put in a YAML/JSON config file and applies validation bounds
-  (`ge`/`le`) on values like `workers`, `timeout`, `cache_max_age`.
-- **`MirrorConfig`** (pydantic `BaseModel`) — the *runtime* config consumed by
-  `MirrorURL` and every subsystem. It is richer than `ConfigSchema`: it carries
-  resolved `Path` objects, enum-typed fields (`cleanup_policy: CleanupPolicy`,
-  `scan_mode: ScanMode`), and many runtime-only flags (`dry_run`, `quiet`,
-  `async_metadata`, `adaptive_async`, `circuit_breaker_enabled`, …).
-
-The assembly path:
+`MirrorConfig` is the validated pydantic runtime model, including Paths, enums,
+flags and numeric bounds. `ConfigSchema` is a compatibility alias for this same
+model, so standalone file validation and runtime construction agree.
 
 ```
 CLI args ──┐
-           ├─► load_config_from_args() ─► MirrorConfig  ─► MirrorURL(cfg)
-config file┘   (expand_env_vars, validate_config_file)
+           ├─► cli.main(): merge explicit overrides ─► MirrorConfig ─► MirrorURL
+config file┘   (expand environment variables, then validate merged values)
 ```
 
-- `expand_env_vars` resolves `${VAR}` placeholders in the file before validation.
-- `validate_config_file` loads YAML/JSON and checks it against `ConfigSchema`.
-- `load_config_from_args` merges CLI flags with any file values and produces the
-  final `MirrorConfig`.
-
-**When you add a setting**, you usually touch all three: a field on the config
-model(s), a CLI flag in `cli.py`, and the code that reads it. See the
-[extension recipes](#extension-recipes).
+`validate_config_file()` validates a standalone complete YAML/JSON file.
+`load_config_from_args()` remains a separate public helper. The CLI allows
+required URL/path values to come from explicit arguments before validating
+its final merged model. Benchmark mode uses the same merge precedence.
 
 ---
 
@@ -380,10 +382,11 @@ that the manager's `record_*`/`can_execute` methods didn't lazily create the
 breaker, so production domains never tripped — when changing this code, keep the
 lazy-creation path intact and covered by tests.
 
-**Concurrency (`concurrency.py`).** `UnifiedConcurrencyManager` enforces a single
-global thread budget shared across sync, async, and parallel-chunk work, so the
-process can't oversubscribe. Acquire/release are explicit; always release in a
-`finally`.
+**Concurrency (`concurrency.py`).** `UnifiedConcurrencyManager` coordinates selected sync and chunk work.
+Metadata and file executors also have independent limits; there is no single
+cap covering every thread and async task. Streamed requests keep their
+coordinator lease until their response is closed. Always close streamed
+responses in a `finally`.
 
 **Async path (`async_connection.py`).** `AdaptiveAsyncManager` tunes its
 concurrency from measured RTT, throughput, and error rate; `AsyncTaskManager`
@@ -409,7 +412,7 @@ These are the common changes and the exact touch-points.
    it should be settable from a config file), with a sensible default and any
    pydantic validation bounds.
 2. If it should be settable from the CLI, add a flag in `cli.py` and map it in
-   `load_config_from_args`.
+   `load_config_from_args` (a separate public API; `main()` merges and constructs `MirrorConfig` directly).
 3. Read `self.config.<field>` where the behavior lives (a mixin or a subsystem).
 4. Add a test (a config round-trip test for the field; a behavior test for the
    effect). Document it in `USER_GUIDE.md` if user-facing.
@@ -424,7 +427,7 @@ whose `dest` equals a `MirrorConfig` field automatically (via
 needs special handling, e.g. the three mutually-exclusive download-mode
 flags) needs an entry in `_CLI_DEST_TO_CONFIG_KEY` or a branch in
 `_cli_overrides`. The non-`--config` branch (`MirrorConfig(...)` call further
-down `main()`) and `load_config_from_args` (the public, config-file-only
+down `main()`) and `load_config_from_args` (a separate public API; `main()` merges and constructs `MirrorConfig` directly) (the public, config-file-only
 entry point) each need the field passed explicitly — add it to both. Keep
 `--help` text consistent with the User Guide's option tables, and add the new
 option's row to the `TYPED`/boolean-flag tables in
@@ -475,17 +478,15 @@ Add unit tests at its own layer with no higher-layer setup.
 - **`TYPE_CHECKING` guards** for imports needed only for annotations, to keep the
   import graph acyclic.
 - **Lint rule set:** ruff with `E, F, W, I, B, C4`. A few bugbear rules
-  (`B904`, `B007`, `B019`) and `E501`/`B008` are ignored — see the rationale
-  comments in `pyproject.toml`. `B019` in particular marks a real latent
-  `lru_cache`-on-method issue inherited verbatim; it's preserved, not silently
-  rewritten.
-- **Formatting:** `black` (line length 100) or `ruff format`.
+  (`B007`) and `E501`/`B008` are ignored — see `pyproject.toml`.
+  `B019` and `B904` are enforced; URL parsing is cached at module scope.
+- **Formatting:** Ruff 0.16.8 (`ruff format`, line length 100), matching CI and pre-commit.
 - **Type-checking:** `mypy` runs as an advisory signal (CI `continue-on-error`),
   not a gate. It is lenient by design (`no_implicit_optional = false`,
   untyped-defs allowed) because the port is largely untyped. Tightening it is a
   welcome dedicated follow-up, not something to do piecemeal mid-feature.
-- **The layering rule** ([above](#the-dependency-layer-architecture)) is a hard
-  convention: never import upward or create an import cycle.
+- **Imports:** keep the runtime graph acyclic. The layer diagram is a guide to
+  responsibilities; same-layer imports exist, so it is not a generally lower (with same-layer dependencies) rule.
 
 ---
 
@@ -501,12 +502,10 @@ The suite lives in `tests/` and runs under `pytest`. Two lanes:
 - **Integration lane** (`pytest -m integration`) — end-to-end runs against the
   local `static_http_server` fixture in `conftest.py`.
 
-**The SSRF caveat for end-to-end tests:** the secure transport refuses
-loopback/private targets, so a real local-server run requires the transport's
-`test_mode` bypass. That wiring from `MirrorConfig` is not yet in place, so the
-full end-to-end test is currently skipped and documents the requirement (see
-`tests/test_integration.py`). If you implement `test_mode` plumbing, you can
-enable it.
+**End-to-end tests:** `tests/test_integration.py` runs a real local HTTP
+mirror with a transport bypass installed only by `monkeypatch` in that test.
+The server fixture serves a dedicated `served/` directory. No production
+configuration flag bypasses the transport's private-IP guard.
 
 **Where to add tests:**
 
@@ -529,7 +528,7 @@ pip install -e ".[dev]"
 pre-commit install        # optional but recommended
 
 ruff check .              # lint
-ruff format --check .     # or: black --check .
+ruff format --check .     # canonical formatter
 mypy                      # advisory type-check of src/mirror_url
 pytest -m "not integration"   # fast lane
 pytest                        # full suite (includes integration)
@@ -547,16 +546,23 @@ are produced from the Markdown with pandoc (embedded CSS + TOC) — regenerate
 
 ## Release process
 
-1. **Bump the version in both sources** (a test asserts they match):
-   - `pyproject.toml` → `version = "X.Y.Z"`
-   - `src/mirror_url/_version.py` → `__version__ = "X.Y.Z"`
-   - Also update the user-facing version strings in `cli.py` (banner/description)
-     and the version references in `docs/USER_GUIDE.{md,html}`.
-2. **Update `CHANGELOG.md`** — add a new section at the top following Keep a
-   Changelog (`### Added/Changed/Fixed`).
-3. **Commit everything** (`git add -A` — don't forget docs/changelog/cli), push.
-4. **Tag and push the tag:**
+1. **Bump the version with `bash scripts/bump_version.sh X.Y.Z`.** It updates
+   `pyproject.toml`, `src/mirror_url/_version.py`, and the version references in
+   both Markdown/HTML guides. The CLI imports the shared version; no separate
+   banner edit is needed. A test checks that the two version sources agree.
+2. **Update `CHANGELOG.md`.** Replace the release's `[Unreleased]` heading with
+   `## [X.Y.Z] - YYYY-MM-DD`, retain its notes, and remove any empty duplicate
+   `[Unreleased]` section. For a release with no pending changes, leave no
+   `[Unreleased]` heading. Follow Keep a Changelog (`### Added/Changed/Fixed`).
+3. **Validate and commit the release.** Run `ruff check .`,
+   `ruff format --check .`, the full `pytest` suite, `python -m build`,
+   `twine check dist/*`, and `git diff --check`. Mypy is advisory in CI.
+   Commit the source metadata, changelog, and guides; push the release branch
+   and merge its reviewed pull request.
+4. **Tag the merged release on `main` and push the tag:**
    ```bash
+   git switch main
+   git pull --ff-only origin main
    git tag -a vX.Y.Z -m "mirror-url X.Y.Z"
    git push origin vX.Y.Z
    ```
@@ -565,12 +571,10 @@ are produced from the Markdown with pandoc (embedded CSS + TOC) — regenerate
    Publishing** (OIDC — no API token). The PyPI step requires a one-time setup: a
    pending publisher on PyPI (`owner` = repo owner, workflow `release.yml`,
    environment `pypi`) and a matching `pypi` Environment in the repo settings.
-   Until that exists, the tag still builds the wheel and creates the GitHub
-   Release; only the PyPI upload is skipped/red.
-
-If you push a tag pointing at an incomplete commit, move it with
-`git tag -f -a vX.Y.Z … && git push origin vX.Y.Z --force` to re-trigger the
-release from the corrected commit.
+   The PyPI job also requires the repository variable `PUBLISH_TO_PYPI=true`.
+   Without that opt-in, it is skipped; the tag still builds the wheel and
+   creates the GitHub Release. Verify the version and changelog before creating
+   the tag.
 
 ---
 
@@ -594,10 +598,7 @@ These bit the project before; the migration plan calls them out explicitly.
   attribute/phantom-method fixes (async HEAD, async transport `test_mode`,
   circuit-breaker lazy creation, redirect header preservation, MOVE-mode cleanup).
   Don't "tidy" these away while refactoring nearby code.
-- **One real latent issue is preserved on purpose:** mypy flags
-  `ConnectionManager._is_url_within_scope` reading `self.target_parsed` in a
-  branch `__init__` never sets (the branch is never taken today). Fix it
-  deliberately, with a test, during a typing pass — not as a drive-by.
+
 
 ---
 
@@ -624,5 +625,5 @@ These bit the project before; the migration plan calls them out explicitly.
 
 ---
 
-*This guide describes the architecture as of version 3.1.69. When you change the
+*This guide describes the architecture as of version 3.1.70. When you change the
 structure, update this document in the same PR.*

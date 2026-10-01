@@ -67,6 +67,11 @@ class CleanupMixin:
 
             for entry in entries:
                 entry_path = Path(entry.path)
+                if (
+                    entry_path.parent == self.target_dir
+                    and entry_path.name.casefold() == ".mirror-url-state"
+                ):
+                    continue  # Reserved state is opaque, including unowned data.
                 try:
                     if entry.is_symlink():
                         continue
@@ -101,13 +106,14 @@ class CleanupMixin:
         """Protect paths the current scan deliberately did not inspect."""
         try:
             relative = path.relative_to(self.target_dir)
+            if relative.parts and relative.parts[0].casefold() == ".mirror-url-state":
+                return False
             if path.is_symlink() or self.target_dir.is_symlink():
                 return False
             if not PathSafety.is_subpath(self.target_dir, path):
                 return False
-            # A scan only fetches directories strictly below max_depth;
-            # file mapping also counts the filename as a path component.
-            depth = len(relative.parts) + (1 if directory else 0)
+            # The root is depth zero; filenames do not consume depth.
+            depth = len(relative.parts) if directory else len(relative.parts) - 1
             if depth > self.config.max_depth:
                 return False
             base = self.target_parsed.geturl().rstrip("/") + "/"
@@ -129,7 +135,7 @@ class CleanupMixin:
                 mapped = PathSafety.safe_join(
                     self.target_dir,
                     *relative.parts,
-                    max_depth=self.config.max_depth,
+                    max_depth=self.config.max_depth + 1,
                     max_filename_len=self.config.max_filename_len,
                     create_base=False,
                 )
@@ -200,7 +206,7 @@ class CleanupMixin:
                     local = PathSafety.safe_join(
                         self.target_dir,
                         *rel.split("/"),
-                        max_depth=self.config.max_depth,
+                        max_depth=self.config.max_depth + 1,
                         max_filename_len=self.config.max_filename_len,
                         create_base=not self.config.dry_run,
                     )

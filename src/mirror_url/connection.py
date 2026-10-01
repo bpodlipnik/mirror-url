@@ -45,6 +45,25 @@ if TYPE_CHECKING:  # pragma: no cover - typing only, avoids an import cycle
     from .metrics import MetricsCollector
 
 
+class _LeasedStream(httpx.SyncByteStream):
+    """Hold the global request slot until a streamed body is closed."""
+
+    def __init__(self, source, release):
+        self.source, self.release = source, release
+        self.closed = False
+
+    def __iter__(self):
+        yield from self.source
+
+    def close(self):
+        if not self.closed:
+            self.closed = True
+            try:
+                self.source.close()
+            finally:
+                self.release()
+
+
 class ConnectionPool:
     """Manage connection pools for better resource usage with proper reuse"""
 
@@ -146,7 +165,11 @@ class ConnectionPool:
             limits=limits,
             timeout=timeout,
             follow_redirects=True,
-            transport=SecureTransport(rate_limiter=self.rate_limiter),
+            transport=SecureTransport(
+                rate_limiter=self.rate_limiter,
+                http2=self.config.http2 if self.config else True,
+                limits=limits,
+            ),
             headers={
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/119.0",
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
@@ -575,6 +598,7 @@ class ConnectionManager:
         method: str = "GET",
         allow_redirects: bool = True,
         _redirect_depth: int = 0,
+        stream: bool = False,
         **kwargs: Any,
     ) -> httpx.Response:
         """
@@ -631,269 +655,295 @@ class ConnectionManager:
                 else:
                     raise URLScopeError("Attempted to access URL outside configured base URL scope")
 
-            with self.request_semaphore:
-                if self.consecutive_failures >= self.max_consecutive_failures:
-                    wait_time = exponential_backoff(
-                        self.consecutive_failures - self.max_consecutive_failures
-                    )
-                    logging.warning(
-                        f"Too many consecutive failures ({self.consecutive_failures}). Waiting {wait_time:.1f}s..."
-                    )
-                    time.sleep(wait_time)
-                    self.consecutive_failures = 0
+            if self.consecutive_failures >= self.max_consecutive_failures:
+                wait_time = exponential_backoff(
+                    self.consecutive_failures - self.max_consecutive_failures
+                )
+                logging.warning(
+                    f"Too many consecutive failures ({self.consecutive_failures}). Waiting {wait_time:.1f}s..."
+                )
+                time.sleep(wait_time)
+                self.consecutive_failures = 0
 
-                # Get IP for rate limiting with error handling
-                parsed = urlparse(normalized_url)
-                try:
-                    if parsed.hostname:
-                        ip = socket.gethostbyname(parsed.hostname)
-                    else:
-                        ip = "unknown"
-                except Exception:
+            # Get IP for rate limiting with error handling
+            parsed = urlparse(normalized_url)
+            try:
+                if parsed.hostname:
+                    ip = socket.gethostbyname(parsed.hostname)
+                else:
                     ip = "unknown"
-                if ip != "unknown":
-                    self.rate_limiter.wait(ip)
-                time.sleep(random.uniform(0, 0.02))
+            except Exception:
+                ip = "unknown"
+            if ip != "unknown":
+                self.rate_limiter.wait(ip)
+            time.sleep(random.uniform(0, 0.02))
 
-                # FIX: Preserve custom timeout if provided
-                custom_timeout = kwargs.pop("timeout", None)
-                # Capture the CALLER-supplied headers once, before the retry
-                # loop pops them out of kwargs. Used to correctly forward
-                # Range / If-None-Match etc. across a redirect (see below).
-                caller_headers = dict(kwargs.pop("headers", None) or {})
+            # FIX: Preserve custom timeout if provided
+            custom_timeout = kwargs.pop("timeout", None)
+            # Capture the CALLER-supplied headers once, before the retry
+            # loop pops them out of kwargs. Used to correctly forward
+            # Range / If-None-Match etc. across a redirect (see below).
+            caller_headers = dict(kwargs.pop("headers", None) or {})
 
-                for attempt in range(self.config.max_retries + 1):
+            for attempt in range(self.config.max_retries + 1):
+                response = None
+                returned = False
+                try:
+                    client = self.connection_pool.get_client(normalized_url)
                     try:
-                        client = self.connection_pool.get_client(normalized_url)
-                        try:
-                            request_headers = client.headers.copy()
-                        except (AttributeError, TypeError):
-                            request_headers = {}
-                        request_headers.update(caller_headers)
+                        request_headers = client.headers.copy()
+                    except (AttributeError, TypeError):
+                        request_headers = {}
+                    request_headers.update(caller_headers)
 
-                        # FIX: Use custom timeout or default
-                        if custom_timeout:
-                            timeout = custom_timeout
+                    # FIX: Use custom timeout or default
+                    if custom_timeout:
+                        timeout = custom_timeout
+                    else:
+                        timeout = httpx.Timeout(
+                            self.config.timeout, connect=10.0, read=self.config.timeout * 2
+                        )
+
+                    logging.debug(
+                        f"HTTP Request: {method} {sanitize_url_for_log(normalized_url)} (attempt {attempt + 1})"
+                    )
+                    start = time.time()
+                    # We always disable httpx auto-follow so we can validate the
+                    # redirect target ourselves (scope + security) before fetching it.
+                    try:
+                        headers_to_send = dict(request_headers)
+                    except Exception:
+                        headers_to_send = {}
+                    with self.request_semaphore:
+                        if stream:
+                            request = client.build_request(
+                                method,
+                                normalized_url,
+                                timeout=timeout,
+                                headers=headers_to_send,
+                                **kwargs,
+                            )
+                            response = client.send(request, stream=True, follow_redirects=False)
                         else:
-                            timeout = httpx.Timeout(
-                                self.config.timeout, connect=10.0, read=self.config.timeout * 2
+                            response = client.request(
+                                method,
+                                normalized_url,
+                                timeout=timeout,
+                                follow_redirects=False,
+                                headers=headers_to_send,
+                                **kwargs,
                             )
+                    self.metrics.add_request_time(time.time() - start)
 
-                        logging.debug(
-                            f"HTTP Request: {method} {sanitize_url_for_log(normalized_url)} (attempt {attempt + 1})"
+                    # Manual redirect handling so we can enforce scope/security on Location
+                    status_code = getattr(response, "status_code", None)
+                    if (
+                        allow_redirects
+                        and isinstance(status_code, int)
+                        and 300 <= status_code < 400
+                    ):
+                        redirect_url = (
+                            response.headers.get("Location")
+                            if hasattr(response, "headers")
+                            else None
                         )
-                        start = time.time()
-                        # We always disable httpx auto-follow so we can validate the
-                        # redirect target ourselves (scope + security) before fetching it.
-                        try:
-                            headers_to_send = dict(request_headers)
-                        except Exception:
-                            headers_to_send = {}
-                        response = client.request(
-                            method,
-                            normalized_url,
-                            timeout=timeout,
-                            follow_redirects=False,
-                            headers=headers_to_send,
-                            **kwargs,
-                        )
-                        self.metrics.add_request_time(time.time() - start)
-
-                        # Manual redirect handling so we can enforce scope/security on Location
-                        status_code = getattr(response, "status_code", None)
-                        if (
-                            allow_redirects
-                            and isinstance(status_code, int)
-                            and 300 <= status_code < 400
-                        ):
-                            redirect_url = (
-                                response.headers.get("Location")
-                                if hasattr(response, "headers")
-                                else None
-                            )
-                            if redirect_url:
-                                # FIX (unbounded recursion): cap how many
-                                # times we'll follow Location: . The old code
-                                # did `return self.request(...)` which could
-                                # blow the Python stack on a redirect loop.
-                                if _redirect_depth >= self._MAX_REDIRECTS:
-                                    self.metrics.increment("redirect_loop_aborted")
-                                    raise MirrorConnectionError(
-                                        f"Too many redirects ({_redirect_depth}) for "
-                                        f"{sanitize_url_for_log(url)}"
-                                    )
-                                resolved_url = urljoin(normalized_url, redirect_url)
-                                resolved_normalized = trim_url(self._normalize_url(resolved_url))
-                                if self.config.security_validation:
-                                    is_safe, error_msg = SecurityValidator.validate_url_security(
-                                        resolved_normalized, str(self.base_url)
-                                    )
-                                    if not is_safe:
-                                        self.metrics.increment("security_blocks")
-                                        raise SecurityError(f"Redirect blocked: {error_msg}")
-                                if not self._is_url_within_scope(resolved_normalized):
-                                    raise URLScopeError(
-                                        f"Redirect outside scope: {sanitize_url_for_log(resolved_normalized)}"
-                                    )
-                                logging.debug(
-                                    f"Following redirect to: {sanitize_url_for_log(resolved_normalized)}"
-                                )
-                                # FIX: `timeout` (popped into custom_timeout at
-                                # the top of the method) and `headers` (popped
-                                # into request_headers inside this loop) are no
-                                # longer in **kwargs, so the recursive redirect
-                                # call previously dropped BOTH — a redirected
-                                # ranged/conditional request lost its Range /
-                                # If-None-Match headers and reverted to the
-                                # default timeout. Re-thread them explicitly.
-                                redirect_kwargs = dict(kwargs)
-                                if custom_timeout is not None:
-                                    redirect_kwargs["timeout"] = custom_timeout
-                                # Forward only the caller's original headers
-                                # (Range, If-None-Match, ...) — NOT the source
-                                # client's default headers, which the recursive
-                                # call re-derives from the redirect target's own
-                                # client.
-                                if caller_headers:
-                                    redirect_kwargs["headers"] = dict(caller_headers)
-                                return self.request(
-                                    resolved_normalized,
-                                    method,
-                                    allow_redirects,
-                                    _redirect_depth=_redirect_depth + 1,
-                                    **redirect_kwargs,
-                                )
-
-                        # Retry on 429 Too Many Requests -- honor Retry-After if the
-                        # server sent one, otherwise fall back to the same
-                        # exponential backoff used for 5xx errors below.
-                        #
-                        # Previously 429 fell straight through to the generic "4xx
-                        # and other final responses" branch further down and was
-                        # never retried at all -- treated identically to a
-                        # permanent client error like 400 or 404. But 429 is an
-                        # explicit "come back later" signal from the server, not
-                        # a permanent failure; giving up immediately on it (a) is
-                        # the wrong behavior for a *mirroring* tool that expects
-                        # to eventually succeed, and (b) ignores Retry-After
-                        # entirely, which the server may have sent specifically
-                        # to say how long to wait.
-                        if status_code == 429:
-                            get_domain_health_tracker().record_incident(domain)
-                            self.consecutive_failures += 1
-                            if attempt == self.config.max_retries:
-                                if self.circuit_breaker_manager:
-                                    self.circuit_breaker_manager.record_failure(domain)
-                                self.metrics.add_error(
-                                    f"HTTP 429 for {sanitize_url_for_log(url)}",
-                                    "rate_limited",
-                                )
+                        if redirect_url:
+                            # FIX (unbounded recursion): cap how many
+                            # times we'll follow Location: . The old code
+                            # did `return self.request(...)` which could
+                            # blow the Python stack on a redirect loop.
+                            if _redirect_depth >= self._MAX_REDIRECTS:
+                                self.metrics.increment("redirect_loop_aborted")
                                 raise MirrorConnectionError(
-                                    f"Request failed after {attempt + 1} attempts "
-                                    f"with HTTP 429 (rate limited)"
+                                    f"Too many redirects ({_redirect_depth}) for "
+                                    f"{sanitize_url_for_log(url)}"
                                 )
-                            retry_after = parse_retry_after(response.headers.get("Retry-After"))
-                            computed_wait = exponential_backoff(attempt, self.config.retry_delay)
-                            wait_time = (
-                                max(retry_after, computed_wait)
-                                if retry_after is not None
-                                else computed_wait
+                            resolved_url = urljoin(normalized_url, redirect_url)
+                            resolved_normalized = trim_url(self._normalize_url(resolved_url))
+                            if self.config.security_validation:
+                                is_safe, error_msg = SecurityValidator.validate_url_security(
+                                    resolved_normalized, str(self.base_url)
+                                )
+                                if not is_safe:
+                                    self.metrics.increment("security_blocks")
+                                    raise SecurityError(f"Redirect blocked: {error_msg}")
+                            if not self._is_url_within_scope(resolved_normalized):
+                                raise URLScopeError(
+                                    f"Redirect outside scope: {sanitize_url_for_log(resolved_normalized)}"
+                                )
+                            logging.debug(
+                                f"Following redirect to: {sanitize_url_for_log(resolved_normalized)}"
                             )
-                            logging.warning(
-                                f"HTTP 429 rate limited (attempt {attempt + 1}), "
-                                f"retrying in {wait_time:.1f}s"
-                                + (
-                                    f" (server requested {retry_after:.1f}s via Retry-After)"
-                                    if retry_after is not None
-                                    else ""
-                                )
+                            # FIX: `timeout` (popped into custom_timeout at
+                            # the top of the method) and `headers` (popped
+                            # into request_headers inside this loop) are no
+                            # longer in **kwargs, so the recursive redirect
+                            # call previously dropped BOTH — a redirected
+                            # ranged/conditional request lost its Range /
+                            # If-None-Match headers and reverted to the
+                            # default timeout. Re-thread them explicitly.
+                            redirect_kwargs = dict(kwargs)
+                            if custom_timeout is not None:
+                                redirect_kwargs["timeout"] = custom_timeout
+                            # Forward only the caller's original headers
+                            # (Range, If-None-Match, ...) — NOT the source
+                            # client's default headers, which the recursive
+                            # call re-derives from the redirect target's own
+                            # client.
+                            if caller_headers:
+                                redirect_kwargs["headers"] = dict(caller_headers)
+                            response.close()
+                            if thread_acquired and self.concurrency_manager:
+                                self.concurrency_manager.release_thread()
+                                thread_acquired = False
+                            return self.request(
+                                resolved_normalized,
+                                method,
+                                allow_redirects,
+                                _redirect_depth=_redirect_depth + 1,
+                                stream=stream,
+                                **redirect_kwargs,
                             )
-                            time.sleep(wait_time)
-                            continue
 
-                        # Retry on 5xx server errors
-                        if isinstance(status_code, int) and 500 <= status_code < 600:
-                            if status_code == 503:
-                                # 503 Service Unavailable is the classic
-                                # overload/throttle signal alongside 429;
-                                # other 5xx (500/502/504) usually indicate a
-                                # server bug or gateway issue rather than
-                                # throttling, so they're retried the same
-                                # way but not counted toward domain health.
-                                get_domain_health_tracker().record_incident(domain)
-                            self.consecutive_failures += 1
-                            if attempt == self.config.max_retries:
-                                if self.circuit_breaker_manager:
-                                    self.circuit_breaker_manager.record_failure(domain)
-                                self.metrics.add_error(
-                                    f"HTTP {status_code} for {sanitize_url_for_log(url)}",
-                                    "request_error",
-                                )
-                                raise MirrorConnectionError(
-                                    f"Request failed after {attempt + 1} attempts with HTTP {status_code}"
-                                )
-                            wait_time = exponential_backoff(attempt, self.config.retry_delay)
-                            logging.warning(
-                                f"HTTP {status_code} (attempt {attempt + 1}), retrying in {wait_time:.1f}s"
-                            )
-                            time.sleep(wait_time)
-                            continue
-
-                        # 4xx and other final responses - raise_for_status to surface.
-                        #
-                        # Exceptions: 416 Range Not Satisfiable and 304 Not
-                        # Modified are special — they're expected, actionable
-                        # outcomes, not errors.
-                        #   - 416 carries Content-Range with the actual file
-                        #     size, which the resume code path needs to decide
-                        #     whether the local partial is already complete.
-                        #   - 304 is the normal "up to date" result of a
-                        #     conditional GET/HEAD (If-None-Match /
-                        #     If-Modified-Since). httpx's raise_for_status()
-                        #     treats any non-2xx, including 304, as an error
-                        #     (is_success is only true for 2xx), so without
-                        #     this carve-out every conditional revalidation
-                        #     that correctly finds an up-to-date file raises
-                        #     HTTPStatusError instead of returning the 304
-                        #     response to the caller (see
-                        #     file_exists_and_up_to_date / the async metadata
-                        #     pipeline, which both check `status_code == 304`
-                        #     directly on the returned response).
-                        if status_code != 416 and status_code != 304:
-                            try:
-                                response.raise_for_status()
-                            except httpx.HTTPStatusError as e:
-                                self.consecutive_failures += 1
-                                if self.circuit_breaker_manager:
-                                    self.circuit_breaker_manager.record_failure(domain)
-                                self.metrics.add_error(str(e), "request_error")
-                                raise
-
-                        self.consecutive_failures = 0
-                        if self.circuit_breaker_manager:
-                            self.circuit_breaker_manager.record_success(domain)
-                        return response
-                    # replaced commented block
-                    except (
-                        httpx.ConnectError,
-                        httpx.TimeoutException,
-                        httpx.ReadError,
-                        httpx.RequestError,
-                    ) as e:
+                    # Retry on 429 Too Many Requests -- honor Retry-After if the
+                    # server sent one, otherwise fall back to the same
+                    # exponential backoff used for 5xx errors below.
+                    #
+                    # Previously 429 fell straight through to the generic "4xx
+                    # and other final responses" branch further down and was
+                    # never retried at all -- treated identically to a
+                    # permanent client error like 400 or 404. But 429 is an
+                    # explicit "come back later" signal from the server, not
+                    # a permanent failure; giving up immediately on it (a) is
+                    # the wrong behavior for a *mirroring* tool that expects
+                    # to eventually succeed, and (b) ignores Retry-After
+                    # entirely, which the server may have sent specifically
+                    # to say how long to wait.
+                    if status_code == 429:
+                        get_domain_health_tracker().record_incident(domain)
                         self.consecutive_failures += 1
                         if attempt == self.config.max_retries:
                             if self.circuit_breaker_manager:
                                 self.circuit_breaker_manager.record_failure(domain)
-                            logging.error(
-                                f"Request failed after {self.config.max_retries} retries: {e}"
+                            self.metrics.add_error(
+                                f"HTTP 429 for {sanitize_url_for_log(url)}",
+                                "rate_limited",
                             )
-                            self.metrics.add_error(str(e), "request_error")
-                            raise MirrorConnectionError(f"Request failed: {e}") from e
-                        wait_time = exponential_backoff(attempt, self.config.retry_delay)
+                            raise MirrorConnectionError(
+                                f"Request failed after {attempt + 1} attempts "
+                                f"with HTTP 429 (rate limited)"
+                            )
+                        retry_after = parse_retry_after(response.headers.get("Retry-After"))
+                        computed_wait = exponential_backoff(attempt, self.config.retry_delay)
+                        wait_time = (
+                            max(retry_after, computed_wait)
+                            if retry_after is not None
+                            else computed_wait
+                        )
                         logging.warning(
-                            f"Request failed (attempt {attempt + 1}), retrying in {wait_time:.1f}s: {e}"
+                            f"HTTP 429 rate limited (attempt {attempt + 1}), "
+                            f"retrying in {wait_time:.1f}s"
+                            + (
+                                f" (server requested {retry_after:.1f}s via Retry-After)"
+                                if retry_after is not None
+                                else ""
+                            )
                         )
                         time.sleep(wait_time)
+                        continue
+
+                    # Retry on 5xx server errors
+                    if isinstance(status_code, int) and 500 <= status_code < 600:
+                        if status_code == 503:
+                            # 503 Service Unavailable is the classic
+                            # overload/throttle signal alongside 429;
+                            # other 5xx (500/502/504) usually indicate a
+                            # server bug or gateway issue rather than
+                            # throttling, so they're retried the same
+                            # way but not counted toward domain health.
+                            get_domain_health_tracker().record_incident(domain)
+                        self.consecutive_failures += 1
+                        if attempt == self.config.max_retries:
+                            if self.circuit_breaker_manager:
+                                self.circuit_breaker_manager.record_failure(domain)
+                            self.metrics.add_error(
+                                f"HTTP {status_code} for {sanitize_url_for_log(url)}",
+                                "request_error",
+                            )
+                            raise MirrorConnectionError(
+                                f"Request failed after {attempt + 1} attempts with HTTP {status_code}"
+                            )
+                        wait_time = exponential_backoff(attempt, self.config.retry_delay)
+                        logging.warning(
+                            f"HTTP {status_code} (attempt {attempt + 1}), retrying in {wait_time:.1f}s"
+                        )
+                        time.sleep(wait_time)
+                        continue
+
+                    # 4xx and other final responses - raise_for_status to surface.
+                    #
+                    # Exceptions: 416 Range Not Satisfiable and 304 Not
+                    # Modified are special — they're expected, actionable
+                    # outcomes, not errors.
+                    #   - 416 carries Content-Range with the actual file
+                    #     size, which the resume code path needs to decide
+                    #     whether the local partial is already complete.
+                    #   - 304 is the normal "up to date" result of a
+                    #     conditional GET/HEAD (If-None-Match /
+                    #     If-Modified-Since). httpx's raise_for_status()
+                    #     treats any non-2xx, including 304, as an error
+                    #     (is_success is only true for 2xx), so without
+                    #     this carve-out every conditional revalidation
+                    #     that correctly finds an up-to-date file raises
+                    #     HTTPStatusError instead of returning the 304
+                    #     response to the caller (see
+                    #     file_exists_and_up_to_date / the async metadata
+                    #     pipeline, which both check `status_code == 304`
+                    #     directly on the returned response).
+                    if status_code != 416 and status_code != 304:
+                        try:
+                            response.raise_for_status()
+                        except httpx.HTTPStatusError as e:
+                            self.consecutive_failures += 1
+                            if self.circuit_breaker_manager:
+                                self.circuit_breaker_manager.record_failure(domain)
+                            self.metrics.add_error(str(e), "request_error")
+                            raise
+
+                    self.consecutive_failures = 0
+                    if self.circuit_breaker_manager:
+                        self.circuit_breaker_manager.record_success(domain)
+                    if stream and thread_acquired and self.concurrency_manager:
+                        response.stream = _LeasedStream(
+                            response.stream, self.concurrency_manager.release_thread
+                        )
+                        thread_acquired = False
+                    returned = True
+                    return response
+                # replaced commented block
+                except (
+                    httpx.ConnectError,
+                    httpx.TimeoutException,
+                    httpx.ReadError,
+                    httpx.RequestError,
+                ) as e:
+                    self.consecutive_failures += 1
+                    if attempt == self.config.max_retries:
+                        if self.circuit_breaker_manager:
+                            self.circuit_breaker_manager.record_failure(domain)
+                        logging.error(
+                            f"Request failed after {self.config.max_retries} retries: {e}"
+                        )
+                        self.metrics.add_error(str(e), "request_error")
+                        raise MirrorConnectionError(f"Request failed: {e}") from e
+                    wait_time = exponential_backoff(attempt, self.config.retry_delay)
+                    logging.warning(
+                        f"Request failed (attempt {attempt + 1}), retrying in {wait_time:.1f}s: {e}"
+                    )
+                    time.sleep(wait_time)
+                finally:
+                    if response is not None and not returned:
+                        response.close()
         finally:
             # Release thread slot if acquired
             if thread_acquired and self.concurrency_manager:

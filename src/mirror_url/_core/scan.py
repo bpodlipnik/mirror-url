@@ -13,6 +13,7 @@ import re
 import socket
 import sys
 import time
+import unicodedata
 from collections import deque
 from pathlib import Path
 from re import error as re_error
@@ -53,7 +54,7 @@ class ScanMixin:
         for pattern in self.config.file_filters:
             pattern_lower = pattern.lower()
 
-            if pattern.startswith("."):
+            if re.fullmatch(r"\.[\w-]+", pattern):
                 # Fast extension check - use string version for compatibility
                 if filename_lower.endswith(pattern_lower):
                     return True
@@ -286,7 +287,12 @@ class ScanMixin:
                                 f"Emergency cache clear: freed {freed_parse + freed_html + freed_cache} items"
                             )
 
-            if not self.config.no_cache and dir_signatures and not self.config.dry_run:
+            if (
+                not self.config.no_cache
+                and dir_signatures
+                and not self.config.dry_run
+                and not self.scan_incomplete
+            ):
                 try:
                     self.cache_manager.save(dir_signatures, len(all_files))
                     logging.info(
@@ -295,13 +301,33 @@ class ScanMixin:
                 except Exception as e:
                     logging.warning(f"{prefix}Failed to save cache: {e}")
 
+            # Deduplicate anchors; sync validates the final local mapping
+            # before starting any download.
+            all_files = list(dict.fromkeys(all_files))
+            self._scan_signatures = dir_signatures
             logging.info(f"{prefix}Collected {len(all_files)} files")
-            return all_files if all_files else []
+            return all_files
 
         except Exception as e:
             logging.error(f"{prefix}Failed to get remote files: {e}")
             self.metrics.add_error(str(e), "file_discovery")
+            self.scan_incomplete = True
             return None
+
+    def _validate_remote_paths(self, remote_files):
+        """Refuse lossy or reserved filename mappings before downloading."""
+        destinations = {}
+        for remote_url in remote_files:
+            local = self._get_local_path_from_url(remote_url)
+            if (
+                local is None
+                or local.relative_to(self.target_dir).parts[0].casefold() == ".mirror-url-state"
+            ):
+                raise ValueError("Remote file has an unsafe or reserved local path")
+            key = unicodedata.normalize("NFC", str(local)).casefold()
+            if key in destinations and destinations[key] != remote_url:
+                raise ValueError("Distinct remote URLs map to the same local filename")
+            destinations[key] = remote_url
 
     def list_directories(self) -> bool:
         """Discover, log, and print the directory tree under the target URL /
@@ -424,7 +450,7 @@ class ScanMixin:
             f"director{'y' if total_count == 1 else 'ies'}"
         )
 
-        return True
+        return not getattr(self, "scan_incomplete", False)
 
     def list_files(self) -> bool:
         """Discover, log, and print the files under the target URL /
@@ -529,7 +555,7 @@ class ScanMixin:
         logging.info(
             f"{prefix}Listed {printed_count} of {total_count} file{'s' if total_count != 1 else ''}"
         )
-        return True
+        return not getattr(self, "scan_incomplete", False)
 
     def _dir_entry_signature(self, files: List[str], subdirs: List[str]) -> Optional[str]:
         """Lightweight content signature for a scanned directory.
@@ -888,7 +914,7 @@ class ScanMixin:
             local_path = PathSafety.safe_join(
                 self.target_dir,
                 *rel_path.split("/"),
-                max_depth=self.config.max_depth,
+                max_depth=self.config.max_depth + 1,
                 max_filename_len=self.config.max_filename_len,
                 create_base=not self.config.dry_run,
             )

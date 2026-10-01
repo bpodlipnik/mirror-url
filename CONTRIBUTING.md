@@ -26,9 +26,9 @@ Run the same checks CI runs:
 
 ```bash
 ruff check .          # lint
-ruff format .         # formatting (or: black .)
+ruff format .         # formatting (Ruff 0.16.8)
 mypy                  # type-check (advisory — see below)
-pytest                # full suite (the lone end-to-end test is skipped by default)
+pytest                # full suite, including live HTTP integration
 ```
 
 `pytest -m "not integration"` runs the fast lane only (what CI gates on).
@@ -39,7 +39,7 @@ diffs, and `pytest` passes.
 ## Project layout
 
 ```
-src/mirror_url/        # the package (30 modules, dependency-layered)
+src/mirror_url/        # the package (43 Python files, including private mixins and helpers)
 tests/                 # pytest suite
 REFACTORING_PLAN.md    # module map, dependency layering, and roadmap
 ```
@@ -53,7 +53,7 @@ Cross-layer type-only references use `if TYPE_CHECKING:` to avoid import cycles.
 
 ## Conventions
 
-- **Style/format:** ruff + black, 100-column lines. Run `ruff format .` before
+- **Style/format:** Ruff 0.16.8, 100-column lines. Run `ruff format .` before
   committing; pre-commit will catch the rest.
 - **Lint rule set:** `E, F, W, I, B, C4`. `UP` (pyupgrade) and `SIM` are
   intentionally *off* — the package targets Python 3.9 with classic typing

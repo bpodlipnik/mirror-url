@@ -6,15 +6,172 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
   <title>MirrorURL — User Guide</title>
   <style>
+    html {
+      color: #1a1a1a;
+      background-color: #fdfdfd;
+    }
+    body {
+      margin: 0 auto;
+      max-width: 36em;
+      padding-left: 50px;
+      padding-right: 50px;
+      padding-top: 50px;
+      padding-bottom: 50px;
+      hyphens: auto;
+      overflow-wrap: break-word;
+      text-rendering: optimizeLegibility;
+      font-kerning: normal;
+    }
+    @media (max-width: 600px) {
+      body {
+        font-size: 0.9em;
+        padding: 12px;
+      }
+      h1 {
+        font-size: 1.8em;
+      }
+    }
+    @media print {
+      html {
+        background-color: white;
+      }
+      body {
+        background-color: transparent;
+        color: black;
+        font-size: 12pt;
+      }
+      p, h2, h3 {
+        orphans: 3;
+        widows: 3;
+      }
+      h2, h3, h4 {
+        page-break-after: avoid;
+      }
+    }
+    p {
+      margin: 1em 0;
+    }
+    a {
+      color: #1a1a1a;
+    }
+    a:visited {
+      color: #1a1a1a;
+    }
+    img {
+      max-width: 100%;
+    }
+    svg {
+      height: auto;
+      max-width: 100%;
+    }
+    h1, h2, h3, h4, h5, h6 {
+      margin-top: 1.4em;
+    }
+    h5, h6 {
+      font-size: 1em;
+      font-style: italic;
+    }
+    h6 {
+      font-weight: normal;
+    }
+    ol, ul {
+      padding-left: 1.7em;
+      margin-top: 1em;
+    }
+    li > ol, li > ul {
+      margin-top: 0;
+    }
+    blockquote {
+      margin: 1em 0 1em 1.7em;
+      padding-left: 1em;
+      border-left: 2px solid #e6e6e6;
+      color: #606060;
+    }
+    code {
+      font-family: Menlo, Monaco, Consolas, 'Lucida Console', monospace;
+      font-size: 85%;
+      margin: 0;
+      hyphens: manual;
+    }
+    pre {
+      margin: 1em 0;
+      overflow: auto;
+    }
+    pre code {
+      padding: 0;
+      overflow: visible;
+      overflow-wrap: normal;
+    }
+    .sourceCode {
+     background-color: transparent;
+     overflow: visible;
+    }
+    hr {
+      border: none;
+      border-top: 1px solid #1a1a1a;
+      height: 1px;
+      margin: 1em 0;
+    }
+    table {
+      margin: 1em 0;
+      border-collapse: collapse;
+      width: 100%;
+      overflow-x: auto;
+      display: block;
+      font-variant-numeric: lining-nums tabular-nums;
+    }
+    table caption {
+      margin-bottom: 0.75em;
+    }
+    tbody {
+      margin-top: 0.5em;
+      border-top: 1px solid #1a1a1a;
+      border-bottom: 1px solid #1a1a1a;
+    }
+    th {
+      border-top: 1px solid #1a1a1a;
+      padding: 0.25em 0.5em 0.25em 0.5em;
+    }
+    td {
+      padding: 0.125em 0.5em 0.25em 0.5em;
+    }
+    header {
+      margin-bottom: 4em;
+      text-align: center;
+    }
+    #TOC li {
+      list-style: none;
+    }
+    #TOC ul {
+      padding-left: 1.3em;
+    }
+    #TOC > ul {
+      padding-left: 0;
+    }
+    #TOC a:not(:hover) {
+      text-decoration: none;
+    }
     code{white-space: pre-wrap;}
     span.smallcaps{font-variant: small-caps;}
-    span.underline{text-decoration: underline;}
-    div.column{display: inline-block; vertical-align: top; width: 50%;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
     div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
-    ul.task-list{list-style: none;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+    /* CSS for syntax highlighting */
+    html { -webkit-text-size-adjust: 100%; }
     pre > code.sourceCode { white-space: pre; position: relative; }
     pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
     pre > code.sourceCode > span:empty { height: 1.2em; }
+    .sourceCode { overflow: visible; }
     code.sourceCode > span { color: inherit; text-decoration: inherit; }
     div.sourceCode { margin: 1em 0; }
     pre.sourceCode { margin: 0; }
@@ -49,7 +206,7 @@
     code span.an { color: #60a0b0; font-weight: bold; font-style: italic; } /* Annotation */
     code span.at { color: #7d9029; } /* Attribute */
     code span.bn { color: #40a070; } /* BaseN */
-    code span.bu { } /* BuiltIn */
+    code span.bu { color: #008000; } /* BuiltIn */
     code span.cf { color: #007020; font-weight: bold; } /* ControlFlow */
     code span.ch { color: #4070a0; } /* Char */
     code span.cn { color: #880000; } /* Constant */
@@ -62,7 +219,7 @@
     code span.ex { } /* Extension */
     code span.fl { color: #40a070; } /* Float */
     code span.fu { color: #06287e; } /* Function */
-    code span.im { } /* Import */
+    code span.im { color: #008000; font-weight: bold; } /* Import */
     code span.in { color: #60a0b0; font-weight: bold; font-style: italic; } /* Information */
     code span.kw { color: #007020; font-weight: bold; } /* Keyword */
     code span.op { color: #666666; } /* Operator */
@@ -75,56 +232,165 @@
     code span.vs { color: #4070a0; } /* VerbatimString */
     code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; } /* Warning */
   </style>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
-    :root { --fg:#1f2328; --muted:#656d76; --accent:#0969da; --border:#d0d7de;
-            --code-bg:#f6f8fa; --table-alt:#f6f8fa; }
-    * { box-sizing: border-box; }
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-           color: var(--fg); line-height: 1.6; max-width: 900px; margin: 0 auto;
-           padding: 2.5rem 1.25rem 5rem; }
-    h1,h2,h3 { line-height: 1.25; margin-top: 2rem; }
-    h1 { font-size: 2rem; border-bottom: 2px solid var(--border); padding-bottom: .4rem; }
-    h2 { font-size: 1.45rem; border-bottom: 1px solid var(--border); padding-bottom: .3rem; }
-    h3 { font-size: 1.15rem; }
-    a { color: var(--accent); text-decoration: none; }
-    a:hover { text-decoration: underline; }
-    code { background: var(--code-bg); padding: .15em .35em; border-radius: 6px;
-           font-size: .88em; font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; }
-    pre { background: var(--code-bg); padding: 1rem; border-radius: 8px; overflow-x: auto;
-          border: 1px solid var(--border); }
-    pre code { background: none; padding: 0; font-size: .85em; }
-    table { border-collapse: collapse; width: 100%; margin: 1rem 0; display: block; overflow-x: auto; }
-    th, td { border: 1px solid var(--border); padding: .5rem .7rem; text-align: left; vertical-align: top; }
-    th { background: var(--code-bg); }
-    tr:nth-child(even) td { background: var(--table-alt); }
-    blockquote { border-left: 4px solid var(--accent); margin: 1rem 0; padding: .25rem 1rem;
-                 color: var(--muted); background: #f6f8fa55; }
-    #TOC { background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px;
-           padding: 1rem 1.25rem; margin: 1.5rem 0; }
-    #TOC ul { margin: .25rem 0; }
-    hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
-    .title { margin-bottom: .25rem; }
-  </style>
+      :root { --fg:#1f2328; --muted:#656d76; --accent:#0969da; --border:#d0d7de;
+              --code-bg:#f6f8fa; --table-alt:#f6f8fa; }
+      * { box-sizing: border-box; }
+      body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+             color: var(--fg); line-height: 1.6; max-width: 900px; margin: 0 auto;
+             padding: 2.5rem 1.25rem 5rem; }
+      h1,h2,h3 { line-height: 1.25; margin-top: 2rem; }
+      h1 { font-size: 2rem; border-bottom: 2px solid var(--border); padding-bottom: .4rem; }
+      h2 { font-size: 1.45rem; border-bottom: 1px solid var(--border); padding-bottom: .3rem; }
+      h3 { font-size: 1.15rem; }
+      a { color: var(--accent); text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      code { background: var(--code-bg); padding: .15em .35em; border-radius: 6px;
+             font-size: .88em; font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; }
+      pre { background: var(--code-bg); padding: 1rem; border-radius: 8px; overflow-x: auto;
+            border: 1px solid var(--border); }
+      pre code { background: none; padding: 0; font-size: .85em; }
+      table { border-collapse: collapse; width: 100%; margin: 1rem 0; display: block; overflow-x: auto; }
+      th, td { border: 1px solid var(--border); padding: .5rem .7rem; text-align: left; vertical-align: top; }
+      th { background: var(--code-bg); }
+      tr:nth-child(even) td { background: var(--table-alt); }
+      blockquote { border-left: 4px solid var(--accent); margin: 1rem 0; padding: .25rem 1rem;
+                   color: var(--muted); background: #f6f8fa55; }
+      #TOC { background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px;
+             padding: 1rem 1.25rem; margin: 1.5rem 0; }
+      #TOC ul { margin: .25rem 0; }
+      hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+      .title { margin-bottom: .25rem; }
+    </style>
 </head>
 <body>
-<body>
-<header id="title-block-header">
-<h1 class="title">MirrorURL — User Guide</h1>
-</header>
 <nav id="TOC" role="doc-toc">
 <ul>
-<li><a href="#mirrorurl--user-guide">MirrorURL — User Guide</a></li>
+<li><a href="#mirrorurl-user-guide"
+id="toc-mirrorurl-user-guide">MirrorURL — User Guide</a>
+<ul>
+<li><a href="#audit-patch-behavior" id="toc-audit-patch-behavior">Audit
+patch behavior</a></li>
+<li><a href="#table-of-contents" id="toc-table-of-contents">Table of
+contents</a></li>
+<li><a href="#what-it-does" id="toc-what-it-does">What it does</a></li>
+<li><a href="#requirements" id="toc-requirements">Requirements</a></li>
+<li><a href="#installation" id="toc-installation">Installation</a>
+<ul>
+<li><a href="#from-pypi" id="toc-from-pypi">From PyPI</a></li>
+<li><a href="#from-a-built-wheel-recommended-for-servers"
+id="toc-from-a-built-wheel-recommended-for-servers">From a built wheel
+(recommended for servers)</a></li>
+<li><a href="#from-a-git-repository" id="toc-from-a-git-repository">From
+a Git repository</a></li>
+<li><a href="#as-an-isolated-cli-with-pipx"
+id="toc-as-an-isolated-cli-with-pipx">As an isolated CLI with
+pipx</a></li>
+<li><a href="#with-docker" id="toc-with-docker">With Docker</a></li>
+<li><a href="#verify-the-install" id="toc-verify-the-install">Verify the
+install</a></li>
+</ul></li>
+<li><a href="#quick-start" id="toc-quick-start">Quick start</a></li>
+<li><a href="#command-line-usage"
+id="toc-command-line-usage">Command-line usage</a>
+<ul>
+<li><a href="#targets" id="toc-targets">Targets</a></li>
+<li><a href="#download-method" id="toc-download-method">Download
+method</a></li>
+<li><a href="#performance-and-networking"
+id="toc-performance-and-networking">Performance and networking</a></li>
+<li><a href="#caching" id="toc-caching">Caching</a></li>
+<li><a href="#filtering-and-scope"
+id="toc-filtering-and-scope">Filtering and scope</a></li>
+<li><a href="#cleanup-of-obsolete-local-files"
+id="toc-cleanup-of-obsolete-local-files">Cleanup of obsolete local
+files</a></li>
+<li><a href="#output-and-diagnostics"
+id="toc-output-and-diagnostics">Output and diagnostics</a></li>
+<li><a href="#examples" id="toc-examples">Examples</a></li>
+</ul></li>
+<li><a href="#configuration-files-yamljson"
+id="toc-configuration-files-yamljson">Configuration files
+(YAML/JSON)</a>
+<ul>
+<li><a href="#environment-variables-in-config"
+id="toc-environment-variables-in-config">Environment variables in
+config</a></li>
+<li><a href="#validate-a-config-without-running"
+id="toc-validate-a-config-without-running">Validate a config without
+running</a></li>
+</ul></li>
+<li><a href="#download-modes" id="toc-download-modes">Download
+modes</a></li>
+<li><a href="#filtering-and-scope-1"
+id="toc-filtering-and-scope-1">Filtering and scope</a></li>
+<li><a href="#caching-and-incremental-sync"
+id="toc-caching-and-incremental-sync">Caching and incremental
+sync</a></li>
+<li><a href="#cleaning-up-obsolete-files"
+id="toc-cleaning-up-obsolete-files">Cleaning up obsolete files</a></li>
+<li><a href="#security" id="toc-security">Security</a></li>
+<li><a href="#symlink-handling" id="toc-symlink-handling">Symlink
+handling</a>
+<ul>
+<li><a href="#how-detection-works" id="toc-how-detection-works">How
+detection works</a></li>
+<li><a href="#recommended-workflow"
+id="toc-recommended-workflow">Recommended workflow</a></li>
+</ul></li>
+<li><a href="#monitoring-and-metrics"
+id="toc-monitoring-and-metrics">Monitoring and metrics</a></li>
+<li><a href="#using-mirrorurl-from-python"
+id="toc-using-mirrorurl-from-python">Using MirrorURL from
+Python</a></li>
+<li><a href="#exit-codes" id="toc-exit-codes">Exit codes</a></li>
+<li><a href="#troubleshooting"
+id="toc-troubleshooting">Troubleshooting</a></li>
+<li><a href="#uninstalling" id="toc-uninstalling">Uninstalling</a></li>
+</ul></li>
 </ul>
 </nav>
-<h1 id="mirrorurl--user-guide">MirrorURL — User Guide</h1>
-<p>MirrorURL is a security-hardened command-line tool and Python library for mirroring files behind an HTTP(S) <strong>directory listing</strong> to local disk. It walks the remote directory tree, decides which files are new or changed, and downloads them efficiently — with adaptive concurrency, resumable/parallel downloads, integrity checks, incremental caching, and an SSRF-hardened transport layer.</p>
+<h1 id="mirrorurl-user-guide">MirrorURL — User Guide</h1>
+<p>MirrorURL is a security-hardened command-line tool and Python library
+for mirroring files behind an HTTP(S) <strong>directory listing</strong>
+to local disk. It walks the remote directory tree, decides which files
+are new or changed, and downloads them efficiently — with adaptive
+concurrency, resumable/parallel downloads, integrity checks, incremental
+caching, and an SSRF-hardened transport layer.</p>
 <ul>
-<li><strong>Version:</strong> 3.1.69</li>
-<li><strong>Python:</strong> 3.9 – 3.12 (pure Python; not supported on Solaris)</li>
+<li><strong>Version:</strong> 3.1.70</li>
+<li><strong>Python:</strong> 3.9 – 3.12 (pure Python; not supported on
+Solaris)</li>
 <li><strong>License:</strong> MIT</li>
 </ul>
 <hr />
+<h2 id="audit-patch-behavior">Audit patch behavior</h2>
+<p>The audit patch for 3.1.70 streams file bodies as they arrive and
+throttles between reads. HTTP/2 and pool limits reach the secure
+transport. Fixed async metadata checks honor <code>async_workers</code>;
+adaptive resizing changes the live admission limit. Both async modes
+validate every redirect and retry 429/5xx responses, honoring
+<code>Retry-After</code> within their overall request timeout.</p>
+<p>Whole-file partials and their resume metadata now live in the owned
+<code>.mirror-url-state/</code> directory inside the destination, so
+publication remains on the same filesystem. This name is reserved
+(case-insensitively): a remote file mapping under it causes the sync to
+fail. A pre-existing directory without a valid ownership marker is
+preserved and rejected; obsolete-file cleanup never enters this reserved
+directory. Legacy adjacent <code>*.mirror-partial</code> files are not
+resumed or classified as stale partials. Requested obsolete-file cleanup
+can still remove them if absent from the remote listing. Review or
+archive those files before enabling cleanup.</p>
+<p><code>max_depth</code> counts directories below the root (root depth
+0); a file in an immediate child directory is eligible at depth 1.
+Duplicate URLs are downloaded once. Ambiguous sanitized names abort
+before downloading. A complete empty scan can clean obsolete files when
+requested; an incomplete scan skips cleanup and reports failure. Cleanup
+failures also produce a failing exit status.</p>
+<p>Cache metadata is saved after downloads and cleanup.
+<code>--quick</code> refreshes the JSON timestamp used for cache expiry
+without scanning. Neither ETags nor size/mtime checks are a
+cryptographic content comparison against the server.</p>
 <h2 id="table-of-contents">Table of contents</h2>
 <ul>
 <li><a href="#what-it-does">What it does</a></li>
@@ -132,310 +398,401 @@
 <li><a href="#installation">Installation</a></li>
 <li><a href="#quick-start">Quick start</a></li>
 <li><a href="#command-line-usage">Command-line usage</a></li>
-<li><a href="#configuration-files-yamljson">Configuration files (YAML/JSON)</a></li>
+<li><a href="#configuration-files-yamljson">Configuration files
+(YAML/JSON)</a></li>
 <li><a href="#download-modes">Download modes</a></li>
 <li><a href="#filtering-and-scope">Filtering and scope</a></li>
-<li><a href="#caching-and-incremental-sync">Caching and incremental sync</a></li>
-<li><a href="#cleaning-up-obsolete-files">Cleaning up obsolete files</a></li>
+<li><a href="#caching-and-incremental-sync">Caching and incremental
+sync</a></li>
+<li><a href="#cleaning-up-obsolete-files">Cleaning up obsolete
+files</a></li>
 <li><a href="#security">Security</a></li>
 <li><a href="#symlink-handling">Symlink handling</a></li>
 <li><a href="#monitoring-and-metrics">Monitoring and metrics</a></li>
-<li><a href="#using-mirrorurl-from-python">Using MirrorURL from Python</a></li>
+<li><a href="#using-mirrorurl-from-python">Using MirrorURL from
+Python</a></li>
 <li><a href="#exit-codes">Exit codes</a></li>
 <li><a href="#troubleshooting">Troubleshooting</a></li>
 <li><a href="#uninstalling">Uninstalling</a></li>
 </ul>
 <hr />
 <h2 id="what-it-does">What it does</h2>
-<p>Given a base URL that serves an HTML directory index (e.g. an Apache/nginx "Index of /…" page, a data archive, an artifact server), MirrorURL:</p>
+<p>Given a base URL that serves an HTML directory index (e.g. an
+Apache/nginx “Index of /…” page, a data archive, an artifact server),
+MirrorURL:</p>
 <ol type="1">
-<li><strong>Discovers</strong> the remote tree by recursively parsing directory listings (breadth-first, with depth and exclusion limits, cycle-safe).</li>
-<li><strong>Compares</strong> each remote file against the local copy using size, timestamp, and ETag. Directory listing validators never stand in for file checks.</li>
-<li><strong>Downloads</strong> the missing/changed files, optionally in parallel (multiple files and/or multiple chunks per file) with resume support.</li>
-<li><strong>Optionally cleans up</strong> local files that no longer exist remotely (preview / move / delete policies).</li>
+<li><strong>Discovers</strong> the remote tree by recursively parsing
+directory listings (breadth-first, with depth and exclusion limits,
+cycle-safe).</li>
+<li><strong>Compares</strong> each remote file against the local copy
+using size, timestamp, and ETag. Directory listing validators never
+stand in for file checks.</li>
+<li><strong>Downloads</strong> the missing/changed files, optionally in
+parallel (multiple files and/or multiple chunks per file) with resume
+support.</li>
+<li><strong>Optionally cleans up</strong> local files that no longer
+exist remotely (preview / move / delete policies).</li>
 </ol>
-<p>Highlights: adaptive async metadata checks, per-domain circuit breakers, bandwidth limiting, integrity verification, a persistent cache for fast incremental runs, and strong SSRF/path-traversal protections.</p>
+<p>Highlights: adaptive async metadata checks, per-domain circuit
+breakers, bandwidth limiting, integrity verification, a persistent cache
+for fast incremental runs, and strong SSRF/path-traversal
+protections.</p>
 <hr />
 <h2 id="requirements">Requirements</h2>
 <ul>
 <li><strong>Python 3.9 or newer.</strong></li>
-<li>Runtime dependencies (installed automatically): <code>httpx</code> (with the <code>http2</code> extra, which pulls in <code>h2</code> -- HTTP/2 is on by default, see <code>--no-http2</code>), <code>pydantic</code> (v2), <code>PyYAML</code>.</li>
-<li>Optional accelerators (install via extras, see below): <code>stringzilla</code> + <code>lxml</code> (faster parsing), <code>tqdm</code> (progress bars), <code>psutil</code> (memory/disk monitoring).</li>
+<li>Runtime dependencies (installed automatically): <code>httpx</code>
+(with the <code>http2</code> extra, which pulls in <code>h2</code> –
+HTTP/2 is on by default, see <code>--no-http2</code>),
+<code>pydantic</code> (v2), <code>PyYAML</code>.</li>
+<li>Optional accelerators (install via extras, see below):
+<code>stringzilla</code> + <code>lxml</code> (faster parsing),
+<code>tqdm</code> (progress bars), <code>psutil</code> (memory/disk
+monitoring).</li>
 </ul>
 <hr />
 <h2 id="installation">Installation</h2>
 <blockquote>
-<p>Always install into a <strong>virtual environment</strong> to keep dependencies isolated.</p>
+<p>Always install into a <strong>virtual environment</strong> to keep
+dependencies isolated.</p>
 </blockquote>
 <h3 id="from-pypi">From PyPI</h3>
-<div class="sourceCode" id="cb1"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> install mirror-url</span></code></pre></div>
-<h3 id="from-a-built-wheel-recommended-for-servers">From a built wheel (recommended for servers)</h3>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> install mirror-url</span></code></pre></div>
+<h3 id="from-a-built-wheel-recommended-for-servers">From a built wheel
+(recommended for servers)</h3>
 <p>On a build machine:</p>
-<div class="sourceCode" id="cb2"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> install build</span>
-<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> <span class="at">-m</span> build          <span class="co"># produces dist/mirror_url-3.1.69-py3-none-any.whl</span></span></code></pre></div>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> install build</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> <span class="at">-m</span> build          <span class="co"># produces dist/mirror_url-3.1.70-py3-none-any.whl</span></span></code></pre></div>
 <p>Copy the wheel to the target server and install it:</p>
-<div class="sourceCode" id="cb3"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="ex">python3</span> <span class="at">-m</span> venv /opt/mirror-url</span>
-<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="ex">/opt/mirror-url/bin/pip</span> install /tmp/mirror_url-3.1.69-py3-none-any.whl</span>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="ex">python3</span> <span class="at">-m</span> venv /opt/mirror-url</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="ex">/opt/mirror-url/bin/pip</span> install /tmp/mirror_url-3.1.70-py3-none-any.whl</span>
 <span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="ex">/opt/mirror-url/bin/mirror-url</span> <span class="at">--help</span></span></code></pre></div>
 <p>To include the optional speed extras:</p>
-<div class="sourceCode" id="cb4"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="ex">/opt/mirror-url/bin/pip</span> install <span class="st">&quot;/tmp/mirror_url-3.1.69-py3-none-any.whl[fast]&quot;</span></span></code></pre></div>
-<p>Available extras: <code>fast</code> (stringzilla + lxml), <code>progress</code> (tqdm), <code>monitor</code> (psutil), <code>all</code> (everything), <code>dev</code> (test/lint toolchain).</p>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="ex">/opt/mirror-url/bin/pip</span> install <span class="st">&quot;/tmp/mirror_url-3.1.70-py3-none-any.whl[fast]&quot;</span></span></code></pre></div>
+<p>Available extras: <code>fast</code> (stringzilla + lxml),
+<code>progress</code> (tqdm), <code>monitor</code> (psutil),
+<code>all</code> (everything), <code>dev</code> (test/lint
+toolchain).</p>
 <h3 id="from-a-git-repository">From a Git repository</h3>
-<div class="sourceCode" id="cb5"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> install <span class="st">&quot;git+https://github.com/bpodlipnik/mirror-url.git@v3.1.69&quot;</span></span>
+<div class="sourceCode" id="cb5"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> install <span class="st">&quot;git+https://github.com/bpodlipnik/mirror-url.git@v3.1.70&quot;</span></span>
 <span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="co"># private repo over SSH:</span></span>
-<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> install <span class="st">&quot;git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.1.69&quot;</span></span></code></pre></div>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> install <span class="st">&quot;git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.1.70&quot;</span></span></code></pre></div>
 <h3 id="as-an-isolated-cli-with-pipx">As an isolated CLI with pipx</h3>
-<div class="sourceCode" id="cb6"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pipx</span> install /tmp/mirror_url-3.1.69-py3-none-any.whl</span>
-<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="co"># or:  pipx install &quot;git+https://github.com/bpodlipnik/mirror-url.git@v3.1.69&quot;</span></span></code></pre></div>
+<div class="sourceCode" id="cb6"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pipx</span> install /tmp/mirror_url-3.1.70-py3-none-any.whl</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="co"># or:  pipx install &quot;git+https://github.com/bpodlipnik/mirror-url.git@v3.1.70&quot;</span></span></code></pre></div>
 <h3 id="with-docker">With Docker</h3>
-<div class="sourceCode" id="cb7"><pre class="sourceCode dockerfile"><code class="sourceCode dockerfile"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="kw">FROM</span> python:3.12-slim</span>
-<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="kw">COPY</span> dist/mirror_url-3.1.69-py3-none-any.whl /tmp/</span>
-<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a><span class="kw">RUN</span> <span class="ex">pip</span> install <span class="at">--no-cache-dir</span> <span class="st">&quot;/tmp/mirror_url-3.1.69-py3-none-any.whl[fast]&quot;</span></span>
+<div class="sourceCode" id="cb7"><pre
+class="sourceCode dockerfile"><code class="sourceCode dockerfile"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="kw">FROM</span> python:3.12-slim</span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="kw">COPY</span> dist/mirror_url-3.1.70-py3-none-any.whl /tmp/</span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a><span class="kw">RUN</span> <span class="ex">pip</span> install <span class="at">--no-cache-dir</span> <span class="st">&quot;/tmp/mirror_url-3.1.70-py3-none-any.whl[fast]&quot;</span></span>
 <span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a><span class="kw">ENTRYPOINT</span> [<span class="st">&quot;mirror-url&quot;</span>]</span></code></pre></div>
 <h3 id="verify-the-install">Verify the install</h3>
-<div class="sourceCode" id="cb8"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--help</span></span>
+<div class="sourceCode" id="cb8"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--help</span></span>
 <span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> <span class="at">-c</span> <span class="st">&quot;import mirror_url; print(mirror_url.__version__)&quot;</span></span></code></pre></div>
-<p>The package exposes two equivalent entry points: the <code>mirror-url</code> console command and <code>python -m mirror_url</code>.</p>
+<p>The package exposes two equivalent entry points: the
+<code>mirror-url</code> console command and
+<code>python -m mirror_url</code>.</p>
 <hr />
 <h2 id="quick-start">Quick start</h2>
 <p>Mirror a remote directory to a local folder:</p>
-<div class="sourceCode" id="cb9"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="dt">\</span></span>
+<div class="sourceCode" id="cb9"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="dt">\</span></span>
 <span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--url</span> https://example.com/datasets/ <span class="dt">\</span></span>
 <span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--dest-path</span> ./mirror <span class="dt">\</span></span>
 <span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">--log-path</span> ./logs</span></code></pre></div>
 <ul>
-<li><code>--url</code> — the base URL to mirror (must serve an HTML directory listing).</li>
+<li><code>--url</code> — the base URL to mirror (must serve an HTML
+directory listing).</li>
 <li><code>--dest-path</code> — where files are written locally.</li>
-<li><code>--log-path</code> — where run logs and the incremental cache are stored.</li>
+<li><code>--log-path</code> — where run logs and the incremental cache
+are stored.</li>
 </ul>
-<p>Re-running the same command later performs an <strong>incremental sync</strong>: only new or changed files are downloaded.</p>
+<p>Re-running the same command later performs an <strong>incremental
+sync</strong>: only new or changed files are downloaded.</p>
 <p>Prefer a config file for anything non-trivial:</p>
-<div class="sourceCode" id="cb10"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--config</span> mirror.yaml</span></code></pre></div>
+<div class="sourceCode" id="cb10"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--config</span> mirror.yaml</span></code></pre></div>
 <hr />
 <h2 id="command-line-usage">Command-line usage</h2>
-<p>Either supply <code>--url</code>, <code>--dest-path</code>, and <code>--log-path</code>, <strong>or</strong> point at a config file with <code>--config</code>. Run <code>mirror-url --help</code> for the complete, authoritative list of options. The most commonly used options:</p>
+<p>Either supply <code>--url</code>, <code>--dest-path</code>, and
+<code>--log-path</code>, <strong>or</strong> point at a config file with
+<code>--config</code>. Run <code>mirror-url --help</code> for the
+complete, authoritative list of options. The most commonly used
+options:</p>
 <blockquote>
-<p><code>--list-dirs</code> and <code>--list-files</code> are exceptions: since they only discover and print the remote tree and never download or delete anything, neither requires <code>--dest-path</code> or <code>--log-path</code> — see their entries in "Filtering and scope" below.</p>
+<p><code>--list-dirs</code> and <code>--list-files</code> are
+exceptions: since they only discover and print the remote tree and never
+download or delete anything, neither requires <code>--dest-path</code>
+or <code>--log-path</code> — see their entries in “Filtering and scope”
+below.</p>
 </blockquote>
 <h3 id="targets">Targets</h3>
 <table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
 <thead>
-<tr class="header">
+<tr>
 <th>Option</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
-<tr class="odd">
+<tr>
 <td><code>--url URL</code></td>
-<td>Base URL to mirror (required unless <code>--config</code> is used).</td>
+<td>Base URL to mirror (required unless <code>--config</code> is
+used).</td>
 </tr>
-<tr class="even">
+<tr>
 <td><code>--dest-path DIR</code></td>
 <td>Local destination directory.</td>
 </tr>
-<tr class="odd">
+<tr>
 <td><code>--log-path DIR</code></td>
 <td>Directory for logs and the cache file.</td>
 </tr>
-<tr class="even">
+<tr>
 <td><code>--config FILE</code></td>
 <td>YAML or JSON configuration file (see below).</td>
 </tr>
-<tr class="odd">
+<tr>
 <td><code>--dir-suffix S [S ...]</code></td>
-<td>Mirror one or more subpaths under the base URL (e.g. <code>L1/v1 L2/v2</code>).</td>
+<td>Mirror one or more subpaths under the base URL
+(e.g. <code>L1/v1 L2/v2</code>).</td>
 </tr>
 </tbody>
 </table>
 <h3 id="download-method">Download method</h3>
 <table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
 <thead>
-<tr class="header">
+<tr>
 <th>Option</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
-<tr class="odd">
+<tr>
 <td><em>(default)</em></td>
 <td>Auto-select the best method at runtime.</td>
 </tr>
-<tr class="even">
+<tr>
 <td><code>--sequential-downloads</code></td>
 <td>One file at a time, no parallelism (most conservative).</td>
 </tr>
-<tr class="odd">
+<tr>
 <td><code>--parallel-downloads</code></td>
 <td>Parallel chunks via temp files, verified before assembly.</td>
 </tr>
-<tr class="even">
+<tr>
 <td><code>--streaming-parallel</code></td>
-<td>Parallel chunks written into a staging file, then atomically published.</td>
+<td>Parallel chunks written into a staging file, then atomically
+published.</td>
 </tr>
-<tr class="odd">
+<tr>
 <td><code>--max-concurrent-downloads N</code></td>
 <td>Max files downloaded at once (default 10).</td>
 </tr>
-<tr class="even">
+<tr>
 <td><code>--max-chunks N</code></td>
 <td>Max chunks per file (default 8).</td>
 </tr>
-<tr class="odd">
+<tr>
 <td><code>--min-chunk-size MB</code></td>
 <td>Minimum chunk size in MB (default 10).</td>
 </tr>
-<tr class="even">
+<tr>
 <td><code>--auto-concurrency</code></td>
 <td>Tune parallel concurrency from measured throughput.</td>
 </tr>
-<tr class="odd">
+<tr>
 <td><code>--bandwidth-limit MB/S</code></td>
 <td>Cap total download bandwidth.</td>
 </tr>
-<tr class="even">
+<tr>
 <td><code>--max-parallel-chunks N</code></td>
-<td>Max chunks in flight across <em>all</em> files at once (default 50; <code>--max-chunks</code> above caps chunks <em>per file</em>).</td>
+<td>Max chunks in flight across <em>all</em> files at once (default 50;
+<code>--max-chunks</code> above caps chunks <em>per file</em>).</td>
 </tr>
-<tr class="odd">
+<tr>
 <td><code>--chunk-assembly-dir DIR</code></td>
-<td>Directory for temporary chunk files (defaults next to the destination file).</td>
+<td>Directory for temporary chunk files (defaults next to the
+destination file).</td>
 </tr>
-<tr class="even">
+<tr>
 <td><code>--chunk-timeout-multiplier MULT</code></td>
-<td><em>Currently has no effect</em> (accepted for backward compatibility). Chunk requests use fixed multiples of <code>--timeout</code>.</td>
+<td><em>Currently has no effect</em> (accepted for backward
+compatibility). Chunk requests use fixed multiples of
+<code>--timeout</code>.</td>
 </tr>
 </tbody>
 </table>
 <h3 id="performance-and-networking">Performance and networking</h3>
 <table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
 <thead>
-<tr class="header">
+<tr>
 <th>Option</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
-<tr class="odd">
+<tr>
 <td><code>--workers N</code></td>
 <td>Sync worker threads (default 8).</td>
 </tr>
-<tr class="even">
+<tr>
 <td><code>--async-workers N</code></td>
 <td>Async metadata-check workers (default 50).</td>
 </tr>
-<tr class="odd">
+<tr>
 <td><code>--no-async-metadata</code></td>
 <td>Disable async metadata checks (use on throttled servers).</td>
 </tr>
-<tr class="even">
+<tr>
 <td><code>--timeout SECS</code></td>
 <td>Per-request timeout (default 30).</td>
 </tr>
-<tr class="odd">
+<tr>
 <td><code>--max-retries N</code></td>
 <td>Retries per request (default 3).</td>
 </tr>
-<tr class="even">
+<tr>
 <td><code>--retry-delay SECS</code></td>
 <td>Delay between retries (default 2).</td>
 </tr>
-<tr class="odd">
+<tr>
 <td><code>--trusted-server</code></td>
 <td>Use faster rate limiting (10 ms vs 50 ms between requests).</td>
 </tr>
-<tr class="even">
+<tr>
 <td><code>--no-http2</code></td>
 <td>Disable HTTP/2.</td>
 </tr>
-<tr class="odd">
+<tr>
 <td><code>--no-http2-pipelining</code></td>
-<td><em>Currently has no effect</em> (accepted for backward compatibility); the HTTP/2 client does not read this setting.</td>
+<td><em>Currently has no effect</em> (accepted for backward
+compatibility); the HTTP/2 client does not read this setting.</td>
 </tr>
-<tr class="even">
+<tr>
 <td><code>--no-connection-pool-prewarm</code></td>
-<td>Don't pre-warm connection pools at startup.</td>
+<td>Don’t pre-warm connection pools at startup.</td>
 </tr>
-<tr class="even">
+<tr>
 <td><code>--no-circuit-breaker</code></td>
-<td>Disable the circuit breaker everywhere it is used: per-domain for metadata/scan requests and for chunked file downloads.</td>
+<td>Disable the circuit breaker everywhere it is used: per-domain for
+metadata/scan requests and for chunked file downloads.</td>
 </tr>
-<tr class="odd">
+<tr>
 <td><code>--no-circuit-breaker-downloads</code></td>
-<td><em>Currently has no effect</em> (accepted for backward compatibility). Use <code>--no-circuit-breaker</code> to disable the download circuit breaker.</td>
+<td><em>Currently has no effect</em> (accepted for backward
+compatibility). Use <code>--no-circuit-breaker</code> to disable the
+download circuit breaker.</td>
 </tr>
-<tr class="even">
+<tr>
 <td><code>--adaptive-start-concurrency N</code></td>
-<td>Starting concurrency for adaptive async scanning (default 5).</td>
+<td>Starting async metadata concurrency (default 5), bounded by
+<code>--async-workers</code> and the adaptive maximum of 50.</td>
 </tr>
-<tr class="odd">
+<tr>
 <td><code>--adaptive-error-threshold RATE</code></td>
-<td>Error rate (0–1) at which adaptive async concurrency backs off (default 0.05).</td>
+<td>Error-rate threshold (0–1, default 0.05) for adaptive metadata
+fallback; moderate errors also reduce concurrency.</td>
 </tr>
-<tr class="even">
+<tr>
 <td><code>--no-adaptive-async</code></td>
-<td>Disable adaptive async concurrency; use a fixed <code>--async-workers</code> count.</td>
+<td>Disable adaptive async concurrency; use a fixed
+<code>--async-workers</code> count.</td>
 </tr>
 </tbody>
 </table>
 <h3 id="caching">Caching</h3>
 <table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
 <thead>
-<tr class="header">
+<tr>
 <th>Option</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
-<tr class="odd">
+<tr>
 <td><code>--no-cache</code></td>
 <td>Disable the on-disk cache (always re-scan).</td>
 </tr>
-<tr class="even">
+<tr>
 <td><code>--refresh-cache</code></td>
 <td>Force a full cache refresh this run.</td>
 </tr>
-<tr class="odd">
+<tr>
 <td><code>--cache-max-age DAYS</code></td>
 <td>Max cache age before auto-refresh (default 7).</td>
 </tr>
-<tr class="even">
+<tr>
 <td><code>--no-etag</code></td>
 <td>Disable ETag-based change detection.</td>
 </tr>
-<tr class="odd">
+<tr>
 <td><code>--missing-files</code></td>
-<td>Skip per-file freshness checks for files that already exist locally — only download what's absent. Much faster on large, largely-static datasets, but won't detect a file that changed in place on the server under the same name. Pair with occasional full runs (without this flag) to still catch in-place changes.</td>
+<td>Skip per-file freshness checks for files that already exist locally
+— only download what’s absent. Much faster on large, largely-static
+datasets, but won’t detect a file that changed in place on the server
+under the same name. Pair with occasional full runs (without this flag)
+to still catch in-place changes.</td>
 </tr>
-<tr class="even">
+<tr>
 <td><code>--quick</code></td>
 <td>Quick mode: refresh the cache timestamp only.</td>
 </tr>
-<tr class="odd">
+<tr>
 <td><code>--no-cache-html</code></td>
-<td>Disable caching of parsed HTML directory listings (HTML caching is on by default).</td>
+<td>Disable caching of parsed HTML directory listings (HTML caching is
+on by default).</td>
 </tr>
-<tr class="even">
+<tr>
 <td><code>--html-cache-max-age HOURS</code></td>
 <td>Max age of cached HTML listings before a re-fetch (default 24).</td>
 </tr>
-<tr class="odd">
-<td><code>--hash-algorithm {md5,sha256}</code></td>
-<td>Hash algorithm used for file-integrity/cache keys (default <code>md5</code>).</td>
+<tr>
+<td><code>--hash-algorithm {md5,sha256,blake2b}</code></td>
+<td>Hash used for directory/cache signatures (default <code>md5</code>);
+downloaded file contents are not compared with a remote cryptographic
+digest.</td>
 </tr>
-<tr class="even">
+<tr>
 <td><code>--no-rget-list</code></td>
-<td><em>Currently has no effect</em> (accepted for backward compatibility): <code>RGET-LIST</code> files are not used for directory discovery.</td>
+<td><em>Currently has no effect</em> (accepted for backward
+compatibility): <code>RGET-LIST</code> files are not used for directory
+discovery.</td>
 </tr>
-<tr class="odd">
+<tr>
 <td><code>--force-rget-list</code></td>
-<td><em>Currently has no effect</em> (accepted for backward compatibility).</td>
+<td><em>Currently has no effect</em> (accepted for backward
+compatibility).</td>
 </tr>
-<tr class="even">
+<tr>
 <td><code>--rget-list-max-age DAYS</code></td>
-<td><em>Currently has no effect</em> (accepted for backward compatibility).</td>
+<td><em>Currently has no effect</em> (accepted for backward
+compatibility).</td>
 </tr>
-<tr class="odd">
+<tr>
 <td><code>--no-content-hash</code></td>
 <td>Currently has no effect on file freshness checks.</td>
 </tr>
@@ -443,85 +800,127 @@
 </table>
 <h3 id="filtering-and-scope">Filtering and scope</h3>
 <table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
 <thead>
-<tr class="header">
+<tr>
 <th>Option</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
-<tr class="odd">
+<tr>
 <td><code>--filter P [P ...]</code></td>
-<td>Only download matching files. Each pattern is a plain extension (<code>.fits</code>) or a regex (<code>'2024.*\.fits$'</code>).</td>
+<td>Only download matching files. Each pattern is a plain extension
+(<code>.fits</code>) or a regex (<code>'2024.*\.fits$'</code>).</td>
 </tr>
-<tr class="even">
+<tr>
 <td><code>--exclude-dir D [D ...]</code></td>
-<td>Skip directories, each matched as an exact path relative to <code>--url</code> (not a suffix at any depth — see "Filtering and scope" below).</td>
+<td>Skip directories, each matched as an exact path relative to
+<code>--url</code> (not a suffix at any depth — see “Filtering and
+scope” below).</td>
 </tr>
-<tr class="odd">
+<tr>
 <td><code>--max-depth N</code></td>
-<td>Maximum directory recursion depth (default 50; <code>--list-dirs</code> defaults to 1 instead — see below).</td>
+<td>Maximum directory recursion depth (default 50;
+<code>--list-dirs</code> defaults to 1 instead — see below).</td>
 </tr>
-<tr class="even">
-<td><code>--scan-mode {adaptive,sequential,async}</code></td>
-<td>Directory-scan strategy: <code>adaptive</code> (default) picks per directory, <code>sequential</code> and <code>async</code> force one approach throughout.</td>
+<tr>
+<td><code>--scan-mode {adaptive,sequential,parallel,async}</code></td>
+<td>Accepted for compatibility; directory discovery and parsing
+currently use sequential scanning regardless of this value. Async
+workers apply to file metadata checks.</td>
 </tr>
-<tr class="odd">
+<tr>
 <td><code>--parallel-threshold N</code></td>
-<td><em>Currently has no effect</em> (accepted for backward compatibility); the value is parsed but not used to choose a scan strategy.</td>
+<td><em>Currently has no effect</em> (accepted for backward
+compatibility); the value is parsed but not used to choose a scan
+strategy.</td>
 </tr>
-<tr class="even">
+<tr>
 <td><code>--max-filename-len N</code></td>
-<td>Truncate filenames longer than this before writing to disk (default 255).</td>
+<td>Sanitize/truncate local filenames (default 255). If distinct URLs
+map to the same local name, the sync fails before downloading; use a
+larger limit or a narrower scope.</td>
 </tr>
-<tr class="odd">
+<tr>
 <td><code>--download-queue-size N</code></td>
-<td>Max files buffered between the scanner and the downloader (default 1000).</td>
+<td>Accepted for compatibility; the current sync pipeline collects the
+full remote file list and does not enqueue downloads through the bounded
+queue.</td>
 </tr>
-<tr class="even">
+<tr>
 <td><code>--max-symlink-depth N</code></td>
-<td>With <code>--handle-symlinks</code>, how many symlink hops deep to follow before stopping (default 10).</td>
+<td>With <code>--handle-symlinks</code>, how many symlink hops deep to
+follow before stopping (default 10).</td>
 </tr>
-<tr class="odd">
+<tr>
 <td><code>--list-dirs [N]</code></td>
-<td>Discover and print the directory tree under <code>--url</code>/<code>--dir-suffix</code>, then exit — no file scanning, freshness checks, or downloads/deletes. Respects <code>--exclude-dir</code>/<code>--max-depth</code> (defaults to <code>1</code> — the current folder's immediate children only — unless <code>--max-depth</code> is given explicitly; every other mode still defaults to 50); <code>--filter</code> doesn't apply (files only). With <code>N</code>, shows only the last <code>N</code> directories overall, sorted <strong>lexicographically by relative path</strong> (a name sort, not a true timestamp sort), with the root (<code>.</code>) excluded from that ranking. Always followed by a <code># Directories N/total</code> summary line, including unrestricted runs (<code>N == total</code>). Doesn't require <code>--dest-path</code>/<code>--log-path</code>.</td>
+<td>Discover and print the directory tree under
+<code>--url</code>/<code>--dir-suffix</code>, then exit — no file
+scanning, freshness checks, or downloads/deletes. Respects
+<code>--exclude-dir</code>/<code>--max-depth</code> (defaults to
+<code>1</code> — the current folder’s immediate children only — unless
+<code>--max-depth</code> is given explicitly; every other mode still
+defaults to 50); <code>--filter</code> doesn’t apply (files only). With
+<code>N</code>, shows only the last <code>N</code> directories overall,
+sorted <strong>lexicographically by relative path</strong> (a name sort,
+not a true timestamp sort), with the root (<code>.</code>) excluded from
+that ranking. Always followed by a <code># Directories N/total</code>
+summary line, including unrestricted runs (<code>N == total</code>).
+Doesn’t require <code>--dest-path</code>/<code>--log-path</code>.</td>
 </tr>
-<tr class="even">
+<tr>
 <td><code>--list-files [N]</code></td>
-<td>Discover and print files under <code>--url</code>/<code>--dir-suffix</code>, then exit — no freshness checks or downloads/deletes. Respects <code>--exclude-dir</code>/<code>--max-depth</code>/<code>--filter</code>. With <code>N</code>, shows only the last <code>N</code> files <em>per directory</em>, sorted <strong>lexicographically by filename</strong> (a name sort, not a true timestamp sort — see "Filtering and scope" below). Doesn't require <code>--dest-path</code>/<code>--log-path</code>.</td>
+<td>Discover and print files under
+<code>--url</code>/<code>--dir-suffix</code>, then exit — no freshness
+checks or downloads/deletes. Respects
+<code>--exclude-dir</code>/<code>--max-depth</code>/<code>--filter</code>.
+With <code>N</code>, shows only the last <code>N</code> files <em>per
+directory</em>, sorted <strong>lexicographically by filename</strong> (a
+name sort, not a true timestamp sort — see “Filtering and scope” below).
+Doesn’t require <code>--dest-path</code>/<code>--log-path</code>.</td>
 </tr>
 </tbody>
 </table>
-<h3 id="cleanup-of-obsolete-local-files">Cleanup of obsolete local files</h3>
+<h3 id="cleanup-of-obsolete-local-files">Cleanup of obsolete local
+files</h3>
 <table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
 <thead>
-<tr class="header">
+<tr>
 <th>Option</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
-<tr class="odd">
+<tr>
 <td><code>--cleanup safe</code></td>
 <td><strong>Default.</strong> Never delete anything.</td>
 </tr>
-<tr class="even">
+<tr>
 <td><code>--cleanup preview</code></td>
 <td>Show what <em>would</em> be deleted/moved, but do nothing.</td>
 </tr>
-<tr class="odd">
+<tr>
 <td><code>--cleanup move</code></td>
-<td>Move obsolete files into the sibling <code>&lt;dest&gt;_obsolete/</code> folder.</td>
+<td>Move obsolete files into the sibling
+<code>&lt;dest&gt;_obsolete/</code> folder.</td>
 </tr>
-<tr class="even">
+<tr>
 <td><code>--cleanup delete</code></td>
 <td>Delete obsolete files.</td>
 </tr>
-<tr class="odd">
+<tr>
 <td><code>--confirm-delete</code></td>
 <td>Require interactive confirmation (delete mode).</td>
 </tr>
-<tr class="even">
+<tr>
 <td><code>--dry-run</code></td>
 <td>Simulate the whole run without downloading or deleting.</td>
 </tr>
@@ -529,87 +928,122 @@
 </table>
 <h3 id="output-and-diagnostics">Output and diagnostics</h3>
 <table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
 <thead>
-<tr class="header">
+<tr>
 <th>Option</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
-<tr class="odd">
+<tr>
 <td><code>--progress-bar</code></td>
-<td>Show a tqdm progress bar (needs the <code>progress</code> extra).</td>
+<td>Show a tqdm progress bar (needs the <code>progress</code>
+extra).</td>
 </tr>
-<tr class="even">
+<tr>
 <td><code>--stats</code></td>
-<td><em>Currently has no effect</em> (accepted for backward compatibility). The end-of-run metrics summary is always printed in full.</td>
+<td><em>Currently has no effect</em> (accepted for backward
+compatibility). The end-of-run metrics summary is always printed in
+full.</td>
 </tr>
-<tr class="odd">
+<tr>
 <td><code>--metrics-json FILE</code></td>
 <td>Export run metrics to a JSON file.</td>
 </tr>
-<tr class="even">
+<tr>
 <td><code>--log-file NAME</code></td>
-<td>Custom base name for the run's log file, replacing the default <code>mirror_url</code> prefix. See below for the exact filename format.</td>
+<td>Custom base name for the run’s log file, replacing the default
+<code>mirror_url</code> prefix. See below for the exact filename
+format.</td>
 </tr>
-<tr class="odd">
+<tr>
 <td><code>--verbose</code> / <code>--debug</code></td>
 <td>More logging.</td>
 </tr>
-<tr class="even">
+<tr>
 <td><code>--quiet</code></td>
 <td>Warnings and errors only.</td>
 </tr>
-<tr class="odd">
+<tr>
 <td><code>--health-check-port N</code></td>
 <td>Port for the health/metrics HTTP server (default 8080).</td>
 </tr>
-<tr class="even">
+<tr>
 <td><code>--version</code></td>
 <td>Print version and exit.</td>
 </tr>
-<tr class="odd">
+<tr>
 <td><code>--no-adaptive-batch-processing</code></td>
-<td>Use a fixed batch size instead of adapting it during the run (see the three flags below).</td>
+<td>Accepted for compatibility; the adaptive batch processor is not used
+by the current sync pipeline.</td>
 </tr>
-<tr class="even">
+<tr>
 <td><code>--initial-batch-size N</code></td>
-<td>Starting batch size when <code>--no-adaptive-batch-processing</code> is <em>not</em> set (default 200).</td>
+<td>Accepted for compatibility; currently does not change sync
+batching.</td>
 </tr>
-<tr class="odd">
+<tr>
 <td><code>--max-batch-size N</code></td>
-<td>Ceiling the adaptive batch size can grow to (default 1000).</td>
+<td>Accepted for compatibility; currently does not change sync
+batching.</td>
 </tr>
-<tr class="even">
+<tr>
 <td><code>--target-batch-time SECS</code></td>
-<td>Adaptive batching aims for each batch to take about this long (default 1.0).</td>
+<td>Accepted for compatibility; currently does not change sync
+batching.</td>
 </tr>
-<tr class="odd">
+<tr>
 <td><code>--memory-cache-size N</code></td>
-<td>Max entries kept in the in-memory metadata cache (default 100000).</td>
+<td>Sets the memory threshold of the optional disk-backed tracking
+component, which the current sync pipeline does not populate. The active
+metadata-cache capacities are constants; this option does not bound the
+remote file list.</td>
 </tr>
-<tr class="even">
+<tr>
 <td><code>--disk-cache-dir DIR</code></td>
-<td>Spill the metadata cache to disk under this directory once <code>--memory-cache-size</code> is exceeded.</td>
+<td>Configures cache/tracking components; does not spill the current
+sync pipeline’s full remote file list to disk.</td>
 </tr>
-<tr class="odd">
+<tr>
 <td><code>--no-fast-parsing-fallback</code></td>
-<td>Disable the fast HTML parser fallback used for very large directory listings.</td>
+<td>Disables fallback after an lxml failure; large listings or
+installations without lxml still select the lightweight HTML
+parser.</td>
 </tr>
-<tr class="even">
+<tr>
 <td><code>--fs-cache-ttl SECS</code></td>
-<td>How long a filesystem stat lookup is cached before being re-checked (default 5.0).</td>
+<td>Configures the standalone filesystem cache; freshness checks in the
+current pipeline use filesystem stats directly.</td>
 </tr>
-<tr class="odd">
+<tr>
 <td><code>--benchmark</code></td>
 <td>Run a built-in performance benchmark instead of a normal sync.</td>
 </tr>
 </tbody>
 </table>
-<p>Without <code>--log-file</code>, each <code>--dir-suffix</code> gets its own log file named <code>mirror_url_&lt;suffix&gt;_&lt;timestamp&gt;.log</code>. With <code>--log-file NAME</code>, the filename is always <code>NAME_&lt;suffix&gt;_&lt;timestamp&gt;.log</code> instead — where <code>&lt;suffix&gt;</code> is every <code>--dir-suffix</code> value joined with underscores (or <code>all</code> if none were given), and <code>&lt;timestamp&gt;</code> is <code>YYYYMMDD_HHMMSS</code>. With more than one <code>--dir-suffix</code>, all of them share this single log file rather than each getting a separate one. This is handy for wrapper scripts that invoke <code>mirror-url</code> once per date/target and want a recognizable, greppable filename prefix — e.g. <code>--log-file mirror_url_lasco_ql_nrl</code> on a run with <code>--dir-suffix 260727</code> produces <code>mirror_url_lasco_ql_nrl_260727_20260727_030308.log</code>.</p>
+<p>Without <code>--log-file</code>, each <code>--dir-suffix</code> gets
+its own log file named
+<code>mirror_url_&lt;suffix&gt;_&lt;timestamp&gt;.log</code>. With
+<code>--log-file NAME</code>, the filename is always
+<code>NAME_&lt;suffix&gt;_&lt;timestamp&gt;.log</code> instead — where
+<code>&lt;suffix&gt;</code> is every <code>--dir-suffix</code> value
+joined with underscores (or <code>all</code> if none were given), and
+<code>&lt;timestamp&gt;</code> is <code>YYYYMMDD_HHMMSS</code>. With
+more than one <code>--dir-suffix</code>, all of them share this single
+log file rather than each getting a separate one. This is handy for
+wrapper scripts that invoke <code>mirror-url</code> once per date/target
+and want a recognizable, greppable filename prefix —
+e.g. <code>--log-file mirror_url_lasco_ql_nrl</code> on a run with
+<code>--dir-suffix 260727</code> produces
+<code>mirror_url_lasco_ql_nrl_260727_20260727_030308.log</code>.</p>
 <h3 id="examples">Examples</h3>
 <p>Mirror only FITS files, large parallel downloads, export metrics:</p>
-<div class="sourceCode" id="cb11"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="dt">\</span></span>
+<div class="sourceCode" id="cb11"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="dt">\</span></span>
 <span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--url</span> https://archive.example.org/mission/ <span class="dt">\</span></span>
 <span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--dest-path</span> /data/mission <span class="dt">\</span></span>
 <span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">--log-path</span> /var/log/mirror <span class="dt">\</span></span>
@@ -617,24 +1051,43 @@
 <span id="cb11-6"><a href="#cb11-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">--streaming-parallel</span> <span class="at">--max-concurrent-downloads</span> 6 <span class="dt">\</span></span>
 <span id="cb11-7"><a href="#cb11-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">--metrics-json</span> /var/log/mirror/run.json</span></code></pre></div>
 <p>Preview what a cleanup would remove, without touching anything:</p>
-<div class="sourceCode" id="cb12"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--config</span> mirror.yaml <span class="at">--cleanup</span> preview</span></code></pre></div>
+<div class="sourceCode" id="cb12"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--config</span> mirror.yaml <span class="at">--cleanup</span> preview</span></code></pre></div>
 <p>Dry-run to see what a first sync would download:</p>
-<div class="sourceCode" id="cb13"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--url</span> https://example.com/files/ <span class="at">--dest-path</span> ./m <span class="at">--log-path</span> ./l <span class="at">--dry-run</span></span></code></pre></div>
-<p>See what's available under a base URL before picking a <code>--dir-suffix</code> (no <code>--dest-path</code>/<code>--log-path</code> needed):</p>
-<div class="sourceCode" id="cb14"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--url</span> https://archive.example.org/mission/ <span class="at">--list-dirs</span></span></code></pre></div>
-<p>List the last 5 files in each directory (no <code>--dest-path</code>/<code>--log-path</code> needed):</p>
-<div class="sourceCode" id="cb15"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--url</span> https://archive.example.org/mission/L3_png/v03/ <span class="at">--list-files</span> 5</span></code></pre></div>
+<div class="sourceCode" id="cb13"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--url</span> https://example.com/files/ <span class="at">--dest-path</span> ./m <span class="at">--log-path</span> ./l <span class="at">--dry-run</span></span></code></pre></div>
+<p>See what’s available under a base URL before picking a
+<code>--dir-suffix</code> (no
+<code>--dest-path</code>/<code>--log-path</code> needed):</p>
+<div class="sourceCode" id="cb14"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--url</span> https://archive.example.org/mission/ <span class="at">--list-dirs</span></span></code></pre></div>
+<p>List the last 5 files in each directory (no
+<code>--dest-path</code>/<code>--log-path</code> needed):</p>
+<div class="sourceCode" id="cb15"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--url</span> https://archive.example.org/mission/L3_png/v03/ <span class="at">--list-files</span> 5</span></code></pre></div>
 <p>Mirror several versioned subdirectories in one run:</p>
-<div class="sourceCode" id="cb16"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--url</span> https://example.com/product/ <span class="dt">\</span></span>
+<div class="sourceCode" id="cb16"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--url</span> https://example.com/product/ <span class="dt">\</span></span>
 <span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--dest-path</span> ./mirror <span class="at">--log-path</span> ./logs <span class="dt">\</span></span>
 <span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--dir-suffix</span> L1/v2 L2/v1</span></code></pre></div>
 <p>Conservative settings for a slow/throttled server:</p>
-<div class="sourceCode" id="cb17"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--config</span> mirror.yaml <span class="dt">\</span></span>
+<div class="sourceCode" id="cb17"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--config</span> mirror.yaml <span class="dt">\</span></span>
 <span id="cb17-2"><a href="#cb17-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--sequential-downloads</span> <span class="at">--no-async-metadata</span> <span class="at">--workers</span> 2 <span class="at">--request-delay</span> 0.2</span></code></pre></div>
 <hr />
-<h2 id="configuration-files-yamljson">Configuration files (YAML/JSON)</h2>
-<p>For repeatable jobs, put settings in a YAML (or JSON) file and run <code>mirror-url --config mirror.yaml</code>. Any CLI flag you actually type on the command line overrides the same setting in the file — including a flag whose value happens to equal its own default (e.g. <code>--workers 8</code> overrides a file's <code>workers: 4</code> even though 8 is also the built-in default). A flag you don't type is left alone at whatever the file says. Only <code>base_url</code>, <code>dest_path</code>, and <code>log_path</code> are required.</p>
-<div class="sourceCode" id="cb18"><pre class="sourceCode yaml"><code class="sourceCode yaml"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a><span class="co"># mirror.yaml</span></span>
+<h2 id="configuration-files-yamljson">Configuration files
+(YAML/JSON)</h2>
+<p>For repeatable jobs, put settings in a YAML (or JSON) file and run
+<code>mirror-url --config mirror.yaml</code>. Any CLI flag you actually
+type on the command line overrides the same setting in the file —
+including a flag whose value happens to equal its own default
+(e.g. <code>--workers 8</code> overrides a file’s
+<code>workers: 4</code> even though 8 is also the built-in default). A
+flag you don’t type is left alone at whatever the file says. Only
+<code>base_url</code>, <code>dest_path</code>, and <code>log_path</code>
+are required.</p>
+<div class="sourceCode" id="cb18"><pre
+class="sourceCode yaml"><code class="sourceCode yaml"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a><span class="co"># mirror.yaml</span></span>
 <span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a><span class="fu">base_url</span><span class="kw">:</span><span class="at"> https://archive.example.org/mission/</span></span>
 <span id="cb18-3"><a href="#cb18-3" aria-hidden="true" tabindex="-1"></a><span class="fu">dest_path</span><span class="kw">:</span><span class="at"> /data/mission</span></span>
 <span id="cb18-4"><a href="#cb18-4" aria-hidden="true" tabindex="-1"></a><span class="fu">log_path</span><span class="kw">:</span><span class="at"> /var/log/mirror</span></span>
@@ -683,124 +1136,340 @@
 <span id="cb18-47"><a href="#cb18-47" aria-hidden="true" tabindex="-1"></a><span class="fu">stats</span><span class="kw">:</span><span class="at"> </span><span class="ch">false</span></span>
 <span id="cb18-48"><a href="#cb18-48" aria-hidden="true" tabindex="-1"></a><span class="fu">metrics_json</span><span class="kw">:</span><span class="at"> </span><span class="ch">null</span><span class="co">             # e.g. /var/log/mirror/metrics.json</span></span>
 <span id="cb18-49"><a href="#cb18-49" aria-hidden="true" tabindex="-1"></a><span class="fu">health_check_port</span><span class="kw">:</span><span class="at"> </span><span class="dv">8080</span></span></code></pre></div>
-<h3 id="environment-variables-in-config">Environment variables in config</h3>
-<p>String values may contain <code>${VAR}</code> placeholders, expanded from the environment at load time:</p>
-<div class="sourceCode" id="cb19"><pre class="sourceCode yaml"><code class="sourceCode yaml"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a><span class="fu">base_url</span><span class="kw">:</span><span class="at"> ${ARCHIVE_BASE}/mission/</span></span>
+<h3 id="environment-variables-in-config">Environment variables in
+config</h3>
+<p>String values may contain <code>${VAR}</code> placeholders, expanded
+from the environment at load time:</p>
+<div class="sourceCode" id="cb19"><pre
+class="sourceCode yaml"><code class="sourceCode yaml"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a><span class="fu">base_url</span><span class="kw">:</span><span class="at"> ${ARCHIVE_BASE}/mission/</span></span>
 <span id="cb19-2"><a href="#cb19-2" aria-hidden="true" tabindex="-1"></a><span class="fu">dest_path</span><span class="kw">:</span><span class="at"> /srv/${SERVICE_USER}/mirror</span></span></code></pre></div>
-<h3 id="validate-a-config-without-running">Validate a config without running</h3>
-<div class="sourceCode" id="cb20"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> <span class="at">-c</span> <span class="st">&quot;from mirror_url.config import validate_config_file; </span><span class="dt">\</span></span>
+<h3 id="validate-a-config-without-running">Validate a config without
+running</h3>
+<div class="sourceCode" id="cb20"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> <span class="at">-c</span> <span class="st">&quot;from mirror_url.config import validate_config_file; </span><span class="dt">\</span></span>
 <span id="cb20-2"><a href="#cb20-2" aria-hidden="true" tabindex="-1"></a><span class="st">from pathlib import Path; print(validate_config_file(Path(&#39;mirror.yaml&#39;)))&quot;</span></span>
 <span id="cb20-3"><a href="#cb20-3" aria-hidden="true" tabindex="-1"></a><span class="co"># -&gt; (True, None)  on success, or (False, &#39;&lt;error message&gt;&#39;)</span></span></code></pre></div>
 <hr />
 <h2 id="download-modes">Download modes</h2>
-<p>MirrorURL supports four strategies. If you specify none, it <strong>auto-selects</strong> based on file count, average size, disk type, network speed, and server Range support.</p>
+<p>MirrorURL supports four strategies. If you specify none, it
+<strong>auto-selects</strong> based on file count, average size, disk
+type, network speed, and server Range support.</p>
 <table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
 <thead>
-<tr class="header">
+<tr>
 <th>Mode</th>
 <th>Flag</th>
 <th>Best for</th>
 </tr>
 </thead>
 <tbody>
-<tr class="odd">
+<tr>
 <td><strong>Sequential</strong></td>
 <td><code>--sequential-downloads</code></td>
 <td>Small jobs, fragile/throttled servers, debugging.</td>
 </tr>
-<tr class="even">
+<tr>
 <td><strong>Traditional parallel</strong></td>
 <td><code>--parallel-downloads</code></td>
-<td>Many files; chunks written to temp files then assembled (verified before atomic replacement, needs ~2× disk headroom per in-flight file).</td>
+<td>Many files; chunks written to temp files then assembled (verified
+before atomic replacement, needs ~2× disk headroom per in-flight
+file).</td>
 </tr>
-<tr class="odd">
+<tr>
 <td><strong>Streaming parallel</strong></td>
 <td><code>--streaming-parallel</code></td>
-<td>A few very large files; chunks written into a pre-allocated staging file, then atomically published (~1× additional disk space).</td>
+<td>A few very large files; chunks written into a pre-allocated staging
+file, then atomically published (~1× additional disk space).</td>
 </tr>
-<tr class="even">
+<tr>
 <td><strong>Auto</strong></td>
 <td><em>(default)</em></td>
 <td>Let MirrorURL choose; good general default.</td>
 </tr>
 </tbody>
 </table>
-<p>Parallel chunking requires byte Range support, a known size, and a <strong>strong ETag</strong>. Without these, MirrorURL falls back to a whole-file download. Each chunk sends <code>If-Range</code> and must return the exact requested <code>Content-Range</code>, length, and ETag. Existing destination files stay intact until all chunks have passed verification and the replacement is atomically published.</p>
-<p>Whole-file partials can resume with <code>enable_resume</code> (on by default) when a matching <code>.partial.json</code> sidecar records the source URL, total size, and strong ETag. Legacy partials and partials without a strong validator restart from zero. A server response of 200 replaces the partial from zero; 416 also triggers a fresh full request and never certifies the partial as complete. <code>--no-etag</code> disables ETag freshness comparisons; range transfers still require ETags for representation integrity. Traditional and streaming chunk state is not resumed across runs; failed chunk attempts can retry within a run. An interruption may leave a hidden <code>.streaming</code> staging file, but never an incomplete file under the destination filename.</p>
+<p>Parallel chunking requires byte Range support, a known size, and a
+<strong>strong ETag</strong>. Without these, MirrorURL falls back to a
+whole-file download. Each chunk sends <code>If-Range</code> and must
+return the exact requested <code>Content-Range</code>, length, and ETag.
+Existing destination files stay intact until all chunks have passed
+verification and the replacement is atomically published.</p>
+<p>Whole-file partials can resume with <code>enable_resume</code> (on by
+default) when a matching <code>.partial.json</code> sidecar records the
+source URL, total size, and strong ETag. Legacy partials and partials
+without a strong validator restart from zero. A server response of 200
+replaces the partial from zero; 416 also triggers a fresh full request
+and never certifies the partial as complete. <code>--no-etag</code>
+disables ETag freshness comparisons; range transfers still require ETags
+for representation integrity. Traditional and streaming chunk state is
+not resumed across runs; failed chunk attempts can retry within a run.
+An interruption may leave a hidden <code>.streaming</code> staging file,
+but never an incomplete file under the destination filename.</p>
 <hr />
 <h2 id="filtering-and-scope-1">Filtering and scope</h2>
 <ul>
-<li><p><strong><code>--filter</code></strong> accepts one or more patterns. A pattern that looks like a bare extension (<code>.fits</code>) matches by suffix; anything else is treated as a regular expression matched against the filename. <strong>Multiple patterns are OR'd</strong> — a file matches if <em>any</em> pattern matches, not all of them:</p>
-<div class="sourceCode" id="cb21"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a><span class="ex">--filter</span> .fits .txt                 <span class="co"># any .fits or .txt</span></span>
+<li><p><strong><code>--filter</code></strong> accepts one or more
+patterns. A pattern that looks like a bare extension
+(<code>.fits</code>) matches by suffix; anything else is treated as a
+regular expression matched against the filename. <strong>Multiple
+patterns are OR’d</strong> — a file matches if <em>any</em> pattern
+matches, not all of them:</p>
+<div class="sourceCode" id="cb21"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a><span class="ex">--filter</span> .fits .txt                 <span class="co"># any .fits or .txt</span></span>
 <span id="cb21-2"><a href="#cb21-2" aria-hidden="true" tabindex="-1"></a><span class="ex">--filter</span> <span class="st">&#39;.*\.fits$&#39;</span>                <span class="co"># regex: files ending in .fits</span></span>
 <span id="cb21-3"><a href="#cb21-3" aria-hidden="true" tabindex="-1"></a><span class="ex">--filter</span> <span class="st">&#39;2024.*\.fits$&#39;</span> .png       <span class="co"># mixed regex + extension</span></span></code></pre></div>
-<p>For <strong>AND</strong> (a file must match multiple independent conditions at once — e.g. a channel <em>and</em> a date range), pass a single pattern combining them with regex lookaheads instead of multiple <code>--filter</code> values — the engine already falls back to full <code>re</code> support (including lookaheads) for any pattern containing regex metacharacters:</p>
-<div class="sourceCode" id="cb22"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a><span class="co"># (fe OR pb channel) AND (18-20 June, 03-05h) -- one --filter value</span></span>
+<p>For <strong>AND</strong> (a file must match multiple independent
+conditions at once — e.g. a channel <em>and</em> a date range), pass a
+single pattern combining them with regex lookaheads instead of multiple
+<code>--filter</code> values — the engine already falls back to full
+<code>re</code> support (including lookaheads) for any pattern
+containing regex metacharacters:</p>
+<div class="sourceCode" id="cb22"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a><span class="co"># (fe OR pb channel) AND (18-20 June, 03-05h) -- one --filter value</span></span>
 <span id="cb22-2"><a href="#cb22-2" aria-hidden="true" tabindex="-1"></a><span class="ex">--filter</span> <span class="st">&#39;(?=.*(?:fe|pb))(?=.*_202606(?:1[89]|20)T0[3-5]\d{4}_)&#39;</span></span></code></pre></div>
-<p>If you combine <code>--filter</code> with <code>--list-files [N]</code>/<code>--list-dirs [N]</code>'s "last <code>N</code>" ranking, see the callout below <code>--list-files [N]</code> about what happens when a filter matches more than one filename prefix in the same run.</p></li>
-<li><p><strong><code>--exclude-dir</code></strong> skips one or more directories, each matched as an <strong>exact path relative to <code>--url</code></strong> — not a suffix match at any depth. <code> --exclude-dir lasco</code> excludes only <code>&lt;root&gt;/lasco/</code>, never <code>&lt;root&gt;/setup/lasco/</code> or any other directory elsewhere in the tree that happens to share that name. <code>--exclude-dir idl/beta</code> excludes only that specific two-level path. Pass several to exclude several: <code>--exclude-dir lasco idl/beta</code> excludes exactly those two root-relative paths. A pattern containing <code>*</code> is the explicit escape hatch for matching at any depth (<code>--exclude-dir '*/lasco'</code> also catches <code>&lt;root&gt;/setup/lasco/</code>) — opt-in, not the default for a plain pattern. (Earlier versions matched any pattern as a suffix anywhere in the tree; that was a real, silent over-exclusion risk — a short pattern could quietly swallow an unrelated, same-named directory elsewhere with no warning. If you relied on that "anywhere" behavior, add an explicit <code>*/</code> prefix to keep it.)</p></li>
-<li><p><strong><code>--dir-suffix</code></strong> restricts mirroring to one or more subpaths under the base URL and mirrors each in turn.</p></li>
-<li><p><strong><code>--max-depth</code></strong> bounds recursion. The crawler also enforces URL-scope checks so it never wanders outside the configured base host/path.</p></li>
-<li><p><strong><code>--list-dirs [N]</code></strong> discovers and prints the directory tree under <code>--url</code>/ <code>--dir-suffix</code>, then exits — it reuses the same directory-discovery walk as a real sync, so it respects <code>--exclude-dir</code> and <code>--max-depth</code>, but never scans files, checks freshness, or downloads/deletes anything. <code>--filter</code> doesn't apply, since it only matches filenames, not directories. Handy for seeing what's on a remote server before choosing a <code>--dir-suffix</code>. Unlike every other mode, it does <strong>not</strong> require <code>--dest-path</code> or <code>--log-path</code>.</p>
-<p>Unlike every other mode, <code>--list-dirs</code> also defaults <code>--max-depth</code> to <code>1</code> — the current folder's immediate children only — instead of the usual 50. "What's in this folder" is the overwhelmingly common ask, and recursing the full tree by default is easy to be surprised by on a deep archive. Pass <code>--max-depth</code> explicitly to go deeper (or shallower); it always wins over this default, for every mode including <code>--list-dirs</code>:</p>
-<div class="sourceCode" id="cb23"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Immediate children only (the default)</span></span>
+<p>If you combine <code>--filter</code> with
+<code>--list-files [N]</code>/<code>--list-dirs [N]</code>’s “last
+<code>N</code>” ranking, see the callout below
+<code>--list-files [N]</code> about what happens when a filter matches
+more than one filename prefix in the same run.</p></li>
+<li><p><strong><code>--exclude-dir</code></strong> skips one or more
+directories, each matched as an <strong>exact path relative to
+<code>--url</code></strong> — not a suffix match at any depth.
+<code>--exclude-dir lasco</code> excludes only
+<code>&lt;root&gt;/lasco/</code>, never
+<code>&lt;root&gt;/setup/lasco/</code> or any other directory elsewhere
+in the tree that happens to share that name.
+<code>--exclude-dir idl/beta</code> excludes only that specific
+two-level path. Pass several to exclude several:
+<code>--exclude-dir lasco idl/beta</code> excludes exactly those two
+root-relative paths. A pattern containing <code>*</code> is the explicit
+escape hatch for matching at any depth
+(<code>--exclude-dir '*/lasco'</code> also catches
+<code>&lt;root&gt;/setup/lasco/</code>) — opt-in, not the default for a
+plain pattern. (Earlier versions matched any pattern as a suffix
+anywhere in the tree; that was a real, silent over-exclusion risk — a
+short pattern could quietly swallow an unrelated, same-named directory
+elsewhere with no warning. If you relied on that “anywhere” behavior,
+add an explicit <code>*/</code> prefix to keep it.)</p></li>
+<li><p><strong><code>--dir-suffix</code></strong> restricts mirroring to
+one or more subpaths under the base URL and mirrors each in
+turn.</p></li>
+<li><p><strong><code>--max-depth</code></strong> bounds recursion. The
+crawler also enforces URL-scope checks so it never wanders outside the
+configured base host/path.</p></li>
+<li><p><strong><code>--list-dirs [N]</code></strong> discovers and
+prints the directory tree under <code>--url</code>/
+<code>--dir-suffix</code>, then exits — it reuses the same
+directory-discovery walk as a real sync, so it respects
+<code>--exclude-dir</code> and <code>--max-depth</code>, but never scans
+files, checks freshness, or downloads/deletes anything.
+<code>--filter</code> doesn’t apply, since it only matches filenames,
+not directories. Handy for seeing what’s on a remote server before
+choosing a <code>--dir-suffix</code>. Unlike every other mode, it does
+<strong>not</strong> require <code>--dest-path</code> or
+<code>--log-path</code>.</p>
+<p>Unlike every other mode, <code>--list-dirs</code> also defaults
+<code>--max-depth</code> to <code>1</code> — the current folder’s
+immediate children only — instead of the usual 50. “What’s in this
+folder” is the overwhelmingly common ask, and recursing the full tree by
+default is easy to be surprised by on a deep archive. Pass
+<code>--max-depth</code> explicitly to go deeper (or shallower); it
+always wins over this default, for every mode including
+<code>--list-dirs</code>:</p>
+<div class="sourceCode" id="cb23"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Immediate children only (the default)</span></span>
 <span id="cb23-2"><a href="#cb23-2" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--url</span> https://archive.example.org/mission/ <span class="at">--list-dirs</span></span>
 <span id="cb23-3"><a href="#cb23-3" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb23-4"><a href="#cb23-4" aria-hidden="true" tabindex="-1"></a><span class="co"># Walk 3 levels deep instead</span></span>
 <span id="cb23-5"><a href="#cb23-5" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--url</span> https://archive.example.org/mission/ <span class="at">--list-dirs</span> <span class="dt">\</span></span>
 <span id="cb23-6"><a href="#cb23-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">--max-depth</span> 3</span></code></pre></div>
-<p>Each directory is printed to <strong>stdout</strong> as a bare relative path, one per line (<code>.</code> for the root), independent of <code>--print-logs</code>/<code>--quiet</code> and the usual banner/summary logging — pipe or capture it directly:</p>
-<div class="sourceCode" id="cb24"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--url</span> https://archive.example.org/mission/ <span class="at">--list-dirs</span> <span class="dt">\</span></span>
+<p>Each directory is printed to <strong>stdout</strong> as a bare
+relative path, one per line (<code>.</code> for the root), independent
+of <code>--print-logs</code>/<code>--quiet</code> and the usual
+banner/summary logging — pipe or capture it directly:</p>
+<div class="sourceCode" id="cb24"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--url</span> https://archive.example.org/mission/ <span class="at">--list-dirs</span> <span class="dt">\</span></span>
 <span id="cb24-2"><a href="#cb24-2" aria-hidden="true" tabindex="-1"></a>  <span class="kw">|</span> <span class="fu">xargs</span> <span class="at">-I{}</span> echo <span class="st">&quot;found: {}&quot;</span></span></code></pre></div>
-<p>The listing is always followed by a <code># Directories N/total</code> comment line on stdout — including an unrestricted (no-<code>N</code>) run, where <code>N == total</code> — mirroring <code>--list-files</code>' <code># Files N/total</code> convention. Drop it with <code>grep -v '^#'</code> for a pure one-directory-per-line stream.</p>
-<p>With no <code>N</code>, every directory (within <code>--max-depth</code>) is printed in discovery order, as above. With <code>N</code>, only the last <code>N</code> directories are printed, sorted <strong>lexicographically</strong> by relative path, with the root (<code>.</code>) excluded from that ranking (it isn't a real <code>--dir-suffix</code> candidate, and would otherwise dilute the "last N real directories" a caller typically wants). Unlike <code>--list-files [N]</code>, which ranks <em>per directory</em> (files are naturally grouped by the directory that contains them), <code>--list-dirs [N]</code> ranks across the <strong>entire</strong> discovered tree for this suffix, since directories have no equivalent natural grouping:</p>
-<div class="sourceCode" id="cb25"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb25-1"><a href="#cb25-1" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--url</span> https://archive.example.org/mission/L3_png/v03/ <span class="dt">\</span></span>
+<p>The listing is always followed by a
+<code># Directories N/total</code> comment line on stdout — including an
+unrestricted (no-<code>N</code>) run, where <code>N == total</code> —
+mirroring <code>--list-files</code>’ <code># Files N/total</code>
+convention. Drop it with <code>grep -v '^#'</code> for a pure
+one-directory-per-line stream.</p>
+<p>With no <code>N</code>, every directory (within
+<code>--max-depth</code>) is printed in discovery order, as above. With
+<code>N</code>, only the last <code>N</code> directories are printed,
+sorted <strong>lexicographically</strong> by relative path, with the
+root (<code>.</code>) excluded from that ranking (it isn’t a real
+<code>--dir-suffix</code> candidate, and would otherwise dilute the
+“last N real directories” a caller typically wants). Unlike
+<code>--list-files [N]</code>, which ranks <em>per directory</em> (files
+are naturally grouped by the directory that contains them),
+<code>--list-dirs [N]</code> ranks across the <strong>entire</strong>
+discovered tree for this suffix, since directories have no equivalent
+natural grouping:</p>
+<div class="sourceCode" id="cb25"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb25-1"><a href="#cb25-1" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--url</span> https://archive.example.org/mission/L3_png/v03/ <span class="dt">\</span></span>
 <span id="cb25-2"><a href="#cb25-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--list-dirs</span> 3</span></code></pre></div>
-<p>This directly replaces the common pattern of piping <code>--list-dirs</code> through <code>grep -v '^\.$' | sort | tail -n N</code> to pick the most recent N directories to mirror next.</p>
-<p>If you mirror more than one <code>--dir-suffix</code> in the same run, each line gets a tab-separated suffix column prepended instead of a bare path (e.g. <code>L1/v2\tsome/subdir</code>), so you can tell which subtree it came from while keeping the path itself easy to <code>cut -f2</code>/<code>awk -F'\t'</code> out.</p></li>
-<li><p><strong><code>--list-files [N]</code></strong> discovers and prints the files under <code>--url</code>/ <code>--dir-suffix</code>, then exits — it reuses the same directory-discovery walk and per-directory file scan as a real sync, so it respects <code>--exclude-dir</code>, <code>--max-depth</code>, <strong>and</strong> <code>--filter</code> (unlike <code>--list-dirs</code>, <code>--filter</code> <em>does</em> apply here, since it matches filenames). It never compares freshness or downloads/deletes anything, and — like <code>--list-dirs</code> — does <strong>not</strong> require <code>--dest-path</code> or <code>--log-path</code>.</p>
-<p>With no <code>N</code>, every matching file is printed. With <code>N</code>, only the last <code>N</code> files <strong>per directory</strong> are printed (not N total across the whole run — a directory with 200 files and one with 3 each contribute up to <code>N</code>).</p>
-<p>Each file is printed to <strong>stdout</strong> as its full path relative to <code>--url</code>/<code>--dir-suffix</code> (e.g. <code>v03/orbit_0042/file_20260722_003.fits</code>), one per line, independent of <code>--print-logs</code>/<code>--quiet</code>. Every directory's block of files is followed by a <code># Files N/total</code> comment line — always, even on an unrestricted (no-<code>N</code>) run — so scripts can rely on the marker being present unconditionally rather than only when truncated. Comment lines start with <code>#</code> and can be dropped with <code>grep -v '^#'</code> for a pure one-line-per-file stream:</p>
-<div class="sourceCode" id="cb26"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb26-1"><a href="#cb26-1" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--url</span> https://archive.example.org/mission/L3_png/v03/ <span class="dt">\</span></span>
+<p>This directly replaces the common pattern of piping
+<code>--list-dirs</code> through
+<code>grep -v '^\.$' | sort | tail -n N</code> to pick the most recent N
+directories to mirror next.</p>
+<p>If you mirror more than one <code>--dir-suffix</code> in the same
+run, each line gets a tab-separated suffix column prepended instead of a
+bare path (e.g. <code>L1/v2\tsome/subdir</code>), so you can tell which
+subtree it came from while keeping the path itself easy to
+<code>cut -f2</code>/<code>awk -F'\t'</code> out.</p></li>
+<li><p><strong><code>--list-files [N]</code></strong> discovers and
+prints the files under <code>--url</code>/ <code>--dir-suffix</code>,
+then exits — it reuses the same directory-discovery walk and
+per-directory file scan as a real sync, so it respects
+<code>--exclude-dir</code>, <code>--max-depth</code>,
+<strong>and</strong> <code>--filter</code> (unlike
+<code>--list-dirs</code>, <code>--filter</code> <em>does</em> apply
+here, since it matches filenames). It never compares freshness or
+downloads/deletes anything, and — like <code>--list-dirs</code> — does
+<strong>not</strong> require <code>--dest-path</code> or
+<code>--log-path</code>.</p>
+<p>With no <code>N</code>, every matching file is printed. With
+<code>N</code>, only the last <code>N</code> files <strong>per
+directory</strong> are printed (not N total across the whole run — a
+directory with 200 files and one with 3 each contribute up to
+<code>N</code>).</p>
+<p>Each file is printed to <strong>stdout</strong> as its full path
+relative to <code>--url</code>/<code>--dir-suffix</code>
+(e.g. <code>v03/orbit_0042/file_20260722_003.fits</code>), one per line,
+independent of <code>--print-logs</code>/<code>--quiet</code>. Every
+directory’s block of files is followed by a <code># Files N/total</code>
+comment line — always, even on an unrestricted (no-<code>N</code>) run —
+so scripts can rely on the marker being present unconditionally rather
+than only when truncated. Comment lines start with <code>#</code> and
+can be dropped with <code>grep -v '^#'</code> for a pure
+one-line-per-file stream:</p>
+<div class="sourceCode" id="cb26"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb26-1"><a href="#cb26-1" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--url</span> https://archive.example.org/mission/L3_png/v03/ <span class="dt">\</span></span>
 <span id="cb26-2"><a href="#cb26-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--list-files</span> 5 <span class="kw">|</span> <span class="fu">grep</span> <span class="at">-v</span> <span class="st">&#39;^#&#39;</span></span></code></pre></div>
-<p>When more than one <code>--dir-suffix</code> is mirrored in the same run, each file line gets the same tab-separated suffix column as <code>--list-dirs</code>. Comment lines are never suffix-qualified, since they aren't file paths.</p>
+<p>When more than one <code>--dir-suffix</code> is mirrored in the same
+run, each file line gets the same tab-separated suffix column as
+<code>--list-dirs</code>. Comment lines are never suffix-qualified,
+since they aren’t file paths.</p>
 <blockquote>
-<p><strong>⚠️ "Last N" is a filename/path sort, not a timestamp sort.</strong> With <code>N</code>, entries are ranked by sorting their relative paths <strong>lexicographically</strong> (plain string/alphabetical order) and keeping the last <code>N</code> — per directory for <code>--list-files [N]</code>, across the whole tree for <code>--list-dirs [N]</code> — it is <strong>not</strong> based on any server-reported modification time.</p>
-<p>This is a deliberate tradeoff, not an oversight. Getting a true per-file timestamp would need one of two things, and both were rejected:</p>
+<p><strong>⚠️ “Last N” is a filename/path sort, not a timestamp
+sort.</strong> With <code>N</code>, entries are ranked by sorting their
+relative paths <strong>lexicographically</strong> (plain
+string/alphabetical order) and keeping the last <code>N</code> — per
+directory for <code>--list-files [N]</code>, across the whole tree for
+<code>--list-dirs [N]</code> — it is <strong>not</strong> based on any
+server-reported modification time.</p>
+<p>This is a deliberate tradeoff, not an oversight. Getting a true
+per-file timestamp would need one of two things, and both were
+rejected:</p>
 <ul>
-<li><strong>Parsing the "Last modified" column some directory-listing HTML formats include</strong> — but that format is server-specific (Apache, nginx, IIS/Microsoft, lighttpd, etc. all differ, and some servers don't expose one at all), so this would make <code>--list-files</code>'s correctness depend on which web server happens to be on the other end.</li>
-<li><strong>An extra HTTP <code>HEAD</code> request per file</strong> to read its <code>Last-Modified</code> header — fully server-independent, but exactly the per-file network round-trip that <code>--missing-files</code> (see "Caching" above) was built to <em>avoid</em>, because it doesn't scale: a directory with tens of thousands of files would turn a <code>--list-files</code> probe into a run lasting as long as a full sync.</li>
+<li><strong>Parsing the “Last modified” column some directory-listing
+HTML formats include</strong> — but that format is server-specific
+(Apache, nginx, IIS/Microsoft, lighttpd, etc. all differ, and some
+servers don’t expose one at all), so this would make
+<code>--list-files</code>’s correctness depend on which web server
+happens to be on the other end.</li>
+<li><strong>An extra HTTP <code>HEAD</code> request per file</strong> to
+read its <code>Last-Modified</code> header — fully server-independent,
+but exactly the per-file network round-trip that
+<code>--missing-files</code> (see “Caching” above) was built to
+<em>avoid</em>, because it doesn’t scale: a directory with tens of
+thousands of files would turn a <code>--list-files</code> probe into a
+run lasting as long as a full sync.</li>
 </ul>
-<p>A lexicographic sort needs neither: it costs <strong>zero extra network requests</strong> beyond the directory listing itself, and works identically regardless of which web server is serving the files. The tradeoff is that it only reflects true chronological order when filenames embed a sortable date or sequence number — e.g. <code>..._20260722_003.fits</code>. That holds for the PROBA-3/STEREO archives this tool targets, where filenames are date/sequence-stamped, but is <strong>not guaranteed</strong> for an arbitrary directory with inconsistent naming — there, "last N" means "alphabetically last N", which may not be "most recent N".</p>
-<p><strong>A sharper version of the same tradeoff bites when <code>--filter</code> matches more than one filename prefix/channel in the same run</strong> — e.g. <code>--filter fe pb</code> for two instrument channels named <code>..._fe_l3_...</code> and <code>..._pb_l3_...</code>. Every <code>fe</code>-file sorts before every <code>pb</code>-file (<code>f</code> &lt; <code>p</code>), <strong>regardless of timestamp</strong> — so once a directory has at least <code>N</code> <code>pb</code>-files, "last <code>N</code>" is <code>N</code> <code>pb</code>-files, full stop, no matter how recent the newest <code>fe</code>-file is. The <code>fe</code> channel doesn't just rank lower — with more than <code>N</code> <code>pb</code>-files present, it's invisible. Workarounds:</p>
+<p>A lexicographic sort needs neither: it costs <strong>zero extra
+network requests</strong> beyond the directory listing itself, and works
+identically regardless of which web server is serving the files. The
+tradeoff is that it only reflects true chronological order when
+filenames embed a sortable date or sequence number —
+e.g. <code>..._20260722_003.fits</code>. That holds for the
+PROBA-3/STEREO archives this tool targets, where filenames are
+date/sequence-stamped, but is <strong>not guaranteed</strong> for an
+arbitrary directory with inconsistent naming — there, “last N” means
+“alphabetically last N”, which may not be “most recent N”.</p>
+<p><strong>A sharper version of the same tradeoff bites when
+<code>--filter</code> matches more than one filename prefix/channel in
+the same run</strong> — e.g. <code>--filter fe pb</code> for two
+instrument channels named <code>..._fe_l3_...</code> and
+<code>..._pb_l3_...</code>. Every <code>fe</code>-file sorts before
+every <code>pb</code>-file (<code>f</code> &lt; <code>p</code>),
+<strong>regardless of timestamp</strong> — so once a directory has at
+least <code>N</code> <code>pb</code>-files, “last <code>N</code>” is
+<code>N</code> <code>pb</code>-files, full stop, no matter how recent
+the newest <code>fe</code>-file is. The <code>fe</code> channel doesn’t
+just rank lower — with more than <code>N</code> <code>pb</code>-files
+present, it’s invisible. Workarounds:</p>
 <ul>
-<li><strong>Query each channel separately</strong> — <code>--filter fe</code> and <code>--filter pb</code> as two separate runs — sidesteps the collision entirely, since each run's "last N" only ever ranks within one prefix.</li>
-<li><strong>Or request enough files to be sure</strong>, then sort/filter by timestamp yourself instead of relying on the filename-prefix order:
-<div class="sourceCode" id="cb27"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb27-1"><a href="#cb27-1" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--url</span> https://archive.example.org/mission/L3_png/v03/ <span class="dt">\</span></span>
+<li><p><strong>Query each channel separately</strong> —
+<code>--filter fe</code> and <code>--filter pb</code> as two separate
+runs — sidesteps the collision entirely, since each run’s “last N” only
+ever ranks within one prefix.</p></li>
+<li><p><strong>Or request enough files to be sure</strong>, then
+sort/filter by timestamp yourself instead of relying on the
+filename-prefix order:</p>
+<div class="sourceCode" id="cb27"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb27-1"><a href="#cb27-1" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--url</span> https://archive.example.org/mission/L3_png/v03/ <span class="dt">\</span></span>
 <span id="cb27-2"><a href="#cb27-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--list-files</span> 200 <span class="at">--filter</span> fe pb <span class="at">--quiet</span> <span class="dt">\</span></span>
 <span id="cb27-3"><a href="#cb27-3" aria-hidden="true" tabindex="-1"></a>  <span class="kw">|</span> <span class="fu">grep</span> <span class="at">-v</span> <span class="st">&#39;^#&#39;</span> <span class="kw">|</span> <span class="fu">sort</span> <span class="at">-t_</span> <span class="at">-k4</span> <span class="kw">|</span> <span class="fu">tail</span> <span class="at">-3</span></span></code></pre></div>
-(<code>sort -t_ -k4</code> sorts from the 4th underscore-delimited field onward — i.e. from the embedded timestamp, not the channel prefix sitting before it — so the result is chronological across channels instead of "whichever channel's name sorts higher, wins".)</li>
+<p>(<code>sort -t_ -k4</code> sorts from the 4th underscore-delimited
+field onward — i.e. from the embedded timestamp, not the channel prefix
+sitting before it — so the result is chronological across channels
+instead of “whichever channel’s name sorts higher, wins”.)</p></li>
 </ul>
 </blockquote></li>
 </ul>
 <hr />
 <h2 id="caching-and-incremental-sync">Caching and incremental sync</h2>
-<p>MirrorURL keeps a JSON cache (in <code>--log-path</code>) describing the last run, plus an in-memory/disk HTML-listing cache. On subsequent runs it uses this — together with ETags, sizes, and timestamps — to skip unchanged files and avoid re-fetching directory listings.</p>
+<p>MirrorURL keeps a JSON cache (in <code>--log-path</code>) describing
+the last run, plus an in-memory/disk HTML-listing cache. On subsequent
+runs it uses this — together with ETags, sizes, and timestamps — to skip
+unchanged files and avoid re-fetching directory listings.</p>
 <ul>
-<li><code>--cache-max-age DAYS</code> — after this age the cache auto-refreshes.</li>
+<li><code>--cache-max-age DAYS</code> — after this age the cache
+auto-refreshes.</li>
 <li><code>--refresh-cache</code> — force a full refresh now.</li>
-<li><code>--no-cache</code> — ignore the cache entirely (always full scan).</li>
-<li><code>--no-etag</code> — don't use ETags for change detection (size/time only).</li>
-<li><code>--missing-files</code> — skip freshness verification for files that already exist locally; only download what's absent.</li>
-<li><code>--quick</code> — only bump the cache timestamp (no scanning/downloading).</li>
+<li><code>--no-cache</code> — ignore the cache entirely (always full
+scan).</li>
+<li><code>--no-etag</code> — don’t use ETags for change detection
+(size/time only).</li>
+<li><code>--missing-files</code> — skip freshness verification for files
+that already exist locally; only download what’s absent.</li>
+<li><code>--quick</code> — only bump the cache timestamp (no
+scanning/downloading).</li>
 </ul>
-<p>For very large trees, <code>--use-disk-backed-sets</code> keeps the file-set on disk to bound memory use.</p>
-<p><code>--missing-files</code> trades correctness for speed on datasets where a per-file network check on every run is expensive but rarely finds anything (a large, largely-static remote tree). It skips ETag/size/mtime verification entirely once a file's local existence is confirmed — so a file that's replaced or corrected in place on the server, under the same name, will not be re-downloaded. A reasonable pattern is running <code>--missing-files</code> on a frequent schedule (e.g. daily) and an occasional full run without it (e.g. weekly) to still catch in-place changes on a bounded delay.</p>
+<p><code>--use-disk-backed-sets</code> constructs a tracking component,
+but the current sync pipeline does not add remote URLs to it. Discovery
+still materializes the remote file list in memory; this option does not
+bound large-tree memory use.</p>
+<p><code>--missing-files</code> trades correctness for speed on datasets
+where a per-file network check on every run is expensive but rarely
+finds anything (a large, largely-static remote tree). It skips
+ETag/size/mtime verification entirely once a file’s local existence is
+confirmed — so a file that’s replaced or corrected in place on the
+server, under the same name, will not be re-downloaded. A reasonable
+pattern is running <code>--missing-files</code> on a frequent schedule
+(e.g. daily) and an occasional full run without it (e.g. weekly) to
+still catch in-place changes on a bounded delay.</p>
 <hr />
 <h2 id="cleaning-up-obsolete-files">Cleaning up obsolete files</h2>
-<p>By default MirrorURL <strong>never deletes</strong> anything (<code>--cleanup safe</code>). To mirror deletions from the remote side, choose a stronger policy:</p>
-<p>Cleanup only acts within the current scan selection. Files excluded by filters, directory exclusions, depth limits, or skipped symlink subtrees are preserved, as are local symlinks. An incomplete remote scan skips cleanup. If the MOVE archive cannot be created, cleanup stops; a failed move leaves the source in place and never falls back to deletion.</p>
-<div class="sourceCode" id="cb28"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb28-1"><a href="#cb28-1" aria-hidden="true" tabindex="-1"></a><span class="co"># See what would be removed — safe to run anytime</span></span>
+<p>By default MirrorURL <strong>never deletes</strong> anything
+(<code>--cleanup safe</code>). To mirror deletions from the remote side,
+choose a stronger policy:</p>
+<p>Cleanup only acts within the current scan selection. Files excluded
+by filters, directory exclusions, depth limits, or skipped symlink
+subtrees are preserved, as are local symlinks. An incomplete remote scan
+skips cleanup. If the MOVE archive cannot be created, cleanup stops; a
+failed move leaves the source in place and never falls back to
+deletion.</p>
+<div class="sourceCode" id="cb28"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb28-1"><a href="#cb28-1" aria-hidden="true" tabindex="-1"></a><span class="co"># See what would be removed — safe to run anytime</span></span>
 <span id="cb28-2"><a href="#cb28-2" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--config</span> mirror.yaml <span class="at">--cleanup</span> preview</span>
 <span id="cb28-3"><a href="#cb28-3" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb28-4"><a href="#cb28-4" aria-hidden="true" tabindex="-1"></a><span class="co"># Move obsolete files into sibling &lt;dest&gt;_obsolete/ instead of deleting</span></span>
@@ -808,73 +1477,200 @@
 <span id="cb28-6"><a href="#cb28-6" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb28-7"><a href="#cb28-7" aria-hidden="true" tabindex="-1"></a><span class="co"># Actually delete, with a confirmation prompt</span></span>
 <span id="cb28-8"><a href="#cb28-8" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--config</span> mirror.yaml <span class="at">--cleanup</span> delete <span class="at">--confirm-delete</span></span></code></pre></div>
-<p>Combine any of these with <code>--dry-run</code> to simulate the entire run (scan + download + cleanup) without making changes.</p>
+<p>Combine any of these with <code>--dry-run</code> to simulate the
+entire run (scan + download + cleanup) without making changes.</p>
 <hr />
 <h2 id="security">Security</h2>
-<p>MirrorURL ships with security protections <strong>enabled by default</strong>:</p>
+<p>MirrorURL ships with security protections <strong>enabled by
+default</strong>:</p>
 <ul>
-<li><strong>SSRF / private-network protection.</strong> The HTTP transport resolves and validates target IPs and <strong>refuses to connect to loopback or private addresses</strong> (<code>127.0.0.1</code>, <code>localhost</code>, RFC-1918 ranges, link-local, etc.), blocks direct-IP URLs, dangerous ports, and IDN/homograph and URL-smuggling tricks.</li>
-<li><strong>URL-scope enforcement</strong> keeps the crawler within the configured base host/path and blocks path-traversal (including encoded/double-encoded forms).</li>
-<li><strong>Filesystem safety</strong> — filename sanitization, path-traversal rejection, Windows reserved-name handling, and symlink-loop/bomb defenses.</li>
+<li><strong>SSRF / private-network protection.</strong> The HTTP
+transport resolves and validates target IPs and <strong>refuses to
+connect to loopback or private addresses</strong>
+(<code>127.0.0.1</code>, <code>localhost</code>, RFC-1918 ranges,
+link-local, etc.), blocks direct-IP URLs, dangerous ports, and
+IDN/homograph and URL-smuggling tricks.</li>
+<li><strong>URL-scope enforcement</strong> keeps the crawler within the
+configured base host/path and blocks path-traversal (including
+encoded/double-encoded forms).</li>
+<li><strong>Filesystem safety</strong> — filename sanitization,
+path-traversal rejection, Windows reserved-name handling, and
+symlink-loop/bomb defenses.</li>
 </ul>
 <blockquote>
-<p>Because of the SSRF guard, MirrorURL <strong>cannot mirror a server on <code>localhost</code>/<code>127.0.0.1</code></strong> unless you explicitly disable validation with <code>--no-security-validation</code> (or <code>security_validation: false</code>). Disabling this removes SSRF protection — only do so for trusted, local targets.</p>
+<p>The secure transport rejects direct-IP, private, and loopback
+targets, including <code>localhost</code>.
+<code>--no-security-validation</code> disables the extra URL validation
+layer; it does not disable transport IP validation. There is no
+production option for mirroring private or local servers.</p>
 </blockquote>
-<p>Symlink handling is off by default; see <a href="#symlink-handling">Symlink handling</a> below for how it works and how to use it.</p>
+<p>Symlink handling is off by default; see <a
+href="#symlink-handling">Symlink handling</a> below for how it works and
+how to use it.</p>
 <hr />
 <h2 id="symlink-handling">Symlink handling</h2>
-<p>Plain HTTP directory listings (Apache-style autoindex, used by most archives this tool targets) give <strong>no explicit signal</strong> that a directory entry is a symlink. The server transparently resolves the symlink server-side and serves the target directory's listing under the link's own URL path — there is nothing in the HTML to tell a real directory apart from a symlinked one.</p>
-<p><strong>Real example.</strong> NASA's sohoftp SolarSoft archive has <code>.../lasco/lasco/</code> symlinked to <code>.../lasco/idl/</code> on disk. Both URLs return byte-for-byte equivalent directory listings (only the self-referential <code>href</code>s differ) — fetching either one looks, from the client's side, exactly like fetching a normal, independent directory. Without any special handling, MirrorURL just crawls and downloads both in full, duplicating the entire tree locally under two different names.</p>
+<p>Plain HTTP directory listings (Apache-style autoindex, used by most
+archives this tool targets) give <strong>no explicit signal</strong>
+that a directory entry is a symlink. The server transparently resolves
+the symlink server-side and serves the target directory’s listing under
+the link’s own URL path — there is nothing in the HTML to tell a real
+directory apart from a symlinked one.</p>
+<p><strong>Real example.</strong> NASA’s sohoftp SolarSoft archive has
+<code>.../lasco/lasco/</code> symlinked to <code>.../lasco/idl/</code>
+on disk. Both URLs return byte-for-byte equivalent directory listings
+(only the self-referential <code>href</code>s differ) — fetching either
+one looks, from the client’s side, exactly like fetching a normal,
+independent directory. Without any special handling, MirrorURL just
+crawls and downloads both in full, duplicating the entire tree locally
+under two different names.</p>
 <h3 id="how-detection-works">How detection works</h3>
-<p><code>--handle-symlinks</code> turns on a heuristic, content-signature-based detector: for every directory scanned, MirrorURL fingerprints its immediate entries (the basenames of its files and subdirectories — no extra HTTP request, this reuses data the scan already fetched) and compares that fingerprint against every other non-empty directory already scanned earlier in the same run. If two different URLs produce an identical fingerprint, the one discovered second is reported as a likely symlink to the one discovered first.</p>
-<p>Only the top-level directory of a duplicated subtree is counted. Once <code>lasco/lasco/</code> is flagged as a duplicate of <code>lasco/idl/</code>, every directory <em>underneath</em> <code>lasco/lasco/</code> necessarily duplicates the corresponding one under <code>lasco/idl/</code> too — that's just what "this subtree is served via a symlink" means, not new information. MirrorURL tracks which URL prefixes have already been flagged and skips re-detecting (and re-logging) anything underneath them, so one real symlink is reported once, not once per directory in its subtree.</p>
-<p><strong>Corroborating signal: Last-Modified and ETag.</strong> The basename fingerprint is the sole deciding factor for whether something gets flagged at all, but every <code>🔗 Symlink detected</code> line also carries a confidence note built from the <code>Last-Modified</code>/<code>ETag</code> response headers of each directory's own listing GET — already available at zero extra cost, since it's the same request already made to fetch the HTML to parse. Apache's autoindex commonly derives a listing's <code>Last-Modified</code> from its most-recently-modified entry, and a symlinked directory resolves straight through to the same underlying files as its target, so the two paths often report an identical value — exactly what was observed against the real <code>lasco</code>/<code>idl</code> example (equal Last-Modified on both). Possible notes:</p>
+<p><code>--handle-symlinks</code> turns on a heuristic,
+content-signature-based detector: for every directory scanned, MirrorURL
+fingerprints its immediate entries (the basenames of its files and
+subdirectories — no extra HTTP request, this reuses data the scan
+already fetched) and compares that fingerprint against every other
+non-empty directory already scanned earlier in the same run. If two
+different URLs produce an identical fingerprint, the one discovered
+second is reported as a likely symlink to the one discovered first.</p>
+<p>Only the top-level directory of a duplicated subtree is counted. Once
+<code>lasco/lasco/</code> is flagged as a duplicate of
+<code>lasco/idl/</code>, every directory <em>underneath</em>
+<code>lasco/lasco/</code> necessarily duplicates the corresponding one
+under <code>lasco/idl/</code> too — that’s just what “this subtree is
+served via a symlink” means, not new information. MirrorURL tracks which
+URL prefixes have already been flagged and skips re-detecting (and
+re-logging) anything underneath them, so one real symlink is reported
+once, not once per directory in its subtree.</p>
+<p><strong>Corroborating signal: Last-Modified and ETag.</strong> The
+basename fingerprint is the sole deciding factor for whether something
+gets flagged at all, but every <code>🔗 Symlink detected</code> line
+also carries a confidence note built from the
+<code>Last-Modified</code>/<code>ETag</code> response headers of each
+directory’s own listing GET — already available at zero extra cost,
+since it’s the same request already made to fetch the HTML to parse.
+Apache’s autoindex commonly derives a listing’s
+<code>Last-Modified</code> from its most-recently-modified entry, and a
+symlinked directory resolves straight through to the same underlying
+files as its target, so the two paths often report an identical value —
+exactly what was observed against the real
+<code>lasco</code>/<code>idl</code> example (equal Last-Modified on
+both). Possible notes:</p>
 <ul>
 <li><code>[high confidence: Last-Modified &amp; ETag both match]</code></li>
-<li><code>[Last-Modified matches]</code> / <code>[ETag matches]</code> (only one header present or matching)</li>
-<li><code>[⚠️ Last-Modified/ETag differ despite matching entries -- worth a manual look]</code> — the basenames still matched (that's what triggered the flag), but the headers disagree; this is never used to suppress the detection, only to flag it as more likely a coincidence worth checking by hand</li>
-<li><code>[no header data captured this run for the ... path]</code> — the server sent neither header, or that directory was served from the local HTML cache this run (no request was made, so there was nothing to read headers from); detection falls back to basename-only, same as before this note existed</li>
+<li><code>[Last-Modified matches]</code> / <code>[ETag matches]</code>
+(only one header present or matching)</li>
+<li><code>[⚠️ Last-Modified/ETag differ despite matching entries -- worth a manual look]</code>
+— the basenames still matched (that’s what triggered the flag), but the
+headers disagree; this is never used to suppress the detection, only to
+flag it as more likely a coincidence worth checking by hand</li>
+<li><code>[no header data captured this run for the ... path]</code> —
+the server sent neither header, or that directory was served from the
+local HTML cache this run (no request was made, so there was nothing to
+read headers from); detection falls back to basename-only, same as
+before this note existed</li>
 </ul>
 <p>This is a heuristic, not ground truth:</p>
 <ul>
-<li>It can only compare against directories actually visited in the <em>same</em> run — a symlink whose target lies outside the current <code>--url</code>/ <code>--dir-suffix</code> scope (and therefore was never itself scanned) won't produce a match and will just be mirrored as an ordinary directory.</li>
-<li>"Which one is the real directory and which is the symlink" is inferred purely from <em>discovery order</em> (first-seen wins), which usually follows the server's listing order (alphabetical, for a default Apache autoindex — <code>idl</code> sorts before <code>lasco</code>, matching the real-world example above) but isn't a guarantee in general.</li>
-<li>Two genuinely distinct directories that happen to contain identically named entries (e.g. two placeholder directories with the same file names) would also be flagged. Empty directories are deliberately excluded from detection for this reason — every empty directory would otherwise collide trivially.</li>
-<li>Only <em>directory</em> symlinks are detected this way. A symlinked individual <em>file</em> can't be told apart from a normal one without downloading and hashing its content, which MirrorURL does not do (it would defeat the point of avoiding a redundant download).</li>
+<li>It can only compare against directories actually visited in the
+<em>same</em> run — a symlink whose target lies outside the current
+<code>--url</code>/ <code>--dir-suffix</code> scope (and therefore was
+never itself scanned) won’t produce a match and will just be mirrored as
+an ordinary directory.</li>
+<li>“Which one is the real directory and which is the symlink” is
+inferred purely from <em>discovery order</em> (first-seen wins), which
+usually follows the server’s listing order (alphabetical, for a default
+Apache autoindex — <code>idl</code> sorts before <code>lasco</code>,
+matching the real-world example above) but isn’t a guarantee in
+general.</li>
+<li>Two genuinely distinct directories that happen to contain
+identically named entries (e.g. two placeholder directories with the
+same file names) would also be flagged. Empty directories are
+deliberately excluded from detection for this reason — every empty
+directory would otherwise collide trivially.</li>
+<li>Only <em>directory</em> symlinks are detected this way. A symlinked
+individual <em>file</em> can’t be told apart from a normal one without
+downloading and hashing its content, which MirrorURL does not do (it
+would defeat the point of avoiding a redundant download).</li>
 </ul>
-<p>Detection has no network cost (it reuses already-fetched listings) and negligible CPU/memory cost — well under a millisecond of hashing per 10,000 directories scanned in practice.</p>
+<p>Detection has no network cost (it reuses already-fetched listings)
+and negligible CPU/memory cost — well under a millisecond of hashing per
+10,000 directories scanned in practice.</p>
 <h3 id="recommended-workflow">Recommended workflow</h3>
 <ol type="1">
 <li><p><strong>Survey first.</strong> Run once with:</p>
-<div class="sourceCode" id="cb29"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb29-1"><a href="#cb29-1" aria-hidden="true" tabindex="-1"></a><span class="ex">--handle-symlinks</span> <span class="at">--symlink-mode</span> detect</span></code></pre></div>
-<p><code>detect</code> is purely observational: every detection is logged (look for <code>🔗 Symlink detected</code> lines), but the crawl proceeds exactly as if <code>--handle-symlinks</code> were unset — nothing is skipped or treated differently. It automatically implies <code>--dry-run</code> — the scan and detection still run in full, but nothing is downloaded or deleted, since a "just survey the tree" pass shouldn't download the very duplicate content you're trying to avoid in the first place. This lets you see what's actually out there before committing to a behavior change.</p></li>
+<div class="sourceCode" id="cb29"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb29-1"><a href="#cb29-1" aria-hidden="true" tabindex="-1"></a><span class="ex">--handle-symlinks</span> <span class="at">--symlink-mode</span> detect</span></code></pre></div>
+<p><code>detect</code> is purely observational: every detection is
+logged (look for <code>🔗 Symlink detected</code> lines), but the crawl
+proceeds exactly as if <code>--handle-symlinks</code> were unset —
+nothing is skipped or treated differently. It automatically implies
+<code>--dry-run</code> — the scan and detection still run in full, but
+nothing is downloaded or deleted, since a “just survey the tree” pass
+shouldn’t download the very duplicate content you’re trying to avoid in
+the first place. This lets you see what’s actually out there before
+committing to a behavior change.</p></li>
 <li><p><strong>Then decide</strong>, based on the log:</p>
 <ul>
-<li><strong>Exclude permanently</strong> (recommended when you don't want the duplicate content at all): drop <code>--handle-symlinks</code> from future runs entirely and instead pass the reported symlink paths to <code>--exclude-dir</code> (supports exact paths, path suffixes, and simple <code>*</code> globs). This is deterministic and has zero ongoing detection overhead.</li>
-<li><strong>Skip on every run</strong>: keep <code>--handle-symlinks --symlink-mode skip</code> (the default <code>--symlink-mode</code> once <code>--handle-symlinks</code> is set) — re-detects and re-ignores the same directories on every run instead of relying on a fixed <code>--exclude-dir</code> list.</li>
-<li><strong>Mirror it anyway</strong>: <code>--handle-symlinks --symlink-mode follow</code> downloads the detected symlink's content like a normal directory — but only when its target resolves <em>inside</em> the current <code>--url</code>/ <code>--dir-suffix</code> scope. A target outside that scope is always ignored regardless of <code>--symlink-mode</code>; this safety boundary isn't user-tunable, since a symlink pointing outside the intended scope is exactly the "symlink bomb" scenario <code>--max-symlink-depth</code>, <code>--max-symlinks-per-dir</code>, and <code>--symlink-bomb-threshold</code> exist to guard against.</li>
+<li><strong>Exclude permanently</strong> (recommended when you don’t
+want the duplicate content at all): drop <code>--handle-symlinks</code>
+from future runs entirely and instead pass the reported symlink paths to
+<code>--exclude-dir</code> (supports exact paths, path suffixes, and
+simple <code>*</code> globs). This is deterministic and has zero ongoing
+detection overhead.</li>
+<li><strong>Skip on every run</strong>: keep
+<code>--handle-symlinks --symlink-mode skip</code> (the default
+<code>--symlink-mode</code> once <code>--handle-symlinks</code> is set)
+— re-detects and re-ignores the same directories on every run instead of
+relying on a fixed <code>--exclude-dir</code> list.</li>
+<li><strong>Mirror it anyway</strong>:
+<code>--handle-symlinks --symlink-mode follow</code> downloads the
+detected symlink’s content like a normal directory — but only when its
+target resolves <em>inside</em> the current <code>--url</code>/
+<code>--dir-suffix</code> scope. A target outside that scope is always
+ignored regardless of <code>--symlink-mode</code>; this safety boundary
+isn’t user-tunable, since a symlink pointing outside the intended scope
+is exactly the “symlink bomb” scenario <code>--max-symlink-depth</code>,
+<code>--max-symlinks-per-dir</code>, and
+<code>--symlink-bomb-threshold</code> exist to guard against.</li>
 </ul></li>
 </ol>
-<p><code>--symlink-mode treat-as-file</code> is accepted for forward compatibility but currently behaves identically to <code>skip</code> — there's no meaningful way to save an HTML directory listing "as a single file".</p>
+<p><code>--symlink-mode treat-as-file</code> is accepted for forward
+compatibility but currently behaves identically to <code>skip</code> —
+there’s no meaningful way to save an HTML directory listing “as a single
+file”.</p>
 <hr />
 <h2 id="monitoring-and-metrics">Monitoring and metrics</h2>
 <ul>
-<li><p><strong>Metrics summary.</strong> A run logs a <code>METRICS SUMMARY</code> block at INFO level (files downloaded/skipped/failed, bytes, speed, cache hit rates, ETag stats, etc.). <code>--stats</code> is accepted for backward compatibility but currently has no effect; the summary is always printed in full.</p></li>
-<li><p><strong><code>--metrics-json FILE</code></strong> writes the full metrics summary to JSON (skipped in <code>--dry-run</code>).</p></li>
-<li><p><strong><code>--progress-bar</code></strong> shows a live tqdm bar (requires the <code>progress</code> extra).</p></li>
-<li><p><strong>Health/metrics HTTP endpoints.</strong> During a (non-dry-run) sync, a small HTTP server listens on <code>--health-check-port</code> (default 8080) and serves:</p>
+<li><strong>Metrics summary.</strong> A run logs a
+<code>METRICS SUMMARY</code> block at INFO level (files
+downloaded/skipped/failed, bytes, speed, cache hit rates, ETag stats,
+etc.). <code>--stats</code> is accepted for backward compatibility but
+currently has no effect; the summary is always printed in full.</li>
+<li><strong><code>--metrics-json FILE</code></strong> writes the full
+metrics summary to JSON (skipped in <code>--dry-run</code>).</li>
+<li><strong><code>--progress-bar</code></strong> shows a live tqdm bar
+(requires the <code>progress</code> extra).</li>
+<li><strong>Health/metrics HTTP endpoints.</strong> During a
+(non-dry-run) sync, a small HTTP server listens on
+<code>--health-check-port</code> (default 8080) and serves:
 <ul>
 <li><code>GET /health</code> → JSON health status (rate-limited).</li>
-<li><code>GET /metrics</code> → JSON counters (files downloaded/failed/skipped, bytes, elapsed).</li>
+<li><code>GET /metrics</code> → JSON counters (files
+downloaded/failed/skipped, bytes, elapsed).</li>
 </ul>
-<div class="sourceCode" id="cb30"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb30-1"><a href="#cb30-1" aria-hidden="true" tabindex="-1"></a><span class="ex">curl</span> http://localhost:8080/health</span>
+<div class="sourceCode" id="cb30"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb30-1"><a href="#cb30-1" aria-hidden="true" tabindex="-1"></a><span class="ex">curl</span> http://localhost:8080/health</span>
 <span id="cb30-2"><a href="#cb30-2" aria-hidden="true" tabindex="-1"></a><span class="ex">curl</span> http://localhost:8080/metrics</span></code></pre></div></li>
-<li><p><strong>Logging.</strong> Each run writes a timestamped log under <code>--log-path</code>. Use <code>--verbose</code>/<code>--debug</code> for more detail, <code>--quiet</code> for less, and <code>--print-logs</code> to also echo to the console.</p></li>
+<li><strong>Logging.</strong> Each run writes a timestamped log under
+<code>--log-path</code>. Use <code>--verbose</code>/<code>--debug</code>
+for more detail, <code>--quiet</code> for less, and
+<code>--print-logs</code> to also echo to the console.</li>
 </ul>
 <hr />
 <h2 id="using-mirrorurl-from-python">Using MirrorURL from Python</h2>
 <p>MirrorURL is a library as well as a CLI. The public API:</p>
-<div class="sourceCode" id="cb31"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb31-1"><a href="#cb31-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> pathlib <span class="im">import</span> Path</span>
+<div class="sourceCode" id="cb31"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb31-1"><a href="#cb31-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> pathlib <span class="im">import</span> Path</span>
 <span id="cb31-2"><a href="#cb31-2" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> mirror_url <span class="im">import</span> MirrorURL, MirrorConfig</span>
 <span id="cb31-3"><a href="#cb31-3" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb31-4"><a href="#cb31-4" aria-hidden="true" tabindex="-1"></a>config <span class="op">=</span> MirrorConfig(</span>
@@ -890,58 +1686,94 @@
 <span id="cb31-14"><a href="#cb31-14" aria-hidden="true" tabindex="-1"></a>    ok <span class="op">=</span> mirror.sync()  <span class="co"># returns True on success, False on failure</span></span>
 <span id="cb31-15"><a href="#cb31-15" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb31-16"><a href="#cb31-16" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;sync succeeded&quot;</span> <span class="cf">if</span> ok <span class="cf">else</span> <span class="st">&quot;sync failed&quot;</span>)</span></code></pre></div>
-<p>Using the context manager (<code>with</code>) ensures background threads, connection pools, and the health server are cleaned up. Always run inside one.</p>
+<p>Using the context manager (<code>with</code>) ensures background
+threads, connection pools, and the health server are cleaned up. Always
+run inside one.</p>
 <p>Load configuration from a YAML/JSON file:</p>
-<div class="sourceCode" id="cb32"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb32-1"><a href="#cb32-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> pathlib <span class="im">import</span> Path</span>
+<div class="sourceCode" id="cb32"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb32-1"><a href="#cb32-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> pathlib <span class="im">import</span> Path</span>
 <span id="cb32-2"><a href="#cb32-2" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> mirror_url <span class="im">import</span> MirrorConfig, MirrorURL</span>
 <span id="cb32-3"><a href="#cb32-3" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb32-4"><a href="#cb32-4" aria-hidden="true" tabindex="-1"></a>config <span class="op">=</span> MirrorConfig.from_yaml(Path(<span class="st">&quot;mirror.yaml&quot;</span>))</span>
 <span id="cb32-5"><a href="#cb32-5" aria-hidden="true" tabindex="-1"></a><span class="cf">with</span> MirrorURL(config) <span class="im">as</span> mirror:</span>
 <span id="cb32-6"><a href="#cb32-6" aria-hidden="true" tabindex="-1"></a>    mirror.sync()</span></code></pre></div>
 <p>Handle configuration errors:</p>
-<div class="sourceCode" id="cb33"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb33-1"><a href="#cb33-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> mirror_url <span class="im">import</span> MirrorConfig</span>
+<div class="sourceCode" id="cb33"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb33-1"><a href="#cb33-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> mirror_url <span class="im">import</span> MirrorConfig</span>
 <span id="cb33-2"><a href="#cb33-2" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> mirror_url.exceptions <span class="im">import</span> ConfigError</span>
 <span id="cb33-3"><a href="#cb33-3" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb33-4"><a href="#cb33-4" aria-hidden="true" tabindex="-1"></a><span class="cf">try</span>:</span>
 <span id="cb33-5"><a href="#cb33-5" aria-hidden="true" tabindex="-1"></a>    cfg <span class="op">=</span> MirrorConfig(base_url<span class="op">=</span><span class="st">&quot;ftp://nope&quot;</span>, dest_path<span class="op">=</span>Path(<span class="st">&quot;d&quot;</span>), log_path<span class="op">=</span>Path(<span class="st">&quot;l&quot;</span>))</span>
 <span id="cb33-6"><a href="#cb33-6" aria-hidden="true" tabindex="-1"></a><span class="cf">except</span> ConfigError <span class="im">as</span> e:</span>
 <span id="cb33-7"><a href="#cb33-7" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(<span class="st">&quot;bad config:&quot;</span>, e)</span></code></pre></div>
-<p>Useful exported names: <code>MirrorURL</code>, <code>MirrorConfig</code>, <code>load_config_from_args</code>, <code>main</code>, and the exception types (<code>MirrorError</code>, <code>ConfigError</code>, <code>MirrorConnectionError</code>, <code>SecurityError</code>, <code>DownloadError</code>, <code>PathTraversalError</code>, <code>URLScopeError</code>).</p>
+<p>Useful exported names: <code>MirrorURL</code>,
+<code>MirrorConfig</code>, <code>load_config_from_args</code>,
+<code>main</code>, and the exception types (<code>MirrorError</code>,
+<code>ConfigError</code>, <code>MirrorConnectionError</code>,
+<code>SecurityError</code>, <code>DownloadError</code>,
+<code>PathTraversalError</code>, <code>URLScopeError</code>).</p>
 <hr />
 <h2 id="exit-codes">Exit codes</h2>
 <table>
 <thead>
-<tr class="header">
+<tr>
 <th>Code</th>
 <th>Meaning</th>
 </tr>
 </thead>
 <tbody>
-<tr class="odd">
+<tr>
 <td><code>0</code></td>
 <td>Success — all requested suffixes synced without fatal errors.</td>
 </tr>
-<tr class="even">
+<tr>
 <td><code>1</code></td>
 <td>One or more suffixes failed (connection failure, fatal error).</td>
 </tr>
 </tbody>
 </table>
-<p>This makes MirrorURL easy to drive from cron, systemd timers, or CI:</p>
-<div class="sourceCode" id="cb34"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb34-1"><a href="#cb34-1" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--config</span> mirror.yaml <span class="kw">&amp;&amp;</span> <span class="bu">echo</span> <span class="st">&quot;OK&quot;</span> <span class="kw">||</span> <span class="bu">echo</span> <span class="st">&quot;FAILED (</span><span class="va">$?</span><span class="st">)&quot;</span></span></code></pre></div>
+<p>This makes MirrorURL easy to drive from cron, systemd timers, or
+CI:</p>
+<div class="sourceCode" id="cb34"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb34-1"><a href="#cb34-1" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--config</span> mirror.yaml <span class="kw">&amp;&amp;</span> <span class="bu">echo</span> <span class="st">&quot;OK&quot;</span> <span class="kw">||</span> <span class="bu">echo</span> <span class="st">&quot;FAILED (</span><span class="va">$?</span><span class="st">)&quot;</span></span></code></pre></div>
 <hr />
 <h2 id="troubleshooting">Troubleshooting</h2>
-<p><strong>"Hostname resolves to private IP" / connection refused to localhost.</strong> The SSRF guard is blocking a private/loopback target. For a trusted local server, add <code>--no-security-validation</code> (or <code>security_validation: false</code>).</p>
-<p><strong>Server returns 403/429 or downloads are slow/failing.</strong> The remote may be throttling you. Try <code>--trusted-server</code> off, increase <code>--request-delay</code>, reduce <code>--workers</code>/<code>--max-concurrent-downloads</code>, add <code>--no-async-metadata</code>, or switch to <code>--sequential-downloads</code>.</p>
-<p><strong>Nothing is downloaded / "0 directories".</strong> Confirm <code>--url</code> actually serves an HTML directory listing (not a single file or a JS-rendered page). Check your <code>--filter</code> isn't excluding everything, and try <code>--debug</code> to see the parsed links and scope decisions.</p>
-<p><strong>Parallel mode isn't kicking in.</strong> The server must support HTTP Range requests and files must exceed <code>--min-chunk-size</code>. Otherwise MirrorURL downloads whole files. Use <code>--debug</code> to see the auto-select decision.</p>
-<p><strong>Progress bar / memory stats missing.</strong> Install the optional extras: <code>pip install "mirror-url[progress,monitor]"</code> (tqdm / psutil).</p>
-<p><strong>Re-runs re-download everything.</strong> Make sure <code>--log-path</code> is stable between runs (that's where the cache lives) and you're not passing <code>--no-cache</code> / <code>--refresh-cache</code>.</p>
+<p><strong>“Hostname resolves to private IP” / connection refused to
+localhost.</strong> The secure transport blocks private/loopback targets
+even with <code>--no-security-validation</code>. Use a public hostname
+resolving to a public address. The loopback bypass used by integration
+tests is confined to those tests.</p>
+<p><strong>Server returns 403/429 or downloads are
+slow/failing.</strong> The remote may be throttling you. Try
+<code>--trusted-server</code> off, increase
+<code>--request-delay</code>, reduce
+<code>--workers</code>/<code>--max-concurrent-downloads</code>, add
+<code>--no-async-metadata</code>, or switch to
+<code>--sequential-downloads</code>.</p>
+<p><strong>Nothing is downloaded / “0 directories”.</strong> Confirm
+<code>--url</code> actually serves an HTML directory listing (not a
+single file or a JS-rendered page). Check your <code>--filter</code>
+isn’t excluding everything, and try <code>--debug</code> to see the
+parsed links and scope decisions.</p>
+<p><strong>Parallel mode isn’t kicking in.</strong> The server must
+support HTTP Range requests and files must exceed
+<code>--min-chunk-size</code>. Otherwise MirrorURL downloads whole
+files. Use <code>--debug</code> to see the auto-select decision.</p>
+<p><strong>Progress bar / memory stats missing.</strong> Install the
+optional extras: <code>pip install "mirror-url[progress,monitor]"</code>
+(tqdm / psutil).</p>
+<p><strong>Re-runs re-download everything.</strong> Make sure
+<code>--log-path</code> is stable between runs (that’s where the cache
+lives) and you’re not passing <code>--no-cache</code> /
+<code>--refresh-cache</code>.</p>
 <hr />
 <h2 id="uninstalling">Uninstalling</h2>
-<div class="sourceCode" id="cb35"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb35-1"><a href="#cb35-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> uninstall mirror-url</span>
+<div class="sourceCode" id="cb35"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb35-1"><a href="#cb35-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> uninstall mirror-url</span>
 <span id="cb35-2"><a href="#cb35-2" aria-hidden="true" tabindex="-1"></a><span class="co"># or, if installed with pipx:</span></span>
 <span id="cb35-3"><a href="#cb35-3" aria-hidden="true" tabindex="-1"></a><span class="ex">pipx</span> uninstall mirror-url</span></code></pre></div>
-<p>Generated logs, cache files (in your <code>--log-path</code>), and mirrored data (in your <code>--dest-path</code>) are left in place — remove them manually if desired.</p>
+<p>Generated logs, cache files (in your <code>--log-path</code>), and
+mirrored data (in your <code>--dest-path</code>) are left in place —
+remove them manually if desired.</p>
 </body>
 </html>

@@ -12,6 +12,8 @@ keep the linter clean; behavior is unchanged.
 from __future__ import annotations
 
 import atexit
+import hashlib
+import json
 import logging
 import mmap
 import os
@@ -106,26 +108,15 @@ class ParallelDownloadManager:
             self.auto_mode = True
             logging.info("🤖 Auto-select mode (will choose best method at runtime)")
 
-        self.max_chunks_per_file = max(1, min(config.max_chunks_per_file, 8))
-        self.min_chunk_size = max(5 * 1024 * 1024, config.min_chunk_size_mb * 1024 * 1024)
-        self.max_parallel_chunks = min(config.max_parallel_chunks_total, 20)
+        self.max_chunks_per_file = config.max_chunks_per_file
+        self.min_chunk_size = config.min_chunk_size_mb * 1024 * 1024
+        self.max_parallel_chunks = config.max_parallel_chunks_total
 
         # State tracking
         # self.active_downloads: Dict[Path, ParallelFileDownload] = {}
         self.lock = RLock()
 
-        # Thread pool for chunks. Chunk downloads are I/O-bound (blocking
-        # network reads release the GIL), so the worker count should track
-        # max_parallel_chunks -- the actual concurrency ceiling enforced by
-        # chunk_semaphore below -- rather than cpu_count. Previously capped
-        # at cpu_count * 2 (e.g. 8 threads on a 4-core box) even though
-        # max_parallel_chunks allows up to 20: the thread pool itself, not
-        # the semaphore, was the real bottleneck on smaller/CI machines,
-        # silently capping effective chunk concurrency below what the rest
-        # of the download machinery was configured to allow.
-        # max_parallel_chunks is itself a small, bounded value (capped at
-        # 20 above), so sizing the pool 1:1 with it can't cause a thread
-        # explosion -- it only removes an unintended extra cap.
+        # Chunk I/O workers follow the validated configured limit.
         max_chunk_threads = self.max_parallel_chunks
         capped_workers = max_chunk_threads
 
@@ -340,7 +331,7 @@ class ParallelDownloadManager:
             return 1
         chunks = max(1, file_size // self.min_chunk_size)
         chunks = min(chunks, self.max_chunks_per_file)
-        return max(2, chunks)
+        return chunks
 
     def create_chunks(
         self, url: str, local_path: Path, file_size: int
@@ -453,6 +444,7 @@ class ParallelDownloadManager:
                     response = self.connection_manager.request(
                         chunk.file_url,
                         method="GET",
+                        stream=True,
                         headers=dict(headers),
                         allow_redirects=True,
                         timeout=httpx.Timeout(
@@ -1223,21 +1215,17 @@ class ParallelDownloadManager:
 
             # Fallback: Test random write speed
             if self.mirror.target_dir:
-                test_file = self.mirror.target_dir / ".speed_test"
                 try:
-                    # Write 10MB randomly to simulate fragmentation
-                    with open(test_file, "wb") as f:
+                    # Use an exclusively created file: fixed probe names can
+                    # overwrite mirror data or follow a pre-existing symlink.
+                    with tempfile.TemporaryFile(dir=self.mirror.target_dir) as f:
                         f.truncate(10 * 1024 * 1024)
-
-                    # Random write test
-                    start = time.time()
-                    with open(test_file, "r+b") as f:
+                        start = time.time()
                         for _ in range(100):  # 100 random writes
                             f.seek(random.randint(0, 10 * 1024 * 1024))
                             f.write(b"x" * 1024)
-                    duration = time.time() - start
-
-                    test_file.unlink()
+                        f.flush()
+                        duration = time.time() - start
 
                     # SSDs handle random writes much faster (<0.5s)
                     return duration < 0.5
@@ -1259,25 +1247,30 @@ class ParallelDownloadManager:
         if self.config.manual_network_speed_mbps:
             return self.config.manual_network_speed_mbps
 
+        response = None
         try:
             test_url = sample_urls[0]
-
-            # Download first 1MB of a file
-            headers = {"Range": "bytes=0-1048575"}
+            headers = {"Range": "bytes=0-1048575", "Accept-Encoding": "identity"}
             start = time.time()
             response = self.connection_manager.request(
-                test_url, method="GET", headers=headers, timeout=10
+                test_url, method="GET", headers=headers, timeout=10, stream=True
             )
-
             if response.status_code == 206:
-                data = response.content
+                sampled = 0
+                for chunk in response.iter_raw(64 * 1024):
+                    sampled += len(chunk)
+                    if sampled >= 1024 * 1024:
+                        break
                 duration = time.time() - start
                 if duration > 0:
-                    speed_mbps = (len(data) * 8) / duration / 1_000_000
+                    speed_mbps = (sampled * 8) / duration / 1_000_000
                     logging.debug(f"Network speed estimate: {speed_mbps:.0f} Mbps")
                     return speed_mbps
         except Exception as e:
             logging.debug(f"Network speed test failed: {e}")
+        finally:
+            if response is not None:
+                response.close()
 
         return 100  # Default assumption
 
@@ -1295,6 +1288,40 @@ class ParallelDownloadManager:
 
 class PartialDownloadManager:
     """Manage partial downloads with resume support"""
+
+    STATE_DIRECTORY = ".mirror-url-state"
+
+    def owns_state_directory(self) -> bool:
+        if self.download_dir is None:
+            return False
+        state = self.download_dir / self.STATE_DIRECTORY
+        try:
+            if state.is_symlink() or not state.is_dir():
+                return False
+            marker = state / "owner.json"
+            if marker.is_symlink():
+                return False
+            return json.loads(marker.read_text(encoding="utf-8")) == {
+                "format": 1,
+                "target": str(self.download_dir.resolve()),
+            }
+        except (OSError, ValueError):
+            return False
+
+    def _state_directory(self) -> Path:
+        if self.download_dir is None:
+            raise ValueError("Partial downloads require a target directory")
+        state = self.download_dir / self.STATE_DIRECTORY
+        with self.lock:
+            if not state.exists() and not state.is_symlink():
+                state.mkdir(mode=0o700)
+                (state / "owner.json").write_text(
+                    json.dumps({"format": 1, "target": str(self.download_dir.resolve())}),
+                    encoding="utf-8",
+                )
+            if not self.owns_state_directory():
+                raise ValueError("Refusing to use an unowned partial-download directory")
+        return state
 
     def __init__(self, download_dir: Path, partial_suffix: str = PARTIAL_SUFFIX):
         """
@@ -1327,7 +1354,11 @@ class PartialDownloadManager:
         Returns:
             Partial file path
         """
-        return final_path.with_suffix(final_path.suffix + self.partial_suffix)
+        relative = final_path.resolve().relative_to(self.download_dir.resolve())
+        if relative.parts[0].casefold() == self.STATE_DIRECTORY:
+            raise ValueError("Remote path conflicts with the partial-download directory")
+        digest = hashlib.sha256(str(relative).encode("utf-8")).hexdigest()
+        return self._state_directory() / (digest + self.partial_suffix)
 
     def register_partial(
         self, final_path: Path, url: str, expected_size: Optional[int] = None
@@ -1433,9 +1464,19 @@ class PartialDownloadManager:
             for path in stale:
                 del self.active_partials[path]
                 cleaned += 1
-            # FIX: Only scan filesystem if download_dir exists
-            for partial_file in self.download_dir.rglob(f"*{self.partial_suffix}"):
+            # Never classify ordinary mirror files by their suffix. Older
+            # versions stored partials alongside data; those cannot be safely
+            # distinguished from legitimate remote files and are left alone.
+            if not self.owns_state_directory():
+                return cleaned
+            state = self.download_dir / self.STATE_DIRECTORY
+            for partial_file in state.glob(f"*{self.partial_suffix}"):
                 try:
+                    if partial_file in self.active_partials or partial_file.is_symlink():
+                        continue
+                    name = partial_file.name.removesuffix(self.partial_suffix)
+                    if len(name) != 64 or any(c not in "0123456789abcdef" for c in name):
+                        continue
                     if now - partial_file.stat().st_mtime > max_age_seconds:
                         partial_file.unlink()
                         clear_resume_metadata(partial_file)

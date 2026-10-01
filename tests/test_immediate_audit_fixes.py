@@ -164,7 +164,7 @@ def test_cleanup_preserves_unselected_paths_and_metadata(mirror, policy):
     files = [
         "unselected.txt",
         "excluded/keep.dat",
-        "depth/boundary/keep.dat",
+        "depth/boundary/beyond/keep.dat",
         "duplicate/keep.dat",
         "gone.dat",
     ]

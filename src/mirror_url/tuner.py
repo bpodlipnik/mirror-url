@@ -30,10 +30,9 @@ class AutoConcurrencyTuner:
             start_concurrency: Starting concurrency level
             max_concurrency: Maximum concurrency level
         """
-        self._start = start_concurrency
-        self.current = start_concurrency
-        self.max = max_concurrency
-        self._start = start_concurrency
+        self.max = max(1, max_concurrency)
+        self._start = min(self.max, max(1, start_concurrency))
+        self.current = self._start
         self.samples: List[Tuple[int, float]] = []  # (concurrency, throughput)
         self.last_throughput = 0.0
         self.improvement_count = 0

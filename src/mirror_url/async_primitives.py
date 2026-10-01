@@ -33,3 +33,32 @@ class LoopLocalPrimitive(Generic[_Primitive]):
                 self._loop = loop
             assert self._value is not None
             return self._value
+
+
+class ResizableSemaphore:
+    """Resize admission without discarding existing waiters or active leases."""
+
+    def __init__(self, limit: int):
+        self.limit = max(1, limit)
+        self.active = 0
+        self.condition = asyncio.Condition()
+
+    @property
+    def _value(self):
+        return max(0, self.limit - self.active)
+
+    async def resize(self, limit: int):
+        async with self.condition:
+            self.limit = max(1, limit)
+            self.condition.notify_all()
+
+    async def __aenter__(self):
+        async with self.condition:
+            await self.condition.wait_for(lambda: self.active < self.limit)
+            self.active += 1
+        return self
+
+    async def __aexit__(self, *args):
+        async with self.condition:
+            self.active -= 1
+            self.condition.notify_all()

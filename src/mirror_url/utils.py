@@ -13,6 +13,7 @@ import atexit
 import hashlib
 import logging
 import random
+import shlex
 import sys
 import threading
 from concurrent.futures import Executor
@@ -530,3 +531,37 @@ __all__ = [
     "cleanup_log_files",
     "bounded_executor_shutdown",
 ]
+
+
+def url_within_scope(url: str, base: str) -> bool:
+    """Require the same origin and a decoded path under the configured root."""
+    candidate, scope = urlparse(url), urlparse(base)
+    if (
+        candidate.scheme.lower() != scope.scheme.lower()
+        or candidate.netloc.lower() != scope.netloc.lower()
+    ):
+        return False
+    path = candidate.path
+    for _ in range(3):
+        decoded = unquote(path)
+        if decoded == path:
+            break
+        path = decoded
+    if "\\" in path or any(part in (".", "..") for part in path.split("/")):
+        return False
+    root = unquote(scope.path).rstrip("/")
+    return path == root or path.startswith(root + "/")
+
+
+def sanitize_command_line(argv: List[str]) -> str:
+    """Redact credentials and sensitive query values before quoting argv."""
+    sanitized = []
+    for argument in argv:
+        prefix, separator, value = argument.partition("=")
+        if separator and value.startswith(("http://", "https://")):
+            sanitized.append(prefix + "=" + sanitize_url_for_log(value))
+        elif argument.startswith(("http://", "https://")):
+            sanitized.append(sanitize_url_for_log(argument))
+        else:
+            sanitized.append(argument)
+    return shlex.join(sanitized)
