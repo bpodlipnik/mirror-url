@@ -4,6 +4,27 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.72] - 2026-10-01
+
+### Fixed
+
+- Align `mirror-url --help` with the implemented download, resume, integrity,
+  filtering, caching, listing, health, and configuration behavior. Describe
+  inactive compatibility settings accurately, show the existing `--http2`
+  override, and replace stale examples with commands that match the parser.
+
+### Documentation
+
+- Refresh the user guide around current installation, CLI, configuration,
+  cleanup, and Python API workflows; integrate relevant runtime guarantees and
+  remove audit-maintenance history from user-facing instructions.
+- Update the developer guide and contributor instructions for the current
+  architecture, lifecycle contracts, test lanes, coverage gates, and manual
+  unused-code review. Require help and guide updates to be reviewed together.
+- Add a shared, reproducible HTML-guide renderer and regenerate both guides.
+- Synchronize package metadata, guide versions, and installation examples to
+  3.1.72. Download and synchronization behavior is unchanged from 3.1.71.
+
 ## [3.1.71] - 2026-10-01
 
 ### Changed
