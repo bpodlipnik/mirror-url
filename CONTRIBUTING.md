@@ -31,7 +31,7 @@ mypy                  # required type-check (zero errors)
 pytest                # full suite, including live HTTP integration
 ```
 
-`pytest -m "not integration"` runs the fast lane across Python 3.9–3.12 in CI.
+`pytest -m "not integration"` runs the fast lane across Python 3.9–3.14 in CI.
 The separate coverage job runs the full suite on Python 3.12 with all optional
 dependencies, including the local HTTP tests, and gates combined statement and
 branch coverage at 70%:
@@ -57,17 +57,16 @@ diffs, and `pytest` passes.
 ## Project layout
 
 ```
-src/mirror_url/        # the package (43 Python files, including private mixins and helpers)
+src/mirror_url/        # the package (44 Python files, including private mixins and helpers)
 tests/                 # pytest suite
 REFACTORING_PLAN.md    # module map, dependency layering, and roadmap
 ```
 
-The package is organized into strict dependency layers (constants/exceptions →
-utils → security → transport/limiters → managers → `core` → `cli`). **Imports
-only ever point "downward"** — a module may import from lower layers, never from
-a higher one. When in doubt, see the layering table in `REFACTORING_PLAN.md` §3,
-or the fuller treatment in the [Developer Guide](./docs/DEVELOPER_GUIDE.md).
-Cross-layer type-only references use `if TYPE_CHECKING:` to avoid import cycles.
+The dependency map groups module responsibilities; existing runtime imports
+also cross these historical layers. Keep the runtime graph acyclic and inject
+orchestrator state into managers. The [Developer Guide](./docs/DEVELOPER_GUIDE.md)
+describes the current composition; `REFACTORING_PLAN.md` records the archived
+migration plan. Type-only references use `if TYPE_CHECKING:` to avoid cycles.
 
 ## Conventions
 

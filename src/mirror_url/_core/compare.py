@@ -444,6 +444,10 @@ class CompareMixin(MirrorHost):
                     remaining = [(url, path) for path, url in file_checks[start_idx:]]
                     return to_download + self._check_files_sync(remaining, progress)
 
+                # Resize the existing semaphore before admitting the next batch.
+                if use_adaptive and hasattr(manager, "apply_pending_concurrency_change"):
+                    await manager.apply_pending_concurrency_change()
+
                 # Process results
                 batch_needs_download = []
                 for (task, local, url), result in zip(tasks, results):
@@ -532,6 +536,9 @@ class CompareMixin(MirrorHost):
                         remaining = [(url, path) for path, url in file_checks[start_idx:]]
                         return to_download + self._check_files_sync(remaining, progress)
 
+                    if use_adaptive and hasattr(manager, "apply_pending_concurrency_change"):
+                        await manager.apply_pending_concurrency_change()
+
                     for (task, local, url), result in zip(tasks, results):
                         if isinstance(result, BaseException) or not result:
                             to_download.append((url, local))
@@ -541,10 +548,6 @@ class CompareMixin(MirrorHost):
                             progress.update(len(batch))
                         except Exception as e:
                             logging.debug(f"Progress update failed: {e}")
-
-            # Apply concurrency changes if using adaptive async
-            if use_adaptive and hasattr(manager, "apply_pending_concurrency_change"):
-                await manager.apply_pending_concurrency_change()
 
         return to_download
 

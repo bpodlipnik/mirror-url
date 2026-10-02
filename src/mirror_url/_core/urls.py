@@ -11,11 +11,10 @@ import os
 import re
 from functools import lru_cache
 from typing import TYPE_CHECKING
-from urllib.parse import ParseResult, unquote, urljoin, urlparse
+from urllib.parse import ParseResult, quote, unquote, urljoin, urlparse
 
 from ..compat import Str
 from ..exceptions import PathTraversalError
-from ..security import PathSafety
 from ..utils import url_within_scope
 
 
@@ -121,14 +120,8 @@ class UrlMixin(MirrorHost):
             if ".." in suffix or suffix.startswith("/") or "//" in suffix:
                 raise PathTraversalError(f"Invalid directory suffix: {suffix}")
 
-            safe_parts = []
-            for part in suffix.split("/"):
-                if part:
-                    safe_parts.append(
-                        PathSafety._safe_filename(part, max_len=self.config.max_filename_len)
-                    )
-            safe_suffix = "/".join(safe_parts)
-            return urljoin(base, safe_suffix + "/")
+            # Local filename rules must not rename remote URL components.
+            return urljoin(base, quote(suffix, safe="/") + "/")
 
         return base
 

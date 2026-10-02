@@ -11,8 +11,8 @@ If you only want to *use* MirrorURL (install, CLI, config, Python API), read
 repeats the essentials so you can work from it alone.
 
 - **Package:** `mirror_url` (src-layout under `src/`)
-- **Version:** 3.1.75
-- **Python:** 3.9 or newer; CI tests Python 3.9–3.12
+- **Version:** 3.1.76
+- **Python:** 3.9 or newer; CI tests Python 3.9–3.14
 - **Runtime deps:** `httpx[http2]` (including `h2`), `pydantic` v2, `PyYAML` (optional: `stringzilla`,
   `lxml`, `tqdm`, `psutil`)
 
@@ -45,7 +45,7 @@ repeats the essentials so you can work from it alone.
 
 MirrorURL began as a single `mirror_url.py` of ~15,000 lines containing ~70
 classes and ~25 module-level functions. It was split into the modular
-`src/mirror_url/` package (43 Python files, organized by responsibilities) by a
+`src/mirror_url/` package (44 Python files, organized by responsibilities) by a
 **behavior-preserving** migration: code was relocated verbatim and class/function
 method sets were verified identical to the original via AST comparison. Logic
 changes were kept out of the migration and made only in separate, reviewable
@@ -91,7 +91,7 @@ changes — most review feedback traces back to one of these.
 
 ```
 mirror-url/
-├── src/mirror_url/          # the package (43 Python files including private helpers)
+├── src/mirror_url/          # the package (44 Python files including private helpers)
 │   ├── __init__.py          # public API re-exports
 │   ├── __main__.py          # `python -m mirror_url`
 │   ├── _version.py          # __version__, __author__  (one of two version sources)
@@ -142,14 +142,16 @@ Entry points: cli · __main__
   belongs lower, or should be injected as a parameter/callback.
 - The one historical exception is documented: the monolith did
   `from mirror_url import MirrorURL` inside `ConnectionManager`'s scope check.
-  After packaging this became an intra-package import of `.core`. Avoid
-  reintroducing this pattern; prefer dependency injection.
+  After packaging this became an intra-package import of `.core`; it is now
+  replaced with the shared `utils.url_within_scope` helper. Avoid reintroducing
+  this pattern; prefer dependency injection.
 
 Compile and import the package after an import change to catch syntax errors
 and common missing/circular-import failures. These checks do not prove that
 every runtime path is acyclic: inspect function-local and dynamically invoked
-imports separately. `ConnectionManager` still imports `.core` inside its scope
-check; avoid extending that back-reference.
+imports separately. Both connection implementations share
+`utils.url_within_scope` for their scheme, authority and decoded-path boundary;
+pool warm-up checks each redirect before contacting its target.
 
 ---
 
@@ -583,7 +585,7 @@ The suite lives in `tests/` and runs under `pytest`. Test lanes:
   spill-to-disk, pydantic/YAML config round-trips). This lane also includes the
   unmarked streaming-concurrency tests, which bind a local HTTP server. It
   therefore needs loopback sockets, although it does not require a live public
-  archive. CI runs it across Python 3.9–3.12.
+  archive. CI runs it across Python 3.9–3.14.
 - **Integration lane** (`pytest -m integration`) — end-to-end mirrors in
   `test_integration.py` and `test_http_mirror_workflows.py`, using the static
   server fixture or a controllable Range/ETag/failure server.
@@ -667,7 +669,7 @@ bash scripts/render_guides.sh
 ```
 
 CI (`.github/workflows/ci.yml`) runs lint/format checks on Python 3.12 and the
-fast test lane across Python 3.9–3.12.
+fast test lane across Python 3.9–3.14.
 A separate Python 3.12 coverage job installs `[all,dev]`, runs every test,
 including real local HTTP mirroring, and requires at least 70% combined
 statement/branch coverage overall. It additionally requires 100% statement and
@@ -725,9 +727,9 @@ and documentation synchronized when upgrading the formatter.
 
 Preserve these constraints when extending or refactoring the current code.
 
-- **Don't reintroduce the self-import.** `ConnectionManager`'s scope check imports
-  `MirrorURL` from `.core`; the monolith's `from mirror_url import MirrorURL` was
-  a packaging hazard. Prefer dependency injection over reaching up to `core`.
+- **Don't reintroduce the self-import.** The monolith's scope check imported
+  `MirrorURL`, which was a packaging hazard. `ConnectionManager` now uses the
+  stateless scope helper in `utils`; prefer injection over reaching up to `core`.
 - **Keep subclass families in one module.** `PerIPRateLimiter`/
   `ChunkAwareRateLimiter` subclass `RateLimiter`; `ChunkCircuitBreaker` subclasses
   `CircuitBreaker`. Splitting a base from its subclasses across modules invites
@@ -771,5 +773,5 @@ Preserve these constraints when extending or refactoring the current code.
 
 ---
 
-*This guide describes the architecture as of version 3.1.75. When you change the
+*This guide describes the architecture as of version 3.1.76. When you change the
 structure, update this document in the same PR.*

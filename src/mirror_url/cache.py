@@ -40,7 +40,6 @@ class CacheManager:
         self.cache_file = cache_file
         self.config = config
         self.metrics = metrics
-        self._backup_attempts = 0
         self.cache_data: Dict[str, Any] = {}
         self.metadata: Dict[str, Any] = {}
         self.lock = RLock()

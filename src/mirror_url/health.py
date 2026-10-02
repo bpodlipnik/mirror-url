@@ -197,7 +197,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                     ),
                 },
             }
-            self._send_json(200, safe_status)
+            self._send_json(200 if status.status == "healthy" else 503, safe_status)
         except Exception:
             logging.exception("Health check handler failed")
             self._send_error_unless_response_started(
@@ -365,7 +365,7 @@ class HealthChecker:
         total_downloaded = _counter_value(self.mirror.total_downloaded_size)
 
         return HealthStatus(
-            status="healthy" if self.mirror.connection_ok else "degraded",
+            status="healthy" if self.is_healthy() else "degraded",
             timestamp=datetime.now().isoformat(),
             metrics={
                 "files_processed": files_processed,
@@ -385,7 +385,7 @@ class HealthChecker:
                 if hasattr(self.mirror.cache_manager, "lru_file_cache")
                 else {}
             ),
-            errors=self.mirror.metrics.metrics.get("errors", [])[-10:],
+            errors=self.mirror.metrics.get_summary().get("errors", [])[-10:],
             system={
                 "memory_usage_mb": memory_monitor.get_usage_mb() if memory_monitor else 0,
                 "disk_usage": disk_manager.get_usage_stats() if disk_manager else {},

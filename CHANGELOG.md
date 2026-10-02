@@ -4,6 +4,42 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.76] - 2026-10-02
+
+### Fixed
+
+- Enforce the same scheme, authority and decoded-path scope for synchronous
+  requests, async requests and connection-pool warm-up redirects.
+- Fall back to sequential downloads when automatic mode cannot initialize its
+  parallel manager; release constructor resources before starting maintenance.
+- Restore valid server timestamps after both kinds of chunk publication, keep
+  valid resume state after wrapped connection failures, and support long valid
+  destination filenames with bounded temporary names.
+- Assemble traditional chunks in bounded blocks, rejecting short/overlong
+  chunks and writes past the destination boundary before atomic publication.
+- Mark failed depth-boundary scans incomplete, honor configured lxml parser
+  fallback, initialize file-concurrency tuning in both parallel modes after
+  automatic selection, and apply adaptive metadata changes between batches.
+- Report degraded health and recent errors consistently; return HTTP 503 from
+  the health endpoint when degraded. Stop standalone connection managers' owned
+  concurrency coordinators without stopping coordinators supplied by callers.
+- Remove unused private cache backup and disk-set size state, plus obsolete
+  connection scope helpers; retain public compatibility helpers and fields.
+
+### Documentation
+
+- Correct trusted-server pacing, integrity guarantees, module counts and the
+  dependency map. Document sequential fallback, bounded assembly, restored
+  timestamps and health endpoint semantics; regenerate both HTML guides.
+- Synchronize package and guide versions and installation examples to 3.1.76.
+
+### Tests
+
+- Add regression coverage for these audit findings and new download error paths;
+  retain both download modules' 100% statement and branch coverage gates.
+- Expand the test matrix to Python 3.9–3.14 and retain the Python 3.9 minimum;
+  document the supported versions in package classifiers and guides.
+
 ## [3.1.75] - 2026-10-02
 
 ### Fixed
