@@ -501,7 +501,14 @@ subclasses in this one module.</li>
 <li><code>rate_limiter.py</code> — <code>BandwidthLimiter</code>,
 <code>RateLimiter</code>, <code>PerIPRateLimiter</code>,
 <code>ChunkAwareRateLimiter</code>.</li>
-<li><code>queue.py</code> — <code>DownloadQueue</code>.</li>
+<li><code>queue.py</code> — standalone <code>DownloadQueue</code>; the
+normal sync pipeline does not enqueue downloads through it. Both
+<code>get()</code> and <code>get_batch()</code> reserve each URL/path
+identity until <code>complete()</code> releases it. Complete each
+retrieved task exactly once on success or failure, keeping its URL/path
+unchanged. <code>active_tasks</code> counts waiting and in-flight tasks;
+<code>size</code> and <code>max_size</code> describe only waiting
+tasks.</li>
 </ul>
 <p><strong>Layer 4 — managers &amp; observability.</strong></p>
 <ul>

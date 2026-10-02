@@ -14,14 +14,21 @@ from .models import DownloadTask
 
 
 class DownloadQueue:
-    """Priority queue for download tasks with metrics"""
+    """Priority queue with URL/path reservations and completion metrics.
+
+    ``active_tasks`` includes both waiting and in-flight tasks. Retrieval
+    removes tasks from the waiting queue but keeps their identities reserved
+    until ``complete()`` is called. Complete each retrieved task exactly once,
+    on either success or failure, and keep its URL/path unchanged until then.
+    ``max_size`` bounds waiting tasks, not in-flight downloads.
+    """
 
     def __init__(self, max_size: int = 1000):
         """
         Initialize download queue.
 
         Args:
-            max_size: Maximum queue size
+            max_size: Maximum number of waiting tasks
         """
         self.max_size = max_size
         self.queues: Dict[DownloadPriority, Deque[DownloadTask]] = {
@@ -43,7 +50,8 @@ class DownloadQueue:
             task: Download task to add
 
         Returns:
-            True if added successfully
+            True if added successfully. A URL/path already waiting or in flight
+            is rejected until its earlier task is completed.
         """
         with self.lock:
             if len(self) >= self.max_size:
@@ -60,6 +68,8 @@ class DownloadQueue:
         """
         Get next task from queue.
 
+        The task remains reserved until ``complete()`` is called.
+
         Returns:
             Next task or None if queue empty
         """
@@ -74,6 +84,8 @@ class DownloadQueue:
         """
         Get multiple tasks in single lock acquisition.
 
+        Each returned task remains reserved until ``complete()`` is called.
+
         Args:
             max_batch: Maximum number of tasks to get
 
@@ -86,8 +98,6 @@ class DownloadQueue:
                 while len(tasks) < max_batch and self.queues[priority]:
                     task = self.queues[priority].popleft()
                     tasks.append(task)
-                    task_id = f"{task.remote_url}:{task.local_path}"
-                    self.active_tasks.discard(task_id)
                 if len(tasks) >= max_batch:
                     break
             return tasks
@@ -95,6 +105,9 @@ class DownloadQueue:
     def complete(self, task: DownloadTask, success: bool = True) -> None:
         """
         Mark task as complete.
+
+        Call exactly once for a retrieved task, on either success or failure.
+        This releases its URL/path reservation so the task can be added again.
 
         Args:
             task: Completed task
@@ -109,13 +122,16 @@ class DownloadQueue:
                 self.total_failed += 1
 
     def __len__(self) -> int:
-        """Get current queue size"""
+        """Get the number of waiting tasks, excluding in-flight downloads."""
         with self.lock:
             return sum(len(q) for q in self.queues.values())
 
     def get_stats(self) -> Dict[str, Any]:
         """
         Get queue statistics.
+
+        ``size`` counts waiting tasks; ``active_tasks`` counts all reserved
+        identities, including in-flight downloads awaiting completion.
 
         Returns:
             Dictionary with queue statistics
