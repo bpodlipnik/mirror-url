@@ -6,6 +6,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
   <title>MirrorURL — Developer Guide</title>
   <style>
+    /* Default styles provided by pandoc.
+    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+    */
     html {
       color: #1a1a1a;
       background-color: #fdfdfd;
@@ -276,8 +279,8 @@ repeats the essentials so you can work from it alone.</p>
 <ul>
 <li><strong>Package:</strong> <code>mirror_url</code> (src-layout under
 <code>src/</code>)</li>
-<li><strong>Version:</strong> 3.1.75</li>
-<li><strong>Python:</strong> 3.9 or newer; CI tests Python 3.9–3.12</li>
+<li><strong>Version:</strong> 3.1.76</li>
+<li><strong>Python:</strong> 3.9 or newer; CI tests Python 3.9–3.14</li>
 <li><strong>Runtime deps:</strong> <code>httpx[http2]</code> (including
 <code>h2</code>), <code>pydantic</code> v2, <code>PyYAML</code>
 (optional: <code>stringzilla</code>, <code>lxml</code>,
@@ -320,7 +323,7 @@ map</a></li>
 monolith and the refactor</h2>
 <p>MirrorURL began as a single <code>mirror_url.py</code> of ~15,000
 lines containing ~70 classes and ~25 module-level functions. It was
-split into the modular <code>src/mirror_url/</code> package (43 Python
+split into the modular <code>src/mirror_url/</code> package (44 Python
 files, organized by responsibilities) by a
 <strong>behavior-preserving</strong> migration: code was relocated
 verbatim and class/function method sets were verified identical to the
@@ -368,7 +371,7 @@ green after every change.</li>
 <hr />
 <h2 id="repository-layout">Repository layout</h2>
 <pre><code>mirror-url/
-├── src/mirror_url/          # the package (43 Python files including private helpers)
+├── src/mirror_url/          # the package (44 Python files including private helpers)
 │   ├── __init__.py          # public API re-exports
 │   ├── __main__.py          # `python -m mirror_url`
 │   ├── _version.py          # __version__, __author__  (one of two version sources)
@@ -415,15 +418,17 @@ a parameter/callback.</li>
 <li>The one historical exception is documented: the monolith did
 <code>from mirror_url import MirrorURL</code> inside
 <code>ConnectionManager</code>'s scope check. After packaging this
-became an intra-package import of <code>.core</code>. Avoid
+became an intra-package import of <code>.core</code>; it is now replaced
+with the shared <code>utils.url_within_scope</code> helper. Avoid
 reintroducing this pattern; prefer dependency injection.</li>
 </ul>
 <p>Compile and import the package after an import change to catch syntax
 errors and common missing/circular-import failures. These checks do not
 prove that every runtime path is acyclic: inspect function-local and
-dynamically invoked imports separately. <code>ConnectionManager</code>
-still imports <code>.core</code> inside its scope check; avoid extending
-that back-reference.</p>
+dynamically invoked imports separately. Both connection implementations
+share <code>utils.url_within_scope</code> for their scheme, authority
+and decoded-path boundary; pool warm-up checks each redirect before
+contacting its target.</p>
 <hr />
 <h2 id="module-reference-by-layer">Module reference (by layer)</h2>
 <p><strong>Layer 0 — foundations (no intra-package
@@ -989,7 +994,7 @@ and subsystem-integration tests that exercise real in-process I/O
 round-trips). This lane also includes the unmarked streaming-concurrency
 tests, which bind a local HTTP server. It therefore needs loopback
 sockets, although it does not require a live public archive. CI runs it
-across Python 3.9–3.12.</li>
+across Python 3.9–3.14.</li>
 <li><strong>Integration lane</strong>
 (<code>pytest -m integration</code>) — end-to-end mirrors in
 <code>test_integration.py</code> and
@@ -1075,7 +1080,7 @@ class="sourceCode bash"><code class="sourceCode bash"><span id="cb6-1"><a href="
 <span id="cb6-20"><a href="#cb6-20" aria-hidden="true" tabindex="-1"></a><span class="co"># regenerate both HTML guides after Markdown edits (requires pandoc)</span></span>
 <span id="cb6-21"><a href="#cb6-21" aria-hidden="true" tabindex="-1"></a><span class="fu">bash</span> scripts/render_guides.sh</span></code></pre></div>
 <p>CI (<code>.github/workflows/ci.yml</code>) runs lint/format checks on
-Python 3.12 and the fast test lane across Python 3.9–3.12. A separate
+Python 3.12 and the fast test lane across Python 3.9–3.14. A separate
 Python 3.12 coverage job installs <code>[all,dev]</code>, runs every
 test, including real local HTTP mirroring, and requires at least 70%
 combined statement/branch coverage overall. It additionally requires
@@ -1140,11 +1145,11 @@ creating the tag.</li>
 <p>Preserve these constraints when extending or refactoring the current
 code.</p>
 <ul>
-<li><strong>Don't reintroduce the self-import.</strong>
-<code>ConnectionManager</code>'s scope check imports
-<code>MirrorURL</code> from <code>.core</code>; the monolith's
-<code>from mirror_url import MirrorURL</code> was a packaging hazard.
-Prefer dependency injection over reaching up to <code>core</code>.</li>
+<li><strong>Don't reintroduce the self-import.</strong> The monolith's
+scope check imported <code>MirrorURL</code>, which was a packaging
+hazard. <code>ConnectionManager</code> now uses the stateless scope
+helper in <code>utils</code>; prefer injection over reaching up to
+<code>core</code>.</li>
 <li><strong>Keep subclass families in one module.</strong>
 <code>PerIPRateLimiter</code>/ <code>ChunkAwareRateLimiter</code>
 subclass <code>RateLimiter</code>; <code>ChunkCircuitBreaker</code>
@@ -1256,7 +1261,7 @@ public)</td>
 </tbody>
 </table>
 <hr />
-<p><em>This guide describes the architecture as of version 3.1.75. When
+<p><em>This guide describes the architecture as of version 3.1.76. When
 you change the structure, update this document in the same PR.</em></p>
 </body>
 </html>

@@ -204,20 +204,31 @@ class DirectoryScanner:
                     self.fast_parse_count += 1
                     self.metrics.increment("fast_parses")
                 else:
-                    tree = html.fromstring(document)
-                    links = []
-                    link_xpath = self.LINK_XPATH
-                    if link_xpath is None:
-                        raise RuntimeError("lxml XPath was not initialized")
-                    for link in link_xpath(tree):
-                        href = link.get("href")
-                        if href:
-                            links.append(href)
-                    self.lxml_parse_count += 1
-                    self.metrics.increment("lxml_parses")
-                    logging.debug(
-                        f"LXML parser used for {sanitize_url_for_log(url)} ({content_length} bytes)"
-                    )
+                    try:
+                        tree = html.fromstring(document)
+                        links = []
+                        link_xpath = self.LINK_XPATH
+                        if link_xpath is None:
+                            raise RuntimeError("lxml XPath was not initialized")
+                        for link in link_xpath(tree):
+                            href = link.get("href")
+                            if href:
+                                links.append(href)
+                        self.lxml_parse_count += 1
+                        self.metrics.increment("lxml_parses")
+                        logging.debug(
+                            f"LXML parser used for {sanitize_url_for_log(url)} ({content_length} bytes)"
+                        )
+                    except Exception:
+                        if not self.config.fast_parsing_fallback:
+                            raise
+                        logging.warning(
+                            "LXML parsing failed for %s; using fast parser",
+                            sanitize_url_for_log(url),
+                        )
+                        links = extract_links_fast(document)
+                        self.fast_parse_count += 1
+                        self.metrics.increment("fast_parses")
 
             # Pre-parse the canonical base scope ONCE per call so the per-link
             # check below is just a string compare on the (already-parsed)

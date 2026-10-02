@@ -443,19 +443,8 @@ class _MirrorBase(MirrorHost):
         # ============================================================================
         # 22. V3.0.6 AUTO-CONCURRENCY TUNER
         # ============================================================================
-        self.auto_tuner = None
-        if config.auto_concurrency and config.parallel_downloads and self.parallel_manager:
-            try:
-                self.auto_tuner = AutoConcurrencyTuner(
-                    start_concurrency=max(1, config.max_concurrent_downloads // 2),
-                    max_concurrency=config.max_concurrent_downloads,
-                )
-                logging.info(
-                    f"{self._get_prefix()}🤖 Auto-concurrency tuning enabled (starting at {self.auto_tuner.get_concurrency()})"
-                )
-            except Exception as e:
-                logging.warning(f"Failed to initialize auto-concurrency tuner: {e}")
-                self.auto_tuner = None
+        self.auto_tuner: Optional[AutoConcurrencyTuner] = None
+        self._initialize_auto_tuner()
 
         # ============================================================================
         # 23. SCANNER
@@ -689,6 +678,26 @@ class _MirrorBase(MirrorHost):
             f"{prefix}Initialization complete: target_dir={self.target_dir}, "
             f"cache_file={self.cache_file}, connection_ok={self.connection_ok}"
         )
+
+    def _initialize_auto_tuner(self) -> None:
+        """Initialize tuning after either explicit or automatic mode selection."""
+        config = self.config
+        if (
+            config.auto_concurrency
+            and (config.parallel_downloads or config.streaming_parallel)
+            and self.auto_tuner is None
+        ):
+            try:
+                self.auto_tuner = AutoConcurrencyTuner(
+                    start_concurrency=max(1, config.max_concurrent_downloads // 2),
+                    max_concurrency=config.max_concurrent_downloads,
+                )
+                logging.info(
+                    f"{self._get_prefix()}🤖 Auto-concurrency tuning enabled (starting at {self.auto_tuner.get_concurrency()})"
+                )
+            except Exception as e:
+                logging.warning(f"Failed to initialize auto-concurrency tuner: {e}")
+                self.auto_tuner = None
 
     def __enter__(self):
         """Context manager entry."""

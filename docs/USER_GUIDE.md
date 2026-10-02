@@ -6,8 +6,8 @@ the remote directory tree, decides which files are new or changed, and downloads
 them efficiently — with adaptive concurrency, resumable/parallel downloads,
 integrity checks, incremental caching, and an SSRF-hardened transport layer.
 
-- **Version:** 3.1.75
-- **Python:** 3.9 or newer; CI tests Python 3.9–3.12
+- **Version:** 3.1.76
+- **Python:** 3.9 or newer; CI tests Python 3.9–3.14
 - **License:** MIT
 
 ---
@@ -81,21 +81,21 @@ From a checkout of the repository on a build machine:
 
 ```bash
 pip install build
-python -m build          # produces dist/mirror_url-3.1.75-py3-none-any.whl
+python -m build          # produces dist/mirror_url-3.1.76-py3-none-any.whl
 ```
 
 Copy the wheel to the target server and install it:
 
 ```bash
 python3 -m venv /opt/mirror-url
-/opt/mirror-url/bin/pip install /tmp/mirror_url-3.1.75-py3-none-any.whl
+/opt/mirror-url/bin/pip install /tmp/mirror_url-3.1.76-py3-none-any.whl
 /opt/mirror-url/bin/mirror-url --help
 ```
 
 To include the optional speed extras:
 
 ```bash
-/opt/mirror-url/bin/pip install "/tmp/mirror_url-3.1.75-py3-none-any.whl[fast]"
+/opt/mirror-url/bin/pip install "/tmp/mirror_url-3.1.76-py3-none-any.whl[fast]"
 ```
 
 Available extras: `fast` (stringzilla + lxml), `progress` (tqdm),
@@ -104,24 +104,24 @@ Available extras: `fast` (stringzilla + lxml), `progress` (tqdm),
 ### From a Git repository
 
 ```bash
-pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.75"
+pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.76"
 # private repo over SSH:
-pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.1.75"
+pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.1.76"
 ```
 
 ### As an isolated CLI with pipx
 
 ```bash
-pipx install /tmp/mirror_url-3.1.75-py3-none-any.whl
-# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.75"
+pipx install /tmp/mirror_url-3.1.76-py3-none-any.whl
+# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.76"
 ```
 
 ### With Docker
 
 ```dockerfile
 FROM python:3.12-slim
-COPY dist/mirror_url-3.1.75-py3-none-any.whl /tmp/
-RUN pip install --no-cache-dir "/tmp/mirror_url-3.1.75-py3-none-any.whl[fast]"
+COPY dist/mirror_url-3.1.76-py3-none-any.whl /tmp/
+RUN pip install --no-cache-dir "/tmp/mirror_url-3.1.76-py3-none-any.whl[fast]"
 ENTRYPOINT ["mirror-url"]
 ```
 
@@ -214,7 +214,7 @@ list of options. The most commonly used options:
 | `--max-retries N` | Connection-request retry budget (default 3). Chunk retries also have their own fixed budget. |
 | `--retry-delay SECS` | Base delay for retry backoff (default 2). |
 | `--request-delay SECS` | Request pacing delay (default 0.05; range 0.001–1.0). Increase it for throttled servers. |
-| `--trusted-server` | Use faster rate limiting (10 ms vs 50 ms between requests). |
+| `--trusted-server` | Relax chunk concurrency and rate-scaling limits; `--request-delay` still controls pacing (default 50 ms). |
 | `--no-http2` | Disable HTTP/2. |
 | `--no-http2-pipelining` | *Currently has no effect* (accepted for backward compatibility); the HTTP/2 client does not read this setting. |
 | `--no-connection-pool-prewarm` | Don't pre-warm connection pools at startup. |
@@ -471,7 +471,9 @@ an estimated network speed, and server Range support.
 `--max-concurrent-downloads` caps parallel files; `--max-chunks` caps chunks per
 file and `--max-parallel-chunks` caps chunk work across files. These are separate
 from metadata-worker limits. `--auto-concurrency` tunes the admitted file count
-within `--max-concurrent-downloads`.
+within `--max-concurrent-downloads` for either parallel mode, including when
+auto selection chooses it. If the chunk manager cannot initialize, auto mode
+falls back to sequential whole-file downloads.
 
 Parallel chunking requires a known size at least `--min-chunk-size`, byte Range
 support, and a **strong ETag**. Without these, the file uses a whole-file
@@ -486,7 +488,11 @@ temporary directory, or to `--chunk-assembly-dir`. Final assembly and streaming
 staging use the destination's filesystem. Traditional mode can need roughly
 two additional file-sized copies across the temporary and destination storage;
 streaming needs roughly one additional file-sized staging allocation. Existing
-destination copies also continue to occupy space until replacement.
+destination copies also continue to occupy space until replacement. Assembly
+reads bounded blocks rather than loading an entire chunk into memory. Both
+chunk modes restore valid server `Last-Modified` timestamps before saving cache
+metadata; an unsupported local timestamp update is logged without failing an
+otherwise successful transfer.
 
 ### Interrupted downloads and reserved state
 
@@ -847,7 +853,9 @@ limit tracker behavior; they do not make the heuristic a definitive detector.
   a local HTTP server for a non-dry-run instance, until it is cleaned up.
   `--health-check-port` alone does not enable it. The server binds to `localhost`
   (default port 8080); both endpoints are rate-limited and serve:
-  - `GET /health` → JSON health status.
+  - `GET /health` → JSON health status. Returns HTTP
+    200 when connected with fewer than 10 failed files, otherwise HTTP 503
+    with `degraded` status.
   - `GET /metrics` → JSON counters (files downloaded/failed/skipped, bytes,
     elapsed).
 

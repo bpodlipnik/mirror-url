@@ -508,7 +508,8 @@ def test_health_checker_reports_manager_state_not_disabled_attr():
         lru_file_cache = _LRU()
 
     class FakeMetrics:
-        metrics = {"errors": []}
+        def get_summary(self):
+            return {"errors": []}
 
     class FakeMirror:
         connection_ok = True

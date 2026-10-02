@@ -540,6 +540,7 @@ class ScanMixin(MirrorHost):
                 files, _subdirs = self.scanner.scan_directory_sequential(dir_url)
             except Exception as e:
                 logging.warning(f"{prefix}Error scanning {sanitize_url_for_log(dir_url)}: {e}")
+                self.scan_incomplete = True
                 continue
 
             if not files:

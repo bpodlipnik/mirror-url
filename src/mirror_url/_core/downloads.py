@@ -25,6 +25,7 @@ from ..download_integrity import (
     strong_etag,
     validate_range,
 )
+from ..exceptions import MirrorConnectionError
 from ..utils import exponential_backoff, format_bytes, sanitize_url_for_log, trim_url
 
 if TYPE_CHECKING:
@@ -322,6 +323,7 @@ class DownloadMixin(MirrorHost):
                 not isinstance(
                     e,
                     (
+                        MirrorConnectionError,
                         httpx.ConnectError,
                         httpx.TimeoutException,
                         httpx.ReadError,

@@ -27,9 +27,10 @@ import time
 import uuid
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from threading import RLock, Semaphore
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional
 from urllib.parse import urlparse
 
 import httpx
@@ -165,11 +166,9 @@ class ParallelDownloadManager:
         # first loop iteration.
         self._shutdown_event = threading.Event()
 
-        # Start periodic cleanup thread
-        self._cleanup_thread = threading.Thread(
-            target=self._periodic_cleanup, daemon=True, name=f"pdm_cleanup_{id(self)}"
-        )
-        self._cleanup_thread.start()
+        # Start maintenance only after all fallible setup has succeeded.
+        self._cleanup_thread: Optional[threading.Thread] = None
+        self._shutdown = False
 
         # Rate limiter
         disable_scaling = (
@@ -214,7 +213,11 @@ class ParallelDownloadManager:
 
             atexit.register(cleanup_assembly_dir)
 
-        self.assembly_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            self.assembly_dir.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            self.shutdown()
+            raise
 
         # Statistics
         self.stats = {
@@ -231,6 +234,11 @@ class ParallelDownloadManager:
             f"max_chunks={self.max_chunks_per_file}, min_chunk={config.min_chunk_size_mb}MB, "
             f"total_chunks={self.max_parallel_chunks}"
         )
+
+        self._cleanup_thread = threading.Thread(
+            target=self._periodic_cleanup, daemon=True, name=f"pdm_cleanup_{id(self)}"
+        )
+        self._cleanup_thread.start()
 
     def _periodic_cleanup(self) -> None:
         """Periodically clean up stale resources to prevent memory leaks.
@@ -359,6 +367,12 @@ class ParallelDownloadManager:
         download = ParallelFileDownload(
             url=url, final_path=local_path, file_size=file_size, server_etag=etag
         )
+        last_modified = response.headers.get("Last-Modified")
+        if last_modified:
+            try:
+                download.server_last_modified = parsedate_to_datetime(last_modified).timestamp()
+            except (ValueError, TypeError, OverflowError):
+                logging.debug("Ignoring invalid Last-Modified header for %s", url)
 
         if self.use_streaming:
             try:
@@ -366,7 +380,7 @@ class ParallelDownloadManager:
                 # Same filesystem as destination, but never a plausible final
                 # file after an interruption. The existing file stays intact.
                 fd, name = tempfile.mkstemp(
-                    prefix=f".{local_path.name}.", suffix=".streaming", dir=local_path.parent
+                    prefix=".mirror-url-", suffix=".streaming", dir=local_path.parent
                 )
                 download.staging_path = Path(name)
                 with os.fdopen(fd, "wb") as f:
@@ -378,7 +392,7 @@ class ParallelDownloadManager:
                     download.staging_path = None
                 logging.warning(f"Streaming pre-allocation failed, using chunk files: {e}")
         if download.staging_path is None:
-            download.temp_dir = self.assembly_dir / f"{local_path.name}_{uuid.uuid4().hex[:8]}"
+            download.temp_dir = self.assembly_dir / f"chunks_{uuid.uuid4().hex}"
             download.temp_dir.mkdir(parents=True, exist_ok=True)
             download.status = "downloading"
 
@@ -613,6 +627,7 @@ class ParallelDownloadManager:
                 os.fsync(f.fileno())
             os.replace(download.staging_path, download.final_path)
             download.staging_path = None
+            self._restore_server_timestamp(download)
             download.status = "completed"
             try:
                 self.metrics.increment("chunk_assemblies")
@@ -799,7 +814,7 @@ class ParallelDownloadManager:
         # PHASE 2: PREPARE TEMPORARY FILE
         # ====================================================================
         unique_id = secrets.token_hex(8)
-        temp_assembly = download.final_path.with_suffix(f".{unique_id}.assembling")
+        temp_assembly = download.final_path.parent / f".mirror-url-{unique_id}.assembling"
         temp_file_moved = False
 
         try:
@@ -848,28 +863,31 @@ class ParallelDownloadManager:
                                     f"Chunk {chunk.chunk_id} file missing: {chunk.temp_path}"
                                 )
 
-                            data = self._read_chunk_data(chunk.temp_path)
                             expected_size = chunk.end_byte - chunk.start_byte + 1
-                            if len(data) != expected_size:
+                            written = 0
+                            for data in self._read_chunk_data(chunk.temp_path):
+                                if written + len(data) > expected_size:
+                                    raise ChunkAssemblyError(
+                                        f"Chunk {chunk.chunk_id} exceeds {expected_size} bytes"
+                                    )
+                                target_start = chunk.start_byte + written
+                                target_end = target_start + len(data)
+                                if target_end > file_size:
+                                    raise ChunkAssemblyError(
+                                        f"Chunk {chunk.chunk_id} would write past end of file: "
+                                        f"target_end={target_end}, file_size={file_size}"
+                                    )
+                                if mm is not None:
+                                    mm[target_start:target_end] = data
+                                else:
+                                    f.seek(target_start)
+                                    f.write(data)
+                                written += len(data)
+                            if written != expected_size:
                                 raise ChunkAssemblyError(
                                     f"Chunk {chunk.chunk_id} size mismatch: "
-                                    f"expected {expected_size} bytes, got {len(data)} bytes"
+                                    f"expected {expected_size} bytes, got {written} bytes"
                                 )
-
-                            target_end = chunk.start_byte + len(data)
-                            if target_end > file_size:
-                                raise ChunkAssemblyError(
-                                    f"Chunk {chunk.chunk_id} would write past end of file: "
-                                    f"target_end={target_end}, file_size={file_size}"
-                                )
-
-                            if mm is not None:
-                                mm[chunk.start_byte : target_end] = data
-                            else:
-                                f.seek(chunk.start_byte)
-                                f.write(data)
-
-                            del data  # Free memory immediately
 
                         # Flush to disk
                         if mm is not None:
@@ -914,6 +932,7 @@ class ParallelDownloadManager:
             # fallback could destroy it before that fallback completes.
             os.replace(temp_assembly, download.final_path)
             temp_file_moved = True
+            self._restore_server_timestamp(download)
 
             # ====================================================================
             # PHASE 7: UPDATE METRICS AND CACHE (Non-fatal)
@@ -981,10 +1000,25 @@ class ParallelDownloadManager:
             except Exception as e:
                 logging.warning(f"Chunk cleanup error (non-fatal): {e}")
 
-    def _read_chunk_data(self, chunk_path: Path) -> bytes:
-        """Helper: Read chunk file into memory"""
+    def _restore_server_timestamp(self, download: ParallelFileDownload) -> None:
+        """Restore mtime before saving the cache's local file identity."""
+        if download.server_last_modified is not None:
+            try:
+                timestamp = download.server_last_modified
+                os.utime(download.final_path, times=(timestamp, timestamp))
+            except (OSError, ValueError, TypeError, OverflowError) as error:
+                logging.warning(
+                    "Could not restore server timestamp for %s: %s", download.final_path, error
+                )
+
+    def _read_chunk_data(self, chunk_path: Path) -> Iterator[bytes]:
+        """Read bounded blocks, including when mmap is unavailable."""
         with open(chunk_path, "rb") as f:
-            return f.read()
+            while True:
+                data = f.read(STREAMING_WRITE_BUFFER_SIZE)
+                if not data:
+                    break
+                yield data
 
     def cleanup_chunks(self, download: ParallelFileDownload) -> None:
         """Remove temporary chunk files."""

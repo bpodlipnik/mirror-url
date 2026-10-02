@@ -555,7 +555,7 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
     performance.add_argument(
         "--trusted-server",
         action="store_true",
-        help="Use faster rate limiting (10ms vs 50ms delay)",
+        help="Relax chunk concurrency/scaling limits; request delay stays controlled by --request-delay",
     )
     performance.add_argument(
         "--request-delay",

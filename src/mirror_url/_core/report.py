@@ -463,15 +463,20 @@ class ReportMixin(MirrorHost):
                 # ========== FIX 2: AUTO-SELECT DOWNLOAD METHOD (FULL IMPLEMENTATION) ==========
                 # Only auto-select if user didn't explicitly enable a download mode
                 if (
-                    self.parallel_manager
-                    and not self.config.parallel_downloads
+                    not self.config.parallel_downloads
                     and not self.config.streaming_parallel
                     and not self.config.sequential_downloads
                 ):
                     sample_urls = [url for url, _ in to_download[:10]]
-                    method = self.parallel_manager.auto_select_method(
-                        file_sizes=file_sizes, total_files=len(to_download), remote_urls=sample_urls
-                    )
+                    if self.parallel_manager:
+                        method = self.parallel_manager.auto_select_method(
+                            file_sizes=file_sizes,
+                            total_files=len(to_download),
+                            remote_urls=sample_urls,
+                        )
+                    else:
+                        logging.warning("Parallel manager unavailable; using sequential downloads")
+                        method = DownloadMethod.SEQUENTIAL
 
                     # FIX: Actually apply the selected method by configuring config flags
                     # NOTE: auto_select_method() (download.py) already logs its own,
@@ -494,6 +499,8 @@ class ReportMixin(MirrorHost):
                         if self.parallel_manager:
                             self.parallel_manager.enabled = True
                             self.parallel_manager.use_streaming = False
+
+                self._initialize_auto_tuner()
 
                 # ========== FIX 3: CHECK DISK SPACE ==========
                 if not self.check_disk_space(total_size):

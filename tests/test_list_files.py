@@ -204,7 +204,8 @@ def test_list_files_scan_error_is_skipped_not_fatal(capsys, caplog):
     with caplog.at_level(logging.WARNING):
         result = mirror.list_files()
 
-    assert result is True
+    assert result is False
+    assert mirror.scan_incomplete is True
     out = capsys.readouterr().out
     assert "orbit_0042" not in out
     assert "v03/orbit_0043/file_20260724_010.fits" in out

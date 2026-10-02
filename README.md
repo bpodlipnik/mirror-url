@@ -15,7 +15,7 @@ and an SSRF-hardened transport layer.
 - **True parallel downloads** — multiple files and multiple chunks per file concurrently.
 - **Adaptive async concurrency** that tunes itself to server RTT, throughput, and error rate.
 - **Resumable & partial downloads** with HTTP range requests and chunk assembly.
-- **Integrity checks** — size/timestamp comparison, ETag handling, content hashing.
+- **Integrity checks** — size/timestamp comparison, ETag handling, and verified byte ranges; no comparison against a remote cryptographic content digest.
 - **Resilience** — per-domain circuit breakers, exponential backoff, rate limiting.
 - **Security** — path-traversal and symlink-bomb defenses, private-IP/SSRF guards, URL-scope enforcement.
 - **Operability** — metrics collection, multi-level progress, optional HTTP health-check server.

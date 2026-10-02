@@ -3,11 +3,8 @@
 Migrated verbatim from ``mirror_url.py``:
 ``ConnectionPool`` (orig. 5645-5985), ``ConnectionManager`` (orig. 6260-6685).
 
-One behavior-preserving fix to a migration hazard: ``_is_url_within_scope``
-imported ``MirrorURL`` from the top-level ``mirror_url`` module (the monolith's
-self-import). That now resolves to the intra-package ``.core`` module instead.
-The import remains lazy (inside the method) so it works once ``core`` is
-populated and avoids an import cycle.
+Scope checking delegates to the same stateless helper as async requests.
+Pool warm-up validates each redirect before making its next request.
 """
 
 from __future__ import annotations
@@ -24,7 +21,6 @@ from urllib.parse import quote, unquote, urljoin, urlparse
 import httpx
 
 from .circuit_breaker import CircuitBreakerManager
-from .compat import Str
 from .concurrency import UnifiedConcurrencyManager
 from .constants import DEFAULT_TIMEOUT, MAX_CONNECTION_POOLS
 from .domain_health import get_domain_health_tracker
@@ -38,7 +34,13 @@ from .exceptions import (
 from .rate_limiter import PerIPRateLimiter, RateLimiter
 from .security import SecurityValidator
 from .transport import SecureTransport
-from .utils import exponential_backoff, parse_retry_after, sanitize_url_for_log, trim_url
+from .utils import (
+    exponential_backoff,
+    parse_retry_after,
+    sanitize_url_for_log,
+    trim_url,
+    url_within_scope,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, avoids an import cycle
     from .config import MirrorConfig
@@ -271,8 +273,22 @@ class ConnectionPool:
             for url in urls:
                 try:
                     # Actually send HEAD request to establish connection
-                    response = client.head(url, timeout=5.0)
-                    response.close()  # Close response but keep connection alive
+                    scope = str(self.config.base_url) if self.config else domain + "/"
+                    current_url = url
+                    for hop in range(11):
+                        if not url_within_scope(current_url, scope):
+                            raise URLScopeError("Warm-up redirect outside configured scope")
+                        response = client.head(current_url, timeout=5.0, follow_redirects=False)
+                        try:
+                            location = response.headers.get("Location")
+                            if response.status_code in (301, 302, 303, 307, 308) and location:
+                                if hop == 10:
+                                    raise URLScopeError("Too many warm-up redirects")
+                                current_url = urljoin(current_url, location)
+                            else:
+                                break
+                        finally:
+                            response.close()
                     logging.debug(f"Warmed up connection to {url}")
                 except Exception as e:
                     logging.debug(f"Failed to warm up {url}: {e}")
@@ -438,6 +454,7 @@ class ConnectionManager:
         self.metrics = metrics
 
         # FIX: Create concurrency manager if not provided
+        self._owns_concurrency_manager = concurrency_manager is None
         if concurrency_manager is None:
             self.concurrency_manager = UnifiedConcurrencyManager()
             self.concurrency_manager.start()
@@ -461,116 +478,11 @@ class ConnectionManager:
         if config.circuit_breaker_enabled:
             self.circuit_breaker_manager = CircuitBreakerManager()
 
-    def _validate_url_scheme(self, url: str) -> bool:
-        """Validate URL scheme using fast method."""
-        # Use the fast version from MirrorURL if available, or implement here
-        url_sz = Str(url)
-        if url_sz.startswith(Str("http://")):
-            return True
-        if url_sz.startswith(Str("https://")):
-            return True
-        return False
-
-    def _get_url_path_fast(self, url: str) -> Str:
-        """Fast path extraction using StringZilla."""
-        url_sz = Str(url)
-        # Find the path part after the domain
-        after_protocol = url_sz.find("://")
-        if after_protocol < 0:
-            return Str("")
-
-        path_start = url_sz.find("/", after_protocol + 3)
-        if path_start < 0:
-            return Str("")
-
-        return url_sz[path_start:]
-
     def _is_url_within_scope(self, url: str) -> bool:
-        """
-        Optimized URL scope checking using StringZilla.
-
-        Validates that a URL is within the configured base scope.
-        Prevents path traversal and ensures security boundaries.
-
-        Always checks against ``base_parsed``. ConnectionManager has no
-        notion of a resolved target (dir-suffix) scope the way MirrorURL/
-        _MirrorBase does, so a ``check_base=False`` mode -- checking against
-        a target scope instead of the base -- doesn't apply here; it
-        previously existed as an unreachable branch (both call sites used
-        the default) that read a ``self.target_parsed`` attribute __init__
-        never set. See REFACTORING_PLAN.md §4.1.
-        """
+        """Use the same origin and decoded-path boundary as async requests."""
         try:
-            # Use the static method from MirrorURL for fast scheme validation
-            from .core import MirrorURL
-
-            if not MirrorURL._validate_url_scheme_fast(url):
-                logging.debug(f"URL scope check failed: invalid scheme for {url}")
-                return False
-
-            # Fast path extraction using StringZilla
-            url_path = self._get_url_path_fast(url)
-            if not url_path:
-                logging.debug(f"URL scope check failed: no path for {url}")
-                return False
-
-            scope_path = self.base_parsed.path
-
-            # Normalize scope path: ensure it's not None and handle root
-            if not scope_path:
-                scope_path = "/"
-
-            # Ensure scope_path ends with / for proper prefix matching
-            # This prevents /files matching /files_secure
-            if not scope_path.endswith("/"):
-                scope_path = scope_path + "/"
-
-            # Convert to string for comparison
-            url_path_str = str(url_path)
-
-            # Check if url_path starts with scope_path
-            if not url_path_str.startswith(scope_path):
-                # Special case: root scope matches everything
-                if scope_path != "/":
-                    logging.debug(f"URL {url} outside scope {scope_path}")
-                    return False
-
-            # Get remaining path after scope for security checks
-            remaining = (
-                url_path_str[len(scope_path) :] if len(scope_path) < len(url_path_str) else ""
-            )
-
-            # Fast path traversal detection using StringZilla
-            remaining_sz = Str(remaining)
-            if remaining_sz.find("..") >= 0:
-                logging.warning(f"Path traversal attempt in URL: {sanitize_url_for_log(url)}")
-                self.metrics.increment("security_blocks")
-                return False
-
-            # Check for dot segments (current directory references)
-            if remaining_sz.find("/.") >= 0 or remaining_sz.find("./") >= 0:
-                logging.warning(f"Current directory reference in URL: {sanitize_url_for_log(url)}")
-                self.metrics.increment("security_blocks")
-                return False
-
-            # Check for encoded path traversal
-            remaining_str = str(remaining_sz)
-            if "%2e" in remaining_str.lower() or "%2f" in remaining_str.lower():
-                try:
-                    decoded = unquote(remaining_str)
-                    if ".." in decoded or "/." in decoded:
-                        logging.warning(
-                            f"Encoded path traversal in URL: {sanitize_url_for_log(url)}"
-                        )
-                        self.metrics.increment("security_blocks")
-                        return False
-                except Exception:
-                    pass
-
-            return True
-
-        except Exception as e:
-            logging.debug(f"Error in URL scope check: {e}")
+            return url_within_scope(url, str(self.base_url))
+        except (ValueError, TypeError):
             return False
 
     def _normalize_url(self, url: str) -> str:
@@ -953,7 +865,11 @@ class ConnectionManager:
 
     def close(self) -> None:
         """Close all connections"""
-        self.connection_pool.close_all()
+        try:
+            self.connection_pool.close_all()
+        finally:
+            if getattr(self, "_owns_concurrency_manager", False):
+                self.concurrency_manager.shutdown()
 
 
 __all__ = ["ConnectionPool", "ConnectionManager"]

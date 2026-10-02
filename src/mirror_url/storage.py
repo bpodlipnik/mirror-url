@@ -153,7 +153,6 @@ class DiskBackedSet:
         self.max_memory = max_memory
         self.memory_set: Set[str] = set()
         self.disk_files: List[Path] = []
-        self.current_size = 0
         self.total_items = 0
         self.lock = RLock()
 
@@ -611,7 +610,6 @@ class DiskBackedSet:
                     logging.debug(f"DiskBackedSet cleanup error: {e}")
 
             self.disk_files.clear()
-            self.current_size = 0
             self.total_items = 0
 
     def __len__(self) -> int:
