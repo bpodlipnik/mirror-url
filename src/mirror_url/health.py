@@ -258,41 +258,48 @@ class HealthCheckServer:
         self.port = port
         self.server: Optional[_MirrorHTTPServer] = None
         self.thread: Optional[threading.Thread] = None
+        self._stop_requested = threading.Event()
+        self._lifecycle_lock = threading.Lock()
 
     def start(self) -> None:
-        """Start health check server in a background daemon thread.
-
-        Wraps server creation so a port collision (common in test suites where
-        a previous test's daemon thread has not released the port yet) does not
-        surface as an unhandled thread exception.
-        """
+        """Start the background server, honoring shutdown during construction."""
+        if self.thread and self.thread.is_alive():
+            return
+        self._stop_requested.clear()
 
         def run_server() -> None:
+            server = None
             try:
-                self.server = _MirrorHTTPServer(
-                    ("localhost", self.port),
-                    HealthCheckHandler,
-                    self.mirror_instance,
+                server = _MirrorHTTPServer(
+                    ("localhost", self.port), HealthCheckHandler, self.mirror_instance
                 )
+                with self._lifecycle_lock:
+                    if self._stop_requested.is_set():
+                        return
+                    self.server = server
                 logging.info("Health check server started on port %s", self.port)
-                self.server.serve_forever()
+                server.serve_forever()
             except OSError as e:
-                # Most commonly EADDRINUSE.
                 logging.warning("Health check server could not start on port %s: %s", self.port, e)
+            finally:
+                if server is not None:
+                    server.server_close()
+                with self._lifecycle_lock:
+                    if self.server is server:
+                        self.server = None
 
         self.thread = threading.Thread(target=run_server, daemon=True, name="health-check-server")
         self.thread.start()
 
     def stop(self) -> None:
-        """Stop the health check server if it is running."""
-        if self.server:
-            try:
-                self.server.shutdown()
-                self.server.server_close()
-            except Exception as e:
-                logging.debug("Health check server stop error: %s", e)
-            finally:
-                self.server = None
+        """Request shutdown even if server construction has not completed."""
+        self._stop_requested.set()
+        with self._lifecycle_lock:
+            server = self.server
+        if server is not None:
+            server.shutdown()
+        if self.thread and self.thread is not threading.current_thread():
+            self.thread.join(timeout=1.0)
 
 
 def _circuit_breaker_summary(connection_manager) -> str:

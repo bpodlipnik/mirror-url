@@ -315,6 +315,8 @@ class AsyncConnectionManager:
                     )
 
                     if resp.status_code >= 400:
+                        if resp.status_code in (429, 503):
+                            get_domain_health_tracker().record_incident(domain)
                         duration = time.time() - start_time
                         if self.circuit_breaker_manager:
                             self.circuit_breaker_manager.record_failure(domain)
@@ -380,19 +382,7 @@ class AsyncConnectionManager:
                 await asyncio.sleep(exponential_backoff(attempt, retry_delay_base))
                 continue
 
-            # 5️⃣ HTTP STATUS ERRORS
-            #
-            # NOTE: httpx.head() never raises HTTPStatusError on its own --
-            # only response.raise_for_status() does, and nothing in this
-            # method calls it. So this branch is unreachable under normal
-            # operation; a 429 (or any other non-2xx) response flows through
-            # the SUCCESS path above instead, returned as `resp` with
-            # status_code=429. The caller (compare.py's async metadata
-            # check) already handles that by falling back to the sync
-            # request path for anything that isn't 200/304/a safe-to-skip
-            # 4xx -- and that sync path now retries 429 with Retry-After
-            # (see connection.py). No 429-specific handling was added here;
-            # it would never run.
+            # Handle clients/hooks that explicitly raise HTTPStatusError.
             except httpx.HTTPStatusError as e:
                 duration = time.time() - start_time
                 status = e.response.status_code if e.response else 0
@@ -636,6 +626,8 @@ class AdaptiveAsyncManager:
                     )
                     rtt = (time.time() - req_start) * 1000
                     success = resp.status_code < 400
+                    if resp.status_code in (429, 503):
+                        get_domain_health_tracker().record_incident(urlparse(url).netloc)
                     # Always record the sample so error rate reflects HTTP
                     # failures, not just timeouts.
                     profile.add_sample(rtt, success, time.time() - req_start)
@@ -857,6 +849,8 @@ class AdaptiveAsyncManager:
                             httpx.Timeout(12.0, connect=4.0),
                         )
                         if resp.status_code >= 400:
+                            if resp.status_code in (429, 503):
+                                get_domain_health_tracker().record_incident(domain)
                             duration = time.time() - start_time
                             if self.circuit_breaker_manager:
                                 self.circuit_breaker_manager.record_failure(domain)

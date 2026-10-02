@@ -2,7 +2,7 @@
 
 Originally extracted from the original ``MirrorURL`` class
 (see ``REFACTORING_PLAN.md`` §4.1). Composed into ``MirrorURL`` in
-``core/__init__.py``; relies on shared state set up by ``_MirrorBase.__init__``.
+``core.py``; relies on shared state set up by ``_MirrorBase.__init__``.
 """
 
 from __future__ import annotations
@@ -217,7 +217,7 @@ class CompareMixin(MirrorHost):
             }
 
             # Process results as they complete
-            for i, future in enumerate(as_completed(future_to_item)):
+            for future in as_completed(future_to_item):
                 url, path = future_to_item[future]
                 try:
                     _, _, needs_download = future.result(timeout=30)
@@ -450,7 +450,7 @@ class CompareMixin(MirrorHost):
 
                 # Process results
                 batch_needs_download = []
-                for (task, local, url), result in zip(tasks, results):
+                for (_task, local, url), result in zip(tasks, results):
                     if isinstance(result, BaseException):
                         logging.warning(f"Async check failed for {url}: {result}")
                         batch_needs_download.append((url, local))
@@ -539,7 +539,7 @@ class CompareMixin(MirrorHost):
                     if use_adaptive and hasattr(manager, "apply_pending_concurrency_change"):
                         await manager.apply_pending_concurrency_change()
 
-                    for (task, local, url), result in zip(tasks, results):
+                    for (_task, local, url), result in zip(tasks, results):
                         if isinstance(result, BaseException) or not result:
                             to_download.append((url, local))
 

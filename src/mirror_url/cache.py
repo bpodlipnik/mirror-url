@@ -127,6 +127,10 @@ class CacheManager:
                                 f"Cache is {age_days:.1f} days old (> {self.config.cache_max_age}d) — refreshing"
                             )
                             self.metrics.set_cache_refreshed(age_days)
+                            self.cache_data.clear()
+                            self.dir_signatures.clear()
+                            self.file_metadata_cache.clear()
+                            self.lru_file_cache.clear()
                             return False, None
                         logging.info(
                             f"Cache age: {age_days:.1f} days (max: {self.config.cache_max_age}d)"
@@ -373,10 +377,20 @@ class CacheManager:
         """
         key = str(local_path.resolve())
         cached = self.lru_file_cache.get(key)
-        if cached:
-            return cached
         with self.lock:
-            return self.file_metadata_cache.get(key)
+            metadata = cached or self.file_metadata_cache.get(key)
+            if metadata is None:
+                return None
+            try:
+                updated = datetime.fromisoformat(metadata["updated"])
+                if (datetime.now() - updated).total_seconds() <= self.config.cache_max_age * 86400:
+                    self.lru_file_cache.put(key, metadata)
+                    return metadata
+            except (KeyError, TypeError, ValueError):
+                pass
+            self.file_metadata_cache.pop(key, None)
+            self.lru_file_cache.invalidate(key)
+            return None
 
     def save_file_metadata(self, local_path: Path, etag: str, mtime: float, size: int = 0) -> None:
         """

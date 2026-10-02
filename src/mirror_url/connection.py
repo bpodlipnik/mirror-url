@@ -16,7 +16,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import RLock, Semaphore
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
-from urllib.parse import quote, unquote, urljoin, urlparse
+from urllib.parse import quote, urljoin, urlparse
 
 import httpx
 
@@ -326,7 +326,7 @@ class ConnectionPool:
 
             # Get pool-specific stats
             pool_details = {}
-            for domain, client in self.pools.items():
+            for domain in self.pools:
                 pool_details[domain] = {
                     "usage_count": self.pool_usage.get(domain, 0),
                     "last_used": self.last_used.get(domain, 0),
@@ -489,11 +489,6 @@ class ConnectionManager:
         """Normalize URL"""
         parsed = urlparse(url)
         path = parsed.path
-        if "%" in path:
-            try:
-                path = unquote(path)
-            except Exception:
-                pass
         path = quote(path, safe="/%")
         normalized = parsed._replace(path=path, fragment="").geturl()
         return normalized

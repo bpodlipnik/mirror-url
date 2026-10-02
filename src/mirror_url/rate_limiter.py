@@ -269,7 +269,7 @@ class ChunkAwareRateLimiter(RateLimiter):
         disable_scaling: bool = False,
     ):  # NEW PARAM
         super().__init__(requests_per_second, delay, per_ip)
-        self.chunk_multiplier = chunk_multiplier
+        self.chunk_multiplier = max(0.0, chunk_multiplier)
         self.active_chunks_per_ip: Dict[str, int] = {}
         self.chunk_lock = RLock()
         self.disable_scaling = disable_scaling  # NEW FLAG
@@ -313,8 +313,10 @@ class ChunkAwareRateLimiter(RateLimiter):
                 if self.disable_scaling:
                     effective_delay = self.min_interval
                 else:
-                    multiplier = 1.0 + (active_chunks - 1) * 0.1
-                    effective_delay = self.min_interval * min(1.5, multiplier)
+                    multiplier = 1.0 + (active_chunks - 1) * self.chunk_multiplier * 0.2
+                    effective_delay = self.min_interval * min(
+                        1.0 + self.chunk_multiplier, multiplier
+                    )
 
                 last = self.ip_last_requests.get(ip, 0)
                 elapsed = now - last

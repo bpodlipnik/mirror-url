@@ -175,10 +175,8 @@ class DirectoryScanner:
                 )
                 # FIX: a non-200 is a SCAN FAILURE, not a confirmed-empty
                 # directory. Returning ([], []) here let the caller cache an
-                # empty result (in parse_cache AND the persisted html_cache),
-                # poisoning the rest of the run — and future runs — with a
-                # bogus "no files here". Raise so scan_directory_sequential
-                # can return empty WITHOUT caching it.
+                # empty result in the in-memory caches, poisoning later scans.
+                # Raise so the caller marks the scan incomplete and prevents cleanup.
                 raise ParsingError(f"HTTP {response.status_code} scanning {url}")
 
             content_length = len(response.content)

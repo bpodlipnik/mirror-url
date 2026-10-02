@@ -38,7 +38,7 @@ def manager(request, tmp_path, monkeypatch):
     monkeypatch.setattr("mirror_url.async_connection.asyncio.sleep", AsyncMock())
     monkeypatch.setattr(
         "mirror_url.async_connection.get_domain_health_tracker",
-        lambda: SimpleNamespace(is_throttled=lambda _: False),
+        lambda: SimpleNamespace(is_throttled=lambda _: False, record_incident=Mock()),
     )
     return request.param(config, MetricsCollector())
 
@@ -372,7 +372,7 @@ async def test_adaptive_samples_drive_live_limit_and_fallback(
     )
     monkeypatch.setattr(
         "mirror_url.async_connection.get_domain_health_tracker",
-        lambda: SimpleNamespace(is_throttled=lambda _: False),
+        lambda: SimpleNamespace(is_throttled=lambda _: False, record_incident=Mock()),
     )
     monkeypatch.setattr("mirror_url.async_connection.time.time", lambda: 1000)
     manager = AdaptiveAsyncManager(config, MetricsCollector())

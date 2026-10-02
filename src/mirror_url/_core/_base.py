@@ -2,7 +2,7 @@
 
 Methods extracted verbatim from the original ``MirrorURL`` class
 (see ``REFACTORING_PLAN.md`` §4.1). Composed into ``MirrorURL`` in
-``core/__init__.py``; relies on shared state set up by ``_MirrorBase.__init__``.
+``core.py``; relies on shared state set up by ``_MirrorBase.__init__``.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
-from urllib.parse import ParseResult, urlparse
+from urllib.parse import ParseResult, quote, urlparse
 
 import httpx
 
@@ -208,7 +208,7 @@ class _MirrorBase(MirrorHost):
         # 6. URL SETUP - Parse and normalize base URL
         # ============================================================================
         parsed_url = urlparse(str(config.base_url))
-        normalized_path = PathSafety._normalize_url_path(parsed_url.path)
+        normalized_path = quote(parsed_url.path, safe="/%")
         normalized_url = parsed_url._replace(path=normalized_path).geturl()
         self.base_url = trim_url(normalized_url + "/")
         self.base_parsed = urlparse(self.base_url)
@@ -246,6 +246,7 @@ class _MirrorBase(MirrorHost):
         # 9. CONCURRENCY MANAGER - Initialize before connection manager
         # ============================================================================
         self.concurrency_manager = UnifiedConcurrencyManager()
+        self.concurrency_manager.shared_pool_enabled = config.use_shared_thread_pool
         self.concurrency_manager.start()
 
         # ============================================================================
@@ -494,9 +495,9 @@ class _MirrorBase(MirrorHost):
 
         # Log async scanning
         if config.async_metadata:
-            logging.info(f"{prefix}⚡ Async directory scanning: ENABLED")
+            logging.info(f"{prefix}⚡ Async metadata checks: ENABLED")
         else:
-            logging.info(f"{prefix}⚡ Async directory scanning: DISABLED (sync mode)")
+            logging.info(f"{prefix}⚡ Async metadata checks: DISABLED (sync mode)")
 
         # Log symlink handling
         if config.handle_symlinks:
@@ -528,7 +529,9 @@ class _MirrorBase(MirrorHost):
         if LXML_AVAILABLE:
             logging.info(f"{prefix}Parser: lxml.html + fast fallback")
         else:
-            logging.info(f"{prefix}Parser: fast regex only (lxml not available)")
+            logging.info(
+                f"{prefix}Parser: fast parser with HTMLParser fallback (lxml not available)"
+            )
 
         # Log HTTP/2 setting
         logging.info(f"{prefix}HTTP/2: {'ENABLED' if config.http2 else 'DISABLED'}")

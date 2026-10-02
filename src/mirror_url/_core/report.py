@@ -2,7 +2,7 @@
 
 Methods extracted verbatim from the original ``MirrorURL`` class
 (see ``REFACTORING_PLAN.md`` §4.1). Composed into ``MirrorURL`` in
-``core/__init__.py``; relies on shared state set up by ``_MirrorBase.__init__``.
+``core.py``; relies on shared state set up by ``_MirrorBase.__init__``.
 """
 
 from __future__ import annotations

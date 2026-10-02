@@ -16,7 +16,7 @@ import re
 import shutil
 from pathlib import Path
 from re import error as re_error
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple
 from urllib.parse import urlparse
 
 import yaml
@@ -36,7 +36,6 @@ from .constants import (
     AUTO_CONCURRENCY_ENABLED,
     BATCH_SIZE,
     CHUNK_TIMEOUT_MULTIPLIER,
-    CONTENT_HASH_THRESHOLD,
     DEFAULT_ASYNC_WORKERS,
     DEFAULT_CACHE_MAX_AGE_DAYS,
     DEFAULT_MAX_RETRIES,
@@ -227,7 +226,7 @@ class MirrorConfig(BaseModel):
     max_concurrent_downloads: int = Field(default=10, ge=1, le=50)  # Increased for v3.0.2
     download_queue_size: int = Field(default=1000, ge=100)
     handle_symlinks: bool = False
-    symlink_mode: str = "skip"
+    symlink_mode: Literal["skip", "follow", "detect", "treat-as-file"] = "skip"
     circuit_breaker_downloads: bool = Field(default=True)
     max_symlink_depth: int = Field(default=MAX_SYMLINK_DEPTH, ge=1, le=50)
     max_symlinks_per_dir: int = Field(default=MAX_SYMLINKS_PER_DIR, ge=1, le=1000)
@@ -256,7 +255,7 @@ class MirrorConfig(BaseModel):
     health_check_port: int = Field(default=8080, ge=1024, le=65535)
     # NEW v3.0.6
     use_shared_thread_pool: bool = Field(
-        default=False, description="Use shared thread pool for all operations"
+        default=False, description="Use the coordinator's shared pool for chunk downloads"
     )  # NEW: Default to dedicated pools
 
     # NEW v3.0.7: Download mode fields
@@ -600,7 +599,9 @@ class MirrorConfig(BaseModel):
         if config.hash_algorithm == "md5":
             warnings.append("⚠️ MD5 hash algorithm is deprecated, consider using sha256")
         if config.content_hash_small_files:
-            warnings.append(f"🔐 Content hash: files <{CONTENT_HASH_THRESHOLD / 1024:.0f}KB")
+            warnings.append(
+                "Content hashing is a compatibility option; remote integrity uses HTTP validators"
+            )
 
         if config.cleanup_policy == CleanupPolicy.DELETE:
             warnings.append("⚠️ DELETE MODE: Obsolete file deletion ENABLED")
@@ -624,7 +625,9 @@ class MirrorConfig(BaseModel):
         if config.async_metadata:
             warnings.append(f"⚡ Async metadata {config.async_workers} workers")
         if config.trusted_server:
-            warnings.append("⚡ Trusted server mode: Faster rate limiting (10ms delay)")
+            warnings.append(
+                "Trusted server mode: reduced safety checks; configured request delay still applies"
+            )
         if config.cache_html:
             warnings.append(f"📦 HTML caching enabled ({config.html_cache_max_age}h)")
         if config.adaptive_async:
