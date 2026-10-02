@@ -4,6 +4,30 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.75] - 2026-10-02
+
+### Fixed
+
+- Keep `DownloadQueue.get_batch()` URL/path reservations until `complete()` is
+  called, matching `get()`. Reject duplicate tasks while a batch download is in
+  flight and preserve active-task statistics until successful or failed
+  completion. The queue remains a standalone component outside the normal
+  mirroring pipeline.
+
+### Tests
+
+- Add 16 queue lifecycle regression cases covering success/failure, batch
+  priority and limits, mixed retrieval, waiting capacity, identity matching,
+  empty retrieval, and concurrent duplicate admission. Reach 100% statement
+  and branch coverage for `queue.py`; retain both download coverage gates.
+
+### Documentation
+
+- Describe the queue's waiting/in-flight reservations, capacity and completion
+  contract in the developer guide and generated HTML. Correct the metrics
+  helper's internal RLock documentation, including direct async callers.
+- Synchronize package and guide versions and installation examples to 3.1.75.
+
 ## [3.1.74] - 2026-10-01
 
 ### Packaging
