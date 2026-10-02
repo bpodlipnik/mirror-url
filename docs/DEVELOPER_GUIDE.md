@@ -11,7 +11,7 @@ If you only want to *use* MirrorURL (install, CLI, config, Python API), read
 repeats the essentials so you can work from it alone.
 
 - **Package:** `mirror_url` (src-layout under `src/`)
-- **Version:** 3.1.76
+- **Version:** 3.1.77
 - **Python:** 3.9 or newer; CI tests Python 3.9–3.14
 - **Runtime deps:** `httpx[http2]` (including `h2`), `pydantic` v2, `PyYAML` (optional: `stringzilla`,
   `lxml`, `tqdm`, `psutil`)
@@ -287,7 +287,7 @@ MirrorURL` is unchanged for callers.
 | Mixin (`_core/…`) | Responsibility | Representative methods |
 |---|---|---|
 | `_MirrorBase` (`_base.py`) | Construction, shared state, lifecycle, logging, connection bring-up, the on-disk caches, disk-space checks | `__init__`, `__enter__`/`__exit__`, `cleanup`, `setup_logging`, `test_connection`, `_warm_up_connections`, `check_disk_space`, `install_signal_handlers` |
-| `UrlMixin` (`urls.py`) | URL scheme/scope validation, path extraction | `_validate_url_scheme`, `_validate_url_scheme_fast`, `_is_url_within_scope`, `_is_within_target_scope`, `_is_dir_excluded`, `_get_target_base_url`, `_parse_url_cached`, `_get_url_path_fast`, `_get_filename_fast` |
+| `UrlMixin` (`urls.py`) | URL scheme/scope validation, path extraction | `_validate_url_scheme`, `_is_url_within_scope`, `_is_within_target_scope`, `_is_dir_excluded`, `_get_target_base_url`, `_parse_url_cached`, `_get_filename_fast` |
 | `ScanMixin` (`scan.py`) | Remote discovery, filtering, symlink tracking | `get_remote_files`, `_discover_directories_bfs`, `matches_filter`, `get_directory_signature`, `is_symlink`/`record_symlink`, `_get_local_path_from_url` |
 | `CompareMixin` (`compare.py`) | "Is the local copy up to date?" — local identity plus remote size/timestamp/ETag, sync and async | `file_exists_and_up_to_date`, `_check_files_sync`, `_check_files_async`, `_comparison_metadata`, `_response_is_current`, `get_remote_timestamp`, `get_directory_size` |
 | `DownloadMixin` (`downloads.py`) | Per-file download orchestration (delegates to the `download.py` engines) | `download_file_with_resume`, `_download_file_single` |
@@ -773,5 +773,17 @@ Preserve these constraints when extending or refactoring the current code.
 
 ---
 
-*This guide describes the architecture as of version 3.1.76. When you change the
+*This guide describes the architecture as of version 3.1.77. When you change the
 structure, update this document in the same PR.*
+
+## Release 3.1.77 behavior
+
+Version 3.1.77 preserves encoded URL roots and literal percent escapes.
+Local symlinks at any destination path component block remote file mapping;
+remote duplicate-directory handling does not authorize local symlink writes.
+Symlink modes are validated for CLI, YAML and Python configuration. Expired
+file metadata is discarded. Async 429/503 responses contribute to persistent
+domain health. `use_shared_thread_pool` enables the coordinator's chunk pool;
+file transfers and metadata comparisons retain their separate executors.
+Local path checks assume the destination tree is not concurrently mutated by
+another process; they do not provide filesystem isolation against such a process.

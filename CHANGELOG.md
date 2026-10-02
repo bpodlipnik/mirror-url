@@ -4,6 +4,40 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.77] - 2026-10-02
+
+### Fixed
+
+- Preserve encoded URL roots and literal percent escapes so valid remote files
+  are discovered before cleanup. Compare decoded scope consistently while
+  retaining repeated-decoding traversal checks.
+- Reject local leaf and ancestor symlinks when mapping remote download paths,
+  preventing overwrites of unrelated files inside the destination.
+- Validate symlink modes for YAML and Python callers as well as CLI input.
+- Discard expired cache metadata and prevent dictionary fallback from reviving
+  expired file metadata.
+- Honor health-server shutdown requested during startup and close the server
+  when its worker exits.
+- Record async 429/503 domain-health incidents, including profile samples.
+- Count traditional chunk bytes once; make mutable value-comparable counters
+  unhashable; enable the configured shared chunk executor.
+- Honor the rate limiter's chunk multiplier while preserving default pacing;
+  remove unused private URL helpers and unused loop bindings. Retain public
+  compatibility fields and framework callbacks.
+
+### Documentation
+
+- Correct CI version coverage, async startup logs, stale cache/retry comments,
+  and configuration warnings. Describe local symlink rejection, strict mode
+  validation, shared chunk-pool scope and percent-encoding behavior.
+- Synchronize package and guide versions to 3.1.77.
+
+### Tests
+
+- Add regression cases for encoded roots, symlink safety, URL identity, cache
+  expiry, startup/shutdown ordering, async incidents, byte accounting, counter
+  hashing, and shared-pool configuration.
+
 ## [3.1.76] - 2026-10-02
 
 ### Fixed

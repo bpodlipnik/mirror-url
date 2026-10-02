@@ -5,7 +5,7 @@ mixins under the private ``_core`` subpackage (see ``REFACTORING_PLAN.md`` §4.1
 Each method lives in exactly one mixin; ``_MirrorBase`` owns ``__init__`` and all
 shared instance state. The composed class below has the exact same public
 surface as before, so ``from mirror_url.core import MirrorURL`` is unchanged for
-callers (e.g. ``ConnectionManager``'s scope check, ``cli``, ``health``).
+callers (e.g. ``cli`` and ``health``).
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ class MirrorURL(
 
     Composed from mixins; method resolution is unambiguous because every method
     is defined in exactly one mixin and ``__init__``/shared state live in
-    ``_MirrorBase``. Behavior is identical to the pre-split v3.1.13 class.
+    ``_MirrorBase``. The mixins contain the current mirroring implementation.
     """
 
 

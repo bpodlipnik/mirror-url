@@ -305,11 +305,7 @@ class AtomicCounter:
             return self.value() == other.value()
         return NotImplemented
 
-    # Defining __eq__ sets __hash__ to None, making instances unhashable
-    # (TypeError if used as a dict key or set member). The counter is a
-    # mutable container, so a value-based hash would be unstable; restore
-    # identity-based hashing instead.
-    __hash__ = object.__hash__
+    # Mutable value equality requires an unhashable counter.
 
     def __lt__(self, other: object) -> bool:
         """Support less-than comparison with int or another AtomicCounter."""

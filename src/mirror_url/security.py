@@ -435,6 +435,14 @@ class PathSafety:
                     logging.warning(f"Path depth limit exceeded: {depth} > {max_depth}")
                     return None
             full_path = base.joinpath(*sanitized_parts)
+            # Resolving an in-root symlink is still unsafe: it can redirect a
+            # remote filename onto unrelated local content.
+            candidate = base
+            for component in full_path.relative_to(base).parts:
+                candidate = candidate / component
+                if candidate.is_symlink():
+                    logging.warning("Local symlink blocks destination: %s", candidate)
+                    return None
             try:
                 final_resolved = full_path.resolve(strict=False)
             except (OSError, ValueError, TypeError):

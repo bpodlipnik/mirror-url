@@ -541,6 +541,7 @@ def url_within_scope(url: str, base: str) -> bool:
         or candidate.netloc.lower() != scope.netloc.lower()
     ):
         return False
+    scoped_path = unquote(candidate.path)
     path = candidate.path
     for _ in range(3):
         decoded = unquote(path)
@@ -550,7 +551,7 @@ def url_within_scope(url: str, base: str) -> bool:
     if "\\" in path or any(part in (".", "..") for part in path.split("/")):
         return False
     root = unquote(scope.path).rstrip("/")
-    return path == root or path.startswith(root + "/")
+    return scoped_path == root or scoped_path.startswith(root + "/")
 
 
 def sanitize_command_line(argv: List[str]) -> str:

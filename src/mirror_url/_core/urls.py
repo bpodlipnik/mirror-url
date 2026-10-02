@@ -2,7 +2,7 @@
 
 Methods extracted verbatim from the original ``MirrorURL`` class
 (see ``REFACTORING_PLAN.md`` §4.1). Composed into ``MirrorURL`` in
-``core/__init__.py``; relies on shared state set up by ``_MirrorBase.__init__``.
+``core.py``; relies on shared state set up by ``_MirrorBase.__init__``.
 """
 
 from __future__ import annotations
@@ -54,32 +54,6 @@ class UrlMixin(MirrorHost):
         if url_sz.startswith(Str("http://")):
             return True
 
-        if url_sz.startswith(Str("https://")):
-            return True
-
-        return False
-
-    @staticmethod
-    def _validate_url_scheme_fast(url: str) -> bool:
-        """
-        Fast URL scheme validation using StringZilla (SIMD-accelerated).
-
-        Args:
-            url: URL to validate
-
-        Returns:
-            True if scheme is http or https
-        """
-        if not url:
-            return False
-
-        url_sz = Str(url)
-
-        # Check for http:// (SIMD-accelerated)
-        if url_sz.startswith(Str("http://")):
-            return True
-
-        # Check for https:// (SIMD-accelerated)
         if url_sz.startswith(Str("https://")):
             return True
 
@@ -249,24 +223,6 @@ class UrlMixin(MirrorHost):
             Parsed URL result
         """
         return _parse_url_cached_module(url)
-
-    def _get_url_path_fast(self, url: str) -> str:
-        """Fast path extraction using StringZilla - returns string."""
-        if not url:
-            return ""
-
-        url_sz = Str(url)
-        # Find the path part after the domain
-        after_protocol = url_sz.find("://")
-        if after_protocol < 0:
-            return ""
-
-        path_start = url_sz.find("/", after_protocol + 3)
-        if path_start < 0:
-            return ""
-
-        # Return as string for easier comparison
-        return str(url_sz[path_start:])
 
     def _get_filename_fast(self, url: str) -> Str:
         """

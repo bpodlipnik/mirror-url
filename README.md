@@ -100,7 +100,7 @@ pytest -m "not integration"   # fast test lane
 pytest                        # full suite (includes integration)
 ```
 
-Continuous integration runs lint + tests across Python 3.9–3.12 (see
+Continuous integration runs lint + tests across Python 3.9–3.14 (see
 `.github/workflows/ci.yml`).
 
 ## Project layout

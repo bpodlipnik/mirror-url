@@ -279,7 +279,7 @@ repeats the essentials so you can work from it alone.</p>
 <ul>
 <li><strong>Package:</strong> <code>mirror_url</code> (src-layout under
 <code>src/</code>)</li>
-<li><strong>Version:</strong> 3.1.76</li>
+<li><strong>Version:</strong> 3.1.77</li>
 <li><strong>Python:</strong> 3.9 or newer; CI tests Python 3.9–3.14</li>
 <li><strong>Runtime deps:</strong> <code>httpx[http2]</code> (including
 <code>h2</code>), <code>pydantic</code> v2, <code>PyYAML</code>
@@ -622,11 +622,9 @@ the on-disk caches, disk-space checks</td>
 <td><code>UrlMixin</code> (<code>urls.py</code>)</td>
 <td>URL scheme/scope validation, path extraction</td>
 <td><code>_validate_url_scheme</code>,
-<code>_validate_url_scheme_fast</code>,
 <code>_is_url_within_scope</code>, <code>_is_within_target_scope</code>,
 <code>_is_dir_excluded</code>, <code>_get_target_base_url</code>,
-<code>_parse_url_cached</code>, <code>_get_url_path_fast</code>,
-<code>_get_filename_fast</code></td>
+<code>_parse_url_cached</code>, <code>_get_filename_fast</code></td>
 </tr>
 <tr>
 <td><code>ScanMixin</code> (<code>scan.py</code>)</td>
@@ -1261,7 +1259,9 @@ public)</td>
 </tbody>
 </table>
 <hr />
-<p><em>This guide describes the architecture as of version 3.1.76. When
+<p><em>This guide describes the architecture as of version 3.1.77. When
 you change the structure, update this document in the same PR.</em></p>
+<h2 id="release-3.1.77-behavior">Release 3.1.77 behavior</h2>
+<p>Version 3.1.77 preserves encoded URL roots and literal percent escapes. Local symlinks at any destination path component block remote file mapping; remote duplicate-directory handling does not authorize local symlink writes. Symlink modes are validated for CLI, YAML and Python configuration. Expired file metadata is discarded. Async 429/503 responses contribute to persistent domain health. <code>use_shared_thread_pool</code> enables the coordinator's chunk pool; file transfers and metadata comparisons retain their separate executors. Local path checks assume the destination tree is not concurrently mutated by another process; they do not provide filesystem isolation against such a process. </p>
 </body>
 </html>
