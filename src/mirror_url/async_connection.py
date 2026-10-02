@@ -340,10 +340,6 @@ class AsyncConnectionManager:
 
                     self.record_result(url, True, duration * 1000, duration)
 
-                    if getattr(resp, "status_code", None) == 404:
-                        logging.debug(f"Async HEAD 404 for {url}")
-                        return None
-
                     return resp
 
             # 3️⃣ TIMEOUT HANDLING
@@ -872,8 +868,6 @@ class AdaptiveAsyncManager:
                             self.circuit_breaker_manager.record_success(domain)
                         self.record_result(url, True, rtt_ms, time.time() - attempt_start)
 
-                        if getattr(resp, "status_code", None) == 404:
-                            return None
                         return resp
 
                     except (httpx.TimeoutException, asyncio.TimeoutError):

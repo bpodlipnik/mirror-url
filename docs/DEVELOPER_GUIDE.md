@@ -11,7 +11,7 @@ If you only want to *use* MirrorURL (install, CLI, config, Python API), read
 repeats the essentials so you can work from it alone.
 
 - **Package:** `mirror_url` (src-layout under `src/`)
-- **Version:** 3.1.77
+- **Version:** 3.1.78
 - **Python:** 3.9 or newer; CI tests Python 3.9–3.14
 - **Runtime deps:** `httpx[http2]` (including `h2`), `pydantic` v2, `PyYAML` (optional: `stringzilla`,
   `lxml`, `tqdm`, `psutil`)
@@ -201,8 +201,8 @@ pool warm-up checks each redirect before contacting its target.
 - `transport.py` — `SecureTransport`, `SecureAsyncTransport`: httpx transports
   that block loopback/private IPs (SSRF hardening). Both honor a `test_mode` flag
   used to relax the guard in tests.
-- `storage.py` — `FileSystemCache`, `DiskBackedSet` (memory-bounded set that
-  spills to disk).
+- `storage.py` — `FileSystemCache`, `DiskBackedSet` (tracking with disk spills,
+  memory-only duplicate suppression and pruning; no persistent membership index).
 - `circuit_breaker.py` — `CircuitBreaker`, `AsyncCircuitBreaker`,
   `ChunkCircuitBreaker`, `CircuitBreakerManager` (per-domain). Keep each base and
   its subclasses in this one module.
@@ -460,6 +460,11 @@ Metadata and file executors also have independent limits; there is no single
 cap covering every thread and async task. Streamed requests keep their
 coordinator lease until their response is closed. Always close streamed
 responses in a `finally`.
+
+The standalone `submit_to_shared_pool()` helper rechecks its condition after
+every wakeup and rejects submission during shutdown. Completion includes failed
+and cancelled jobs; each contributes once to the failure count. Its `queue_size`
+argument is accepted for compatibility and does not bound pending submissions.
 
 **Async path (`async_connection.py`).** `AdaptiveAsyncManager` tunes its
 concurrency from measured RTT, throughput, and error rate; `AsyncTaskManager`
@@ -773,17 +778,30 @@ Preserve these constraints when extending or refactoring the current code.
 
 ---
 
-*This guide describes the architecture as of version 3.1.77. When you change the
+*This guide describes the architecture as of version 3.1.78. When you change the
 structure, update this document in the same PR.*
 
-## Release 3.1.77 behavior
+## Release 3.1.78 behavior
 
-Version 3.1.77 preserves encoded URL roots and literal percent escapes.
-Local symlinks at any destination path component block remote file mapping;
-remote duplicate-directory handling does not authorize local symlink writes.
-Symlink modes are validated for CLI, YAML and Python configuration. Expired
-file metadata is discarded. Async 429/503 responses contribute to persistent
-domain health. `use_shared_thread_pool` enables the coordinator's chunk pool;
-file transfers and metadata comparisons retain their separate executors.
+Discovery, mapping, exclusions and cleanup share `utils._relative_url_path()`:
+parse with `urlsplit`, validate origin and traversal, and decode path identity
+once. Repeated decoding only detects traversal; query/fragment text never becomes
+a local filename. Directory classification uses the parsed path. BFS deduplicates
+directory aliases independently of query strings. Cleanup reuses the mapper and
+fails closed if any expected path is unsafe.
+
+The constructor validates the selected destination before starting managers or
+resolving local symlinks away. The fixed macOS `/var`, `/tmp` and `/etc` aliases
+are accepted; user destination/suffix symlinks are rejected. Descendant and leaf
+symlinks still block mapping. Library/config-file listing modes are validated,
+and an explicit CLI listing choice disables the opposing file mode.
+
+Lightweight-parser selection without lxml is independent of the lxml-failure
+fallback flag. Shared-pool submissions recheck admission after wakeup, stop on
+shutdown, and count each failed/cancelled completion once. The ordinary chunk
+path reuses the raw executor and acquires its own coordinator leases.
+Unreachable async dry-run/404 branches, orphaned private helpers and the empty
+scanner HTML cache were removed. Scanner HTML statistics now read the live
+CacheManager cache. Public compatibility fields and framework hooks remain.
 Local path checks assume the destination tree is not concurrently mutated by
 another process; they do not provide filesystem isolation against such a process.

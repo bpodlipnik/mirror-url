@@ -11,11 +11,11 @@ import os
 import re
 from functools import lru_cache
 from typing import TYPE_CHECKING
-from urllib.parse import ParseResult, quote, unquote, urljoin, urlparse
+from urllib.parse import ParseResult, quote, unquote, urlparse, urlsplit
 
 from ..compat import Str
 from ..exceptions import PathTraversalError
-from ..utils import url_within_scope
+from ..utils import _relative_url_path, url_within_scope
 
 
 @lru_cache(maxsize=10000)
@@ -69,8 +69,7 @@ class UrlMixin(MirrorHost):
         Returns:
             Last path component or "root" if empty
         """
-        parsed = urlparse(url)
-        path = parsed.path.rstrip("/")
+        path = urlsplit(url).path.rstrip("/")
         return os.path.basename(path) if path else "root"
 
     def _get_target_base_url(self) -> str:
@@ -83,7 +82,8 @@ class UrlMixin(MirrorHost):
         Raises:
             PathTraversalError: If suffix contains path traversal
         """
-        base = str(self.config.base_url).rstrip("/") + "/"
+        parsed = urlsplit(str(self.config.base_url))
+        base = parsed._replace(path=parsed.path.rstrip("/") + "/", fragment="")
         suffix = self.config.dir_suffix.strip("/") if self.config.dir_suffix else ""
 
         if suffix:
@@ -95,9 +95,9 @@ class UrlMixin(MirrorHost):
                 raise PathTraversalError(f"Invalid directory suffix: {suffix}")
 
             # Local filename rules must not rename remote URL components.
-            return urljoin(base, quote(suffix, safe="/") + "/")
+            return base._replace(path=base.path + quote(suffix, safe="/") + "/").geturl()
 
-        return base
+        return base.geturl()
 
     def _is_url_within_scope(self, url: str, check_base: bool = True) -> bool:
         """
@@ -175,18 +175,15 @@ class UrlMixin(MirrorHost):
         # documented <root>/lasco/, while --url stays what CHANGELOG.md and
         # USER_GUIDE.md both promise "relative to --url" means.
         root_url = str(getattr(self.config, "base_url", "") or "")
-        if root_url and not root_url.endswith("/"):
-            root_url += "/"
-
-        url_normalized = url.rstrip("/") + "/"
-        if not root_url or not url_normalized.startswith(root_url):
+        relative_path = _relative_url_path(url, root_url) if root_url else None
+        if relative_path is None:
             # Candidate isn't under the scan root at all -- shouldn't
             # normally happen, since BFS only ever enqueues URLs within
             # target_base_url, but fail closed: no relative path means
             # no match, never an accidental broad one.
             return False
 
-        relative_path = url_normalized[len(root_url) :].rstrip("/")
+        relative_path = relative_path.rstrip("/")
         if not relative_path:
             return False  # the root itself is never excludable this way
 
@@ -228,5 +225,5 @@ class UrlMixin(MirrorHost):
         """
         Fast filename extraction using StringZilla.
         """
-        path = unquote(urlparse(url).path)
+        path = unquote(urlsplit(url).path)
         return Str(path.rsplit("/", 1)[-1])

@@ -482,11 +482,6 @@ _KEY = {
 def test_boolean_flag_reaches_config(run_main, flag, dest, expected, with_config, monkeypatch):
     if dest not in MirrorConfig.model_fields:
         pytest.skip(f"{flag} is not a MirrorConfig field")
-    # main() errors when --no-fast-parsing-fallback is set without lxml. CI
-    # installs only [dev] (no lxml), so pretend it is available: this test is
-    # about CLI→config wiring, not the optional-extra availability check.
-    if dest == "fast_parsing_fallback":
-        monkeypatch.setattr(cli, "LXML_AVAILABLE", True)
     cfg = run_main([flag], "" if with_config else None)
     assert getattr(cfg, dest) is expected
 
@@ -496,11 +491,10 @@ def test_boolean_flag_reaches_config(run_main, flag, dest, expected, with_config
 # --------------------------------------------------------------------------
 
 
-def test_no_fast_parsing_fallback_errors_without_lxml(run_main, monkeypatch):
-    """Explicit --no-fast-parsing-fallback must not be silently ignored when lxml is missing."""
-    monkeypatch.setattr(cli, "LXML_AVAILABLE", False)
-    with pytest.raises(SystemExit):
-        run_main(["--no-fast-parsing-fallback"])
+def test_no_fast_parsing_fallback_is_preserved_without_lxml(run_main, monkeypatch):
+    """Parser selection without lxml is independent of error-fallback policy."""
+    monkeypatch.setattr("mirror_url.parsing.LXML_AVAILABLE", False)
+    assert run_main(["--no-fast-parsing-fallback"]).fast_parsing_fallback is False
 
 
 def test_explicit_cli_dests_reports_only_typed_options():

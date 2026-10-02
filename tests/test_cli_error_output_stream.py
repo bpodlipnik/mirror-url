@@ -1,28 +1,12 @@
-"""Regression test: CLI error-path print() fallbacks must target stderr.
-
-Without --print-logs, mirror-url's informational logging only ever goes
-to the file at --log-path -- never to stdout/stderr. That makes a
-stderr-only cron redirect (``2>> errors.log``, deliberately not touching
-stdout) an attractive way to catch crashes without duplicating the main
-log file. But three print() fallbacks in cli.py (config-creation errors,
-and the lxml-availability warning) defaulted to stdout, since bare
-print() writes there unless told otherwise -- so a stderr-only redirect
-would silently miss these genuine error/warning conditions, while an
-unhandled Python exception (which always goes to stderr) would be
-caught. The existing convention elsewhere in the codebase (_base.py's
-log-directory-creation-failure fallback) already correctly used
-``file=sys.stderr`` -- these three just hadn't followed it.
-
-This test inspects the source directly for the exact print() call sites
-rather than driving the full CLI (which would need real config files,
-argument parsing, and triggering ConfigError/Exception paths deep inside
-a large orchestration function) -- the defect is a missing `file=
-sys.stderr` keyword argument on three specific, known call sites.
-"""
+"""CLI errors belong on stderr; valid parser selection must not emit errors."""
 
 from __future__ import annotations
 
 import inspect
+import logging
+import sys
+
+import pytest
 
 from mirror_url import cli
 
@@ -43,15 +27,36 @@ def test_generic_config_creation_error_print_targets_stderr():
     )
 
 
-def test_lxml_fallback_warning_targets_stderr():
-    src = inspect.getsource(cli)
-    assert (
-        'print("WARNING: lxml not available, falling back to fast parser", file=sys.stderr)' in src
-    ), "the lxml-fallback warning must target stderr for the same reason"
+def test_no_lxml_flag_does_not_emit_configuration_warning(monkeypatch, capsys):
+    class Stop(BaseException):
+        pass
+
+    def capture(config, **kwargs):
+        assert config.fast_parsing_fallback is False
+        raise Stop()
+
+    monkeypatch.setattr(logging.getLogger(), "level", logging.getLogger().level)
+    monkeypatch.setattr("mirror_url.parsing.LXML_AVAILABLE", False)
+    monkeypatch.setattr(cli, "MirrorURL", capture)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "mirror-url",
+            "--url",
+            "https://example.com/root/",
+            "--list-files",
+            "--no-fast-parsing-fallback",
+        ],
+    )
+    with pytest.raises(Stop):
+        cli.main()
+    output = capsys.readouterr()
+    assert output.out == output.err == ""
 
 
 def test_no_bare_stdout_print_calls_remain_in_cli_error_paths():
-    """Belt-and-suspenders: none of the three fixed messages should still
+    """Belt-and-suspenders: none of the historical messages should still
     exist in their old, stdout-defaulting form anywhere in the file."""
     src = inspect.getsource(cli)
     assert "print(f\"Configuration error for {suf or 'ROOT'}: {e}\")\n" not in src

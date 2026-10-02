@@ -279,7 +279,7 @@ repeats the essentials so you can work from it alone.</p>
 <ul>
 <li><strong>Package:</strong> <code>mirror_url</code> (src-layout under
 <code>src/</code>)</li>
-<li><strong>Version:</strong> 3.1.77</li>
+<li><strong>Version:</strong> 3.1.78</li>
 <li><strong>Python:</strong> 3.9 or newer; CI tests Python 3.9–3.14</li>
 <li><strong>Runtime deps:</strong> <code>httpx[http2]</code> (including
 <code>h2</code>), <code>pydantic</code> v2, <code>PyYAML</code>
@@ -497,8 +497,8 @@ filename defenses).</li>
 loopback/private IPs (SSRF hardening). Both honor a
 <code>test_mode</code> flag used to relax the guard in tests.</li>
 <li><code>storage.py</code> — <code>FileSystemCache</code>,
-<code>DiskBackedSet</code> (memory-bounded set that spills to
-disk).</li>
+<code>DiskBackedSet</code> (tracking with disk spills, memory-only
+duplicate suppression and pruning; no persistent membership index).</li>
 <li><code>circuit_breaker.py</code> — <code>CircuitBreaker</code>,
 <code>AsyncCircuitBreaker</code>, <code>ChunkCircuitBreaker</code>,
 <code>CircuitBreakerManager</code> (per-domain). Keep each base and its
@@ -852,6 +852,11 @@ chunk work. Metadata and file executors also have independent limits;
 there is no single cap covering every thread and async task. Streamed
 requests keep their coordinator lease until their response is closed.
 Always close streamed responses in a <code>finally</code>.</p>
+<p>The standalone <code>submit_to_shared_pool()</code> helper rechecks
+its condition after every wakeup and rejects submission during shutdown.
+Completion includes failed and cancelled jobs; each contributes once to
+the failure count. Its <code>queue_size</code> argument is accepted for
+compatibility and does not bound pending submissions.</p>
 <p><strong>Async path (<code>async_connection.py</code>).</strong>
 <code>AdaptiveAsyncManager</code> tunes its concurrency from measured
 RTT, throughput, and error rate; <code>AsyncTaskManager</code> runs the
@@ -1259,9 +1264,34 @@ public)</td>
 </tbody>
 </table>
 <hr />
-<p><em>This guide describes the architecture as of version 3.1.77. When
+<p><em>This guide describes the architecture as of version 3.1.78. When
 you change the structure, update this document in the same PR.</em></p>
-<h2 id="release-3.1.77-behavior">Release 3.1.77 behavior</h2>
-<p>Version 3.1.77 preserves encoded URL roots and literal percent escapes. Local symlinks at any destination path component block remote file mapping; remote duplicate-directory handling does not authorize local symlink writes. Symlink modes are validated for CLI, YAML and Python configuration. Expired file metadata is discarded. Async 429/503 responses contribute to persistent domain health. <code>use_shared_thread_pool</code> enables the coordinator's chunk pool; file transfers and metadata comparisons retain their separate executors. Local path checks assume the destination tree is not concurrently mutated by another process; they do not provide filesystem isolation against such a process. </p>
+<h2 id="release-3178-behavior">Release 3.1.78 behavior</h2>
+<p>Discovery, mapping, exclusions and cleanup share
+<code>utils._relative_url_path()</code>: parse with
+<code>urlsplit</code>, validate origin and traversal, and decode path
+identity once. Repeated decoding only detects traversal; query/fragment
+text never becomes a local filename. Directory classification uses the
+parsed path. BFS deduplicates directory aliases independently of query
+strings. Cleanup reuses the mapper and fails closed if any expected path
+is unsafe.</p>
+<p>The constructor validates the selected destination before starting
+managers or resolving local symlinks away. The fixed macOS
+<code>/var</code>, <code>/tmp</code> and <code>/etc</code> aliases are
+accepted; user destination/suffix symlinks are rejected. Descendant and
+leaf symlinks still block mapping. Library/config-file listing modes are
+validated, and an explicit CLI listing choice disables the opposing file
+mode.</p>
+<p>Lightweight-parser selection without lxml is independent of the
+lxml-failure fallback flag. Shared-pool submissions recheck admission
+after wakeup, stop on shutdown, and count each failed/cancelled
+completion once. The ordinary chunk path reuses the raw executor and
+acquires its own coordinator leases. Unreachable async dry-run/404
+branches, orphaned private helpers and the empty scanner HTML cache were
+removed. Scanner HTML statistics now read the live CacheManager cache.
+Public compatibility fields and framework hooks remain. Local path
+checks assume the destination tree is not concurrently mutated by
+another process; they do not provide filesystem isolation against such a
+process.</p>
 </body>
 </html>

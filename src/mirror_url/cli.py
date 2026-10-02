@@ -23,7 +23,7 @@ from typing import List, Optional
 import yaml
 
 from ._version import __version__
-from .compat import LXML_AVAILABLE, PSUTIL_AVAILABLE, TQDM_AVAILABLE
+from .compat import PSUTIL_AVAILABLE, TQDM_AVAILABLE
 from .config import MirrorConfig, expand_env_vars
 from .constants import (
     ADAPTIVE_ASYNC_ENABLED,
@@ -311,6 +311,7 @@ def _cli_overrides(args: argparse.Namespace, explicit: set) -> dict:
     for dest in sorted(explicit - _CLI_NON_CONFIG_DESTS):
         value = getattr(args, dest)
         if dest in ("list_dirs", "list_files"):
+            out.update({mode: mode == dest for mode in ("list_dirs", "list_files")})
             out[dest] = True
             out[dest + "_n"] = value or 0
         elif dest in _DOWNLOAD_MODE_DESTS:
@@ -1094,19 +1095,6 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
         args.cleanup_policy = CleanupPolicy(getattr(args, "cleanup", "safe"))
     except ValueError:
         args.cleanup_policy = CleanupPolicy.SAFE_NO_DELETE
-
-    # Check lxml availability. --no-fast-parsing-fallback requires lxml;
-    # silently forcing the flag back on undoes an explicit user choice and
-    # made the CLI-precedence tests fail in CI (which installs only [dev],
-    # without the optional lxml extra).
-    if not LXML_AVAILABLE and not args.fast_parsing_fallback:
-        if "fast_parsing_fallback" in explicit_dests:
-            parser.error(
-                "--no-fast-parsing-fallback requires lxml "
-                "(install mirror-url[fast] or mirror-url[all])"
-            )
-        print("WARNING: lxml not available, falling back to fast parser", file=sys.stderr)
-        args.fast_parsing_fallback = True
 
     # Setup shared logging if requested
     if args.log_file:

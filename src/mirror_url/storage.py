@@ -131,13 +131,14 @@ class FileSystemCache:
 # DISK BACKED SET
 # ============================================================================
 class DiskBackedSet:
-    """Memory-efficient set using disk storage with sequential write optimization.
+    """Fire-and-forget tracking store with memory-only duplicate suppression.
 
     Performance characteristics:
     - O(1) add for items in memory
     - O(1) batch disk writes (avoids per-item I/O)
     - Memory bound: max_memory items in RAM
-    - Disk bound: unlimited items on disk (sequential files)
+    - Disk spills may be pruned; this is not a persistent membership index
+    - len() is an upper bound of accepted additions, not a unique-item count
 
     Thread-safety: All public methods are protected by RLock.
     """

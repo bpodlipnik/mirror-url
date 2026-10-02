@@ -29,10 +29,9 @@ from .utils import bounded_executor_shutdown
 
 class UnifiedConcurrencyManager:
     """
-    Unified concurrency control for all operations.
+    Coordinate callers that explicitly acquire this manager's resource leases.
 
-    This manages thread pools, async tasks, and chunk downloads to ensure
-    system resources are not exhausted.
+    Metadata and file executors retain their independent concurrency limits.
     """
 
     def __init__(
@@ -45,9 +44,9 @@ class UnifiedConcurrencyManager:
         Initialize unified concurrency manager.
 
         Args:
-            max_total_threads: Maximum total threads across all pools
+            max_total_threads: Maximum active leases from this coordinator
             max_async_tasks: Maximum concurrent async tasks
-            queue_size: Maximum queue size for pending operations
+            queue_size: Accepted compatibility value; does not bound pending work
         """
         self.max_total_threads = max_total_threads
         self.max_async_tasks = max_async_tasks
@@ -114,7 +113,9 @@ class UnifiedConcurrencyManager:
         logging.debug("Shutting down UnifiedConcurrencyManager...")
 
         # Set shutdown flags
-        self._shutdown = True
+        with self.thread_condition:
+            self._shutdown = True
+            self.thread_condition.notify_all()
         self.monitor_running = False
         # Wake the monitor loop immediately instead of leaving it to finish
         # its current sleep(MONITOR_INTERVAL_SECONDS) -- otherwise the
@@ -139,18 +140,6 @@ class UnifiedConcurrencyManager:
                 self.shared_pool = None
             except Exception as e:
                 logging.error(f"Error shutting down shared pool: {e}")
-
-        # Reset counters
-        with self.thread_lock:
-            self.active_threads = 0
-            self.pending_operations = 0
-
-        # Notify any waiting threads
-        try:
-            with self.thread_condition:
-                self.thread_condition.notify_all()
-        except Exception:
-            pass
 
         logging.debug("UnifiedConcurrencyManager shutdown complete")
 
@@ -196,41 +185,41 @@ class UnifiedConcurrencyManager:
         Fixed: Proper condition variable usage with atomic state transitions.
         """
         with self.shared_pool_lock:
-            if not self.shared_pool:
+            pool = self.shared_pool
+            if not pool or self._shutdown:
                 raise ConcurrencyLimitError("Shared pool not initialized")
 
         # Use condition variable properly with context manager
         timeout = 30  # 30 seconds timeout
-        start_time = time.time()
+        deadline = time.monotonic() + timeout
         slot_acquired = False
 
         try:
             with self.thread_condition:
                 # Wait for an available slot
                 while self.active_threads >= self.max_total_threads:
+                    if self._shutdown:
+                        raise ConcurrencyLimitError("Shared pool is shutting down")
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise ConcurrencyLimitError(
+                            f"Timeout waiting for thread slot after {timeout}s"
+                        )
                     self.pending_operations += 1
                     try:
-                        # Wait with timeout
-                        if not self.thread_condition.wait(timeout=5.0):
-                            # Timeout occurred - check overall timeout
-                            if time.time() - start_time > timeout:
-                                raise ConcurrencyLimitError(
-                                    f"Timeout waiting for thread slot after {timeout}s"
-                                )
-                            # Continue waiting - will re-enter the while loop
-                            continue
-                        # Slot became available - break out of while loop
-                        break
+                        self.thread_condition.wait(timeout=min(5.0, remaining))
                     finally:
                         self.pending_operations -= 1
 
+                if self._shutdown:
+                    raise ConcurrencyLimitError("Shared pool is shutting down")
                 # We have a slot - increment counters atomically within the lock
                 self.active_threads += 1
                 self.total_submitted += 1
                 slot_acquired = True
 
             # Submit the task (outside the condition lock to avoid deadlocks)
-            future = self.shared_pool.submit(self._wrapped_task, fn, args, kwargs)
+            future = pool.submit(fn, *args, **kwargs)
             future.add_done_callback(self._task_done_callback)
             return future
 
@@ -249,32 +238,17 @@ class UnifiedConcurrencyManager:
         This is called in the thread pool's worker thread, so we need to
         acquire the condition lock to safely update counters.
         """
+        failed = future.cancelled() or future.exception() is not None
         with self.thread_condition:
             self.active_threads -= 1
             self.total_completed += 1
+            if failed:
+                self.total_failed += 1
             # Notify one waiting thread that a slot is available
             self.thread_condition.notify()
 
-        # Check for exceptions (optional logging)
-        try:
-            future.result()
-        except Exception as e:
-            with self.thread_lock:
-                self.total_failed += 1
-            logging.debug(f"Task failed in shared pool: {e}")
-
-    def _wrapped_task(self, fn, args, kwargs):
-        """Wrapped task for monitoring."""
-        try:
-            return fn(*args, **kwargs)
-        except Exception:
-            with self.thread_lock:
-                self.total_failed += 1
-            raise
-
-    def _task_done(self, future):
-        """Called when a task completes."""
-        self.release_thread()
+        if failed:
+            logging.debug("Task failed or was cancelled in shared pool")
 
     def _monitor_loop(self) -> None:
         """Monitor loop for concurrency statistics."""

@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-from urllib.parse import quote, unquote, urlparse
+from urllib.parse import quote, unquote, urlparse, urlsplit
 
 from .constants import (
     BACKOFF_BASE,
@@ -535,23 +535,42 @@ __all__ = [
 
 def url_within_scope(url: str, base: str) -> bool:
     """Require the same origin and a decoded path under the configured root."""
-    candidate, scope = urlparse(url), urlparse(base)
+    return _relative_url_path(url, base) is not None
+
+
+def _relative_url_path(url: str, base: str) -> Optional[str]:
+    """Map a scoped URL to its once-decoded relative path, retaining semicolons.
+
+    Repeated decoding is only for traversal detection. It must not turn a
+    literal percent escape in the filename into a second local identity.
+    Query strings and fragments do not contribute to filesystem paths.
+    """
+    try:
+        candidate, scope = urlsplit(url), urlsplit(base)
+    except ValueError:
+        return None
     if (
-        candidate.scheme.lower() != scope.scheme.lower()
+        candidate.scheme.lower() not in ("http", "https")
+        or candidate.scheme.lower() != scope.scheme.lower()
         or candidate.netloc.lower() != scope.netloc.lower()
     ):
-        return False
+        return None
+    for raw_path in (candidate.path, scope.path):
+        path = raw_path
+        for _ in range(3):
+            decoded = unquote(path)
+            if decoded == path:
+                break
+            path = decoded
+        if "\\" in path or "\0" in path or any(part in (".", "..") for part in path.split("/")):
+            return None
     scoped_path = unquote(candidate.path)
-    path = candidate.path
-    for _ in range(3):
-        decoded = unquote(path)
-        if decoded == path:
-            break
-        path = decoded
-    if "\\" in path or any(part in (".", "..") for part in path.split("/")):
-        return False
     root = unquote(scope.path).rstrip("/")
-    return scoped_path == root or scoped_path.startswith(root + "/")
+    if scoped_path == root:
+        return ""
+    if scoped_path.startswith(root + "/"):
+        return scoped_path[len(root) + 1 :]
+    return None
 
 
 def sanitize_command_line(argv: List[str]) -> str:
