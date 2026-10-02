@@ -89,15 +89,14 @@ class ServerProfile:
     def _update_metrics(self) -> None:
         """Recalculate metrics from samples.
 
-        Caller MUST hold ``self._lock``. Re-iterating the deque without the
-        lock against a concurrent ``append`` raises
-        ``RuntimeError: deque mutated during iteration``.
+        Acquires ``self._lock`` internally, so callers do not need to hold it.
+        The RLock permits re-entry from ``add_sample``, which already holds
+        the lock, and direct calls from async server profiling.
         """
         with self._lock:
             if not self.samples:
                 return
-            # Snapshot under lock so the iteration below is safe even if a
-            # future caller forgets the outer lock.
+            # Snapshot under lock to prevent concurrent add_sample mutation.
             samples_snapshot = list(self.samples)
             successful = [s for s in samples_snapshot if s["success"]]
             self.error_rate = 1.0 - (len(successful) / len(samples_snapshot))

@@ -206,7 +206,12 @@ check; avoid extending that back-reference.
   its subclasses in this one module.
 - `rate_limiter.py` — `BandwidthLimiter`, `RateLimiter`, `PerIPRateLimiter`,
   `ChunkAwareRateLimiter`.
-- `queue.py` — `DownloadQueue`.
+- `queue.py` — standalone `DownloadQueue`; the normal sync pipeline does not
+  enqueue downloads through it. Both `get()` and `get_batch()` reserve each
+  URL/path identity until `complete()` releases it. Complete each retrieved
+  task exactly once on success or failure, keeping its URL/path unchanged.
+  `active_tasks` counts waiting and in-flight tasks; `size` and `max_size`
+  describe only waiting tasks.
 
 **Layer 4 — managers & observability.**
 
