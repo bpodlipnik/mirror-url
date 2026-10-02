@@ -22,7 +22,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
-from urllib.parse import ParseResult, quote, urlparse
+from urllib.parse import ParseResult, quote, urlparse, urlsplit
 
 import httpx
 
@@ -160,6 +160,15 @@ class _MirrorBase(MirrorHost):
         # 1. BASIC CONFIGURATION - Initialize all attributes with safe defaults
         # ============================================================================
         self.config = config
+        # Check the requested path before starting managers or resolving away
+        # a symlink in dest_path or the selected suffix.
+        requested_target = config.dest_path
+        suffix = config.dir_suffix
+        for part in (p for p in suffix.split("/") if p):
+            requested_target = requested_target / PathSafety._safe_filename(
+                part, max_len=config.max_filename_len
+            )
+        computed_target_path = PathSafety._resolve_destination_root(requested_target)
         self.suffix_index = suffix_index
         self.total_suffixes = total_suffixes
         self.is_dry_run = config.dry_run
@@ -207,10 +216,12 @@ class _MirrorBase(MirrorHost):
         # ============================================================================
         # 6. URL SETUP - Parse and normalize base URL
         # ============================================================================
-        parsed_url = urlparse(str(config.base_url))
+        parsed_url = urlsplit(str(config.base_url))
         normalized_path = quote(parsed_url.path, safe="/%")
-        normalized_url = parsed_url._replace(path=normalized_path).geturl()
-        self.base_url = trim_url(normalized_url + "/")
+        normalized_url = parsed_url._replace(
+            path=normalized_path.rstrip("/") + "/", fragment=""
+        ).geturl()
+        self.base_url = trim_url(normalized_url)
         self.base_parsed = urlparse(self.base_url)
 
         # Validate URL scheme using fast method (now the default)
@@ -273,22 +284,7 @@ class _MirrorBase(MirrorHost):
         # ============================================================================
         # 12. TARGET DIRECTORY PATH - Compute but don't create yet
         # ============================================================================
-        self._computed_target_path: Optional[Path] = None
-        suffix = config.dir_suffix
-        try:
-            if suffix:
-                suffix_parts = [p for p in suffix.split("/") if p]
-                target_dir_path = self.dest_path
-                for part in suffix_parts:
-                    safe_part = PathSafety._safe_filename(part, max_len=config.max_filename_len)
-                    target_dir_path = target_dir_path / safe_part
-            else:
-                target_dir_path = self.dest_path
-
-            self._computed_target_path = target_dir_path.resolve()
-        except Exception as e:
-            logging.warning(f"Failed to compute target directory path: {e}")
-            self._computed_target_path = None
+        self._computed_target_path: Optional[Path] = computed_target_path
 
         # ============================================================================
         # 13. LOG DIRECTORY - Create (with fallback) BEFORE anything derives paths

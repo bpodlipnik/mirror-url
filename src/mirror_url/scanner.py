@@ -10,15 +10,15 @@ import logging
 import re
 import time
 from typing import Any, Dict, List, Optional, Tuple
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlsplit
 
 from .compat import LXML_AVAILABLE, XPath, html
-from .constants import HTML_CACHE_MAX_AGE_HOURS, MAX_HTML_CACHE_SIZE, MAX_IN_MEMORY_CACHE_SIZE
+from .constants import MAX_IN_MEMORY_CACHE_SIZE
 from .decorators import log_performance
 from .exceptions import ParsingError
 from .parsing import AdaptiveBatchProcessor, decode_html, extract_links_fast, should_use_fast_parser
 from .primitives import LRUCache
-from .utils import sanitize_url_for_log, trim_url
+from .utils import sanitize_url_for_log, trim_url, url_within_scope
 
 
 class DirectoryScanner:
@@ -44,12 +44,6 @@ class DirectoryScanner:
         )
         self._last_cache_cleanup = time.time()
         self._cache_cleanup_interval = 300
-        # FIX: html_cache should be LRUCache, not a dict
-        self.html_cache = LRUCache(
-            maxsize=MAX_HTML_CACHE_SIZE,
-            ttl_seconds=HTML_CACHE_MAX_AGE_HOURS * 3600,
-            name="html_cache",
-        )
         self.batch_processor = AdaptiveBatchProcessor()
         self.fast_parse_count = 0
         self.lxml_parse_count = 0
@@ -228,44 +222,25 @@ class DirectoryScanner:
                         self.fast_parse_count += 1
                         self.metrics.increment("fast_parses")
 
-            # Pre-parse the canonical base scope ONCE per call so the per-link
-            # check below is just a string compare on the (already-parsed)
-            # netloc and a path-prefix check on the (already-parsed) path.
-            base_parsed_for_scope = urlparse(self.base_url)
-            base_netloc = base_parsed_for_scope.netloc
-            base_path = base_parsed_for_scope.path or "/"
-            if not base_path.endswith("/"):
-                base_path = base_path + "/"
-
+            # Scope and local mapping share once-decoded URL path semantics.
             for href in links:
                 if href in ("../", "./") or href.startswith(("?", "#", "javascript:", "mailto:")):
                     continue
 
                 full_url = trim_url(urljoin(url, href).split("#")[0])
 
-                # FIX (scope bypass): the previous check was
-                #     if not full_url.startswith(self.base_url): continue
-                # which is a textual prefix match. With the canonical
-                # ``self.base_url`` stored without a trailing slash (CLI args
-                # strip it), a base of ``https://example.com`` matched
-                # ``https://example.com.attacker.com/...`` — a real scope
-                # bypass for any HTML page the scanner parsed. Compare the
-                # parsed netloc and a slash-terminated path prefix instead.
+                # Compare origin and validated decoded path, never URL text
+                # prefixes; query parameters do not decide directory type.
                 try:
-                    full_parsed = urlparse(full_url)
+                    full_parsed = urlsplit(full_url)
                 except Exception:
                     continue
                 if full_parsed.scheme not in ("http", "https"):
                     continue
-                if full_parsed.netloc != base_netloc:
-                    continue
-                full_path = full_parsed.path or "/"
-                # Allow exact match of base_path's parent (e.g. base "/files/"
-                # should also accept the bare "/files" link).
-                if not (full_path == base_path.rstrip("/") or full_path.startswith(base_path)):
+                if not url_within_scope(full_url, self.base_url):
                     continue
 
-                if full_url.endswith("/"):
+                if full_parsed.path.endswith("/"):
                     if self.mirror._is_within_target_scope(full_url):
                         subdirs.append(full_url)
                 else:
@@ -306,7 +281,11 @@ class DirectoryScanner:
                 "misses": self.parse_cache.misses,
                 "hit_rate": self.parse_cache.get_stats()["hit_rate"],
             },
-            "html_cache": self.html_cache.get_stats(),
+            "html_cache": (
+                self.mirror.cache_manager.html_cache.get_stats()
+                if hasattr(self.mirror.cache_manager, "html_cache")
+                else {}
+            ),
             "batch_processor": {"current_batch_size": self.batch_processor.get_batch_size()},
         }
 

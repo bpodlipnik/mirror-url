@@ -13,11 +13,12 @@ import shutil
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, List, Optional, Set, Tuple
-from urllib.parse import quote, unquote, urlparse
+from urllib.parse import quote, urlsplit
 
 from ..decorators import log_performance
 from ..enums import CleanupPolicy
 from ..security import PathSafety
+from ..utils import url_within_scope
 
 if TYPE_CHECKING:
     from ._typing import MirrorHost
@@ -123,7 +124,10 @@ class CleanupMixin(MirrorHost):
             depth = len(relative.parts) if directory else len(relative.parts) - 1
             if depth > self.config.max_depth:
                 return False
-            base = self.target_parsed.geturl().rstrip("/") + "/"
+            parsed_base = urlsplit(self.target_parsed.geturl())
+            base = parsed_base._replace(
+                path=parsed_base.path.rstrip("/") + "/", query="", fragment=""
+            ).geturl()
             parts = relative.parts if directory else relative.parts[:-1]
             for index in range(1, len(parts) + 1):
                 parent = self.target_dir.joinpath(*parts[:index])
@@ -131,7 +135,7 @@ class CleanupMixin(MirrorHost):
                     return False
                 url = base + "/".join(quote(part, safe="") for part in parts[:index]) + "/"
                 if any(
-                    url.startswith(prefix)
+                    url_within_scope(url, prefix)
                     for prefix in getattr(self, "cleanup_protected_prefixes", ())
                 ):
                     return False
@@ -205,23 +209,17 @@ class CleanupMixin(MirrorHost):
         expected: Set[Path] = set()
         for url in remote_files:
             try:
-                url_path = urlparse(url).path
-                target_path = self.target_parsed.path
-
-                if url_path.startswith(target_path):
-                    rel = unquote(url_path[len(target_path) :].lstrip("/"))
-                    local = PathSafety.safe_join(
-                        self.target_dir,
-                        *rel.split("/"),
-                        max_depth=self.config.max_depth + 1,
-                        max_filename_len=self.config.max_filename_len,
-                        create_base=not self.config.dry_run,
-                    )
-                    if local and PathSafety.is_subpath(self.target_dir, local):
-                        expected.add(local)
+                local = self._get_local_path_from_url(url)
+                if local is None:
+                    self.scan_incomplete = True
+                    self.metrics.add_error("Unsafe remote path blocks cleanup", "cleanup")
+                    return
+                expected.add(local)
             except Exception as e:
                 logging.debug(f"Error building expected path for {url}: {e}")
-                continue
+                self.scan_incomplete = True
+                self.metrics.add_error("Invalid remote path blocks cleanup", "cleanup")
+                return
 
         # Single walk of the local tree, shared by everything below --
         # the confirm-delete count, preview mode's file/empty-dir checks,

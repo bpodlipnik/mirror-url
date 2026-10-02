@@ -375,6 +375,12 @@ class MirrorConfig(BaseModel):
         return self
 
     @model_validator(mode="after")
+    def validate_listing_modes(self) -> MirrorConfig:
+        if self.list_dirs and self.list_files:
+            raise ConfigError("Cannot enable list_dirs and list_files simultaneously.")
+        return self
+
+    @model_validator(mode="after")
     def validate_and_normalize(self) -> MirrorConfig:
         # 1. Normalize base URL (strip whitespace & trailing slashes)
         url = str(self.base_url or "").strip().rstrip("/")

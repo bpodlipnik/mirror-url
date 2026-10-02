@@ -6,7 +6,7 @@ the remote directory tree, decides which files are new or changed, and downloads
 them efficiently — with adaptive concurrency, resumable/parallel downloads,
 integrity checks, incremental caching, and an SSRF-hardened transport layer.
 
-- **Version:** 3.1.77
+- **Version:** 3.1.78
 - **Python:** 3.9 or newer; CI tests Python 3.9–3.14
 - **License:** MIT
 
@@ -81,21 +81,21 @@ From a checkout of the repository on a build machine:
 
 ```bash
 pip install build
-python -m build          # produces dist/mirror_url-3.1.77-py3-none-any.whl
+python -m build          # produces dist/mirror_url-3.1.78-py3-none-any.whl
 ```
 
 Copy the wheel to the target server and install it:
 
 ```bash
 python3 -m venv /opt/mirror-url
-/opt/mirror-url/bin/pip install /tmp/mirror_url-3.1.77-py3-none-any.whl
+/opt/mirror-url/bin/pip install /tmp/mirror_url-3.1.78-py3-none-any.whl
 /opt/mirror-url/bin/mirror-url --help
 ```
 
 To include the optional speed extras:
 
 ```bash
-/opt/mirror-url/bin/pip install "/tmp/mirror_url-3.1.77-py3-none-any.whl[fast]"
+/opt/mirror-url/bin/pip install "/tmp/mirror_url-3.1.78-py3-none-any.whl[fast]"
 ```
 
 Available extras: `fast` (stringzilla + lxml), `progress` (tqdm),
@@ -104,24 +104,24 @@ Available extras: `fast` (stringzilla + lxml), `progress` (tqdm),
 ### From a Git repository
 
 ```bash
-pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.77"
+pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.78"
 # private repo over SSH:
-pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.1.77"
+pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.1.78"
 ```
 
 ### As an isolated CLI with pipx
 
 ```bash
-pipx install /tmp/mirror_url-3.1.77-py3-none-any.whl
-# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.77"
+pipx install /tmp/mirror_url-3.1.78-py3-none-any.whl
+# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.78"
 ```
 
 ### With Docker
 
 ```dockerfile
 FROM python:3.12-slim
-COPY dist/mirror_url-3.1.77-py3-none-any.whl /tmp/
-RUN pip install --no-cache-dir "/tmp/mirror_url-3.1.77-py3-none-any.whl[fast]"
+COPY dist/mirror_url-3.1.78-py3-none-any.whl /tmp/
+RUN pip install --no-cache-dir "/tmp/mirror_url-3.1.78-py3-none-any.whl[fast]"
 ENTRYPOINT ["mirror-url"]
 ```
 
@@ -374,6 +374,9 @@ Unknown keys are rejected. `dir_suffix` is one string in a config file; the
 CLI's `--dir-suffix` accepts several values. Logging controls such as
 `--print-logs`, `--quiet`, `--verbose`, `--debug`, and `--log-file` should be
 passed on the CLI to control its shared logging handlers.
+
+Choosing `--list-files` or `--list-dirs` switches off the opposing listing
+mode inherited from the file. A configuration that enables both modes is rejected.
 
 To enable a boolean explicitly over a false config-file value, use its positive
 flag, for example `--async-metadata`, `--adaptive-async`, `--cache-html`,
@@ -1005,14 +1008,24 @@ place. Domain-health metadata lives under `$XDG_CACHE_HOME/mirror-url/`
 (or `~/.cache/mirror-url/`) on POSIX and under the local application-data
 `mirror-url/` directory on Windows. Remove these manually if desired.
 
-## Release 3.1.77 behavior
+## Release 3.1.78 behavior
 
-Version 3.1.77 preserves encoded URL roots and literal percent escapes.
-Local symlinks at any destination path component block remote file mapping;
-remote duplicate-directory handling does not authorize local symlink writes.
-Symlink modes are validated for CLI, YAML and Python configuration. Expired
-file metadata is discarded. Async 429/503 responses contribute to persistent
-domain health. `use_shared_thread_pool` enables the coordinator's chunk pool;
-file transfers and metadata comparisons retain their separate executors.
+Version 3.1.78 uses the same validated, once-decoded URL paths for discovery,
+local mapping and cleanup. Equivalent percent-encoded roots are accepted;
+literal percent escapes and semicolons in filenames are preserved. Directory
+links with query parameters are traversed as directories. Unsafe expected
+paths suppress obsolete-file cleanup and fail the run.
+
+Local symlinks in a selected destination root are rejected before manager
+startup; leaf and descendant symlinks block remote file mapping. The fixed
+macOS `/var`, `/tmp` and `/etc` system aliases are accepted. Remote duplicate
+directory handling does not authorize local symlink writes.
+
+CLI listing choices override the opposing config-file mode. Disabling lxml
+error fallback still permits lightweight-parser selection when lxml is absent.
+The standalone shared-pool submission helper rechecks its capacity after
+wakeup and counts failed or cancelled jobs once. `use_shared_thread_pool`
+enables the coordinator's chunk pool; file transfers and metadata comparisons
+retain their separate executors.
 Local path checks assume the destination tree is not concurrently mutated by
 another process; they do not provide filesystem isolation against such a process.

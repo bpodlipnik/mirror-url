@@ -35,16 +35,18 @@ from urllib.parse import urlparse
 import pytest
 
 from mirror_url._core.cleanup import CleanupMixin
+from mirror_url._core.scan import ScanMixin
 from mirror_url.enums import CleanupPolicy
 
 
-class _StubMirror(CleanupMixin):
+class _StubMirror(CleanupMixin, ScanMixin):
     """Minimal stand-in for MirrorURL exposing only what clean_obsolete/
     _scan_local_tree use."""
 
     def __init__(self, config, target_dir, target_base_url):
         self.config = config
         self.target_dir = target_dir
+        self._target_dir_path = target_dir.resolve()
         self.target_parsed = urlparse(target_base_url)
         self.suffix_index = 0
         self.total_suffixes = 1

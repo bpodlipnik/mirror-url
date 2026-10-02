@@ -4,6 +4,42 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.78] - 2026-10-02
+
+### Fixed
+
+- Reject local symlinks in selected destination roots before starting managers
+  or resolving away their identity; retain fixed macOS system-directory aliases.
+- Share validated, once-decoded URL path semantics across discovery, BFS scope,
+  exclusions, local mapping and cleanup. Accept equivalent encoded roots while
+  preserving literal percent escapes and complete semicolon filenames.
+- Traverse directory links with query parameters and deduplicate directory
+  aliases independently of query strings. Suppress cleanup when expected local
+  paths cannot be mapped safely.
+- Make explicit CLI listing choices disable the opposing config-file mode and
+  reject configurations that enable both listing modes.
+- Permit lightweight-parser selection without lxml when lxml error fallback is
+  disabled, matching config-file and documented parser behavior.
+- Recheck shared-pool capacity after condition wakeups, reject waiting
+  submissions on shutdown, preserve outstanding lease accounting, and count
+  each failed or cancelled task once.
+- Remove unreachable dry-run async and async 404 branches, orphaned private
+  helpers and the empty scanner HTML cache; report the live CacheManager cache.
+  Retain supported public helpers, compatibility fields and framework hooks.
+
+### Documentation
+
+- Describe destination-root rejection, encoded/semicolon URL identities,
+  query-bearing directory links, listing precedence and shared-pool accounting.
+- Correct coordinator queue-limit and disk-backed tracking descriptions;
+  synchronize package and Markdown/HTML guides to 3.1.78.
+
+### Tests
+
+- Add end-to-end preservation and download regressions, constructor safety,
+  parser/configuration cases, and real shared-pool concurrency, cancellation
+  and shutdown coverage. Retain both download coverage gates.
+
 ## [3.1.77] - 2026-10-02
 
 ### Fixed

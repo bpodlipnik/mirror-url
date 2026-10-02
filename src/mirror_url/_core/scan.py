@@ -18,14 +18,14 @@ from collections import deque
 from pathlib import Path
 from re import error as re_error
 from typing import TYPE_CHECKING, Dict, Generator, List, Optional, Set, Tuple
-from urllib.parse import unquote, urlparse
+from urllib.parse import urlparse, urlsplit
 
 import httpx
 
 from ..decorators import log_performance
 from ..enums import MemoryPressure
 from ..security import PathSafety
-from ..utils import sanitize_url_for_log, trim_url
+from ..utils import _relative_url_path, sanitize_url_for_log, trim_url, url_within_scope
 
 if TYPE_CHECKING:
     from ._typing import MirrorHost
@@ -289,10 +289,9 @@ class ScanMixin(MirrorHost):
                             )
                         elif pressure == MemoryPressure.CRITICAL:
                             freed_parse = self.scanner.parse_cache.shrink_to(0.3)
-                            freed_html = self.scanner.html_cache.shrink_to(0.3)
                             freed_cache = self.cache_manager.handle_memory_pressure(pressure)
                             logging.warning(
-                                f"Emergency cache clear: freed {freed_parse + freed_html + freed_cache} items"
+                                f"Emergency cache clear: freed {freed_parse + freed_cache} items"
                             )
 
             if (
@@ -682,9 +681,8 @@ class ScanMixin(MirrorHost):
             logging.warning("No target_base_url available for directory discovery")
             return
 
-        # Ensure root_url ends with /
-        if not root_url.endswith("/"):
-            root_url += "/"
+        root = urlsplit(root_url)
+        root_url = root._replace(path=root.path.rstrip("/") + "/", fragment="").geturl()
 
         logging.debug(f"BFS discovery root: {sanitize_url_for_log(root_url)}")
 
@@ -713,15 +711,16 @@ class ScanMixin(MirrorHost):
         while queue:
             url, depth = queue.popleft()
 
-            # Skip if not within root_url
-            if not url.startswith(root_url):
+            relative = _relative_url_path(url, root_url)
+            if relative is None:
                 logging.debug(f"Skipping URL outside root scope: {url}")
                 continue
 
-            if url in processed_dirs or depth > self.config.max_depth:
+            directory_key = relative.rstrip("/")
+            if directory_key in processed_dirs or depth > self.config.max_depth:
                 continue
 
-            processed_dirs.add(url)
+            processed_dirs.add(directory_key)
             skip_this_dir = False
 
             # A directory is only worth *fetching* (an actual HTTP request)
@@ -792,7 +791,7 @@ class ScanMixin(MirrorHost):
                 #     reading, so this mode is handled the same as "skip"
                 #     for directories): reported, then ignored.
                 if self.config.handle_symlinks and not any(
-                    url.startswith(p) for p in flagged_symlink_prefixes
+                    url_within_scope(url, p) for p in flagged_symlink_prefixes
                 ):
                     is_link, target_url = self._check_directory_symlink(
                         url, _files, subdirs, dir_signatures
@@ -813,7 +812,12 @@ class ScanMixin(MirrorHost):
                             in_scope = (
                                 self._is_within_target_scope(target_url) if target_url else False
                             )
-                            parent_url = url.rstrip("/").rsplit("/", 1)[0] + "/"
+                            parsed_dir = urlsplit(url)
+                            parent_url = parsed_dir._replace(
+                                path=parsed_dir.path.rstrip("/").rsplit("/", 1)[0] + "/",
+                                query="",
+                                fragment="",
+                            ).geturl()
 
                             if not in_scope:
                                 logging.warning(
@@ -865,8 +869,11 @@ class ScanMixin(MirrorHost):
 
                 if not skip_this_dir:
                     for subdir in subdirs:
-                        # Only add subdirs that start with root_url
-                        if subdir not in processed_dirs and subdir.startswith(root_url):
+                        subdir_path = _relative_url_path(subdir, root_url)
+                        if (
+                            subdir_path is not None
+                            and subdir_path.rstrip("/") not in processed_dirs
+                        ):
                             if self._is_dir_excluded(subdir):
                                 logging.debug(
                                     f"Excluding directory: {sanitize_url_for_log(subdir)}"
@@ -887,7 +894,12 @@ class ScanMixin(MirrorHost):
                     pass
 
             if skip_this_dir:
-                self.cleanup_protected_prefixes.add(url.rstrip("/") + "/")
+                parsed_dir = urlsplit(url)
+                self.cleanup_protected_prefixes.add(
+                    parsed_dir._replace(
+                        path=parsed_dir.path.rstrip("/") + "/", query="", fragment=""
+                    ).geturl()
+                )
             else:
                 yield url
 
@@ -909,20 +921,9 @@ class ScanMixin(MirrorHost):
             return None
 
         try:
-            parsed = self._parse_url_cached(url)
-
-            if not parsed.path.startswith(self.target_parsed.path):
+            rel_path = _relative_url_path(url, self.target_parsed.geturl())
+            if rel_path is None:
                 return None
-
-            rel_path = parsed.path[len(self.target_parsed.path) :].lstrip("/")
-
-            if ".." in rel_path or ".." in unquote(rel_path).split("/"):
-                logging.warning(
-                    f"Path traversal attempt detected in URL: {sanitize_url_for_log(url)}"
-                )
-                return None
-
-            rel_path = unquote(rel_path)
 
             local_path = PathSafety.safe_join(
                 self.target_dir,

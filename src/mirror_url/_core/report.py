@@ -217,41 +217,9 @@ class ReportMixin(MirrorHost):
                 else:
                     progress = None
 
-                # Determine which files would be downloaded
-                # In dry-run mode, use sync checks for speed (avoid adaptive profiling delays)
-                use_async = False  # Force sync mode in dry-run
-
-                if use_async:
-                    if self.config.adaptive_async and self.adaptive_async_manager:
-                        logging.info(
-                            f"{prefix}Using ADAPTIVE async metadata checks ({len(remote_files)} files)"
-                        )
-                    else:
-                        logging.info(
-                            f"{prefix}Using async metadata checks ({len(remote_files)} files)"
-                        )
-
-                    # Check if we're already in an async context
-                    try:
-                        loop = asyncio.get_running_loop()
-                        logging.warning(f"{prefix}Already in async context, using sync mode")
-                        to_download = self._check_files_sync(remote_files, progress)
-                    except RuntimeError:
-                        try:
-                            to_download = asyncio.run(
-                                self._check_files_async(remote_files, progress)
-                            )
-                        except Exception as e:
-                            logging.warning(
-                                f"{prefix}Async metadata check failed ({e}), falling back to sync mode"
-                            )
-                            to_download = self._check_files_sync(remote_files, progress)
-
-                else:
-                    logging.info(
-                        f"{prefix}Using sync metadata checks (dry-run simulation - faster)"
-                    )
-                    to_download = self._check_files_sync(remote_files, progress)
+                # Dry runs avoid adaptive metadata profiling delays.
+                logging.info(f"{prefix}Using sync metadata checks (dry-run simulation - faster)")
+                to_download = self._check_files_sync(remote_files, progress)
 
                 if progress:
                     progress.report_final()

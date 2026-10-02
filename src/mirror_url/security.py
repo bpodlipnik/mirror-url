@@ -11,6 +11,7 @@ import ipaddress
 import logging
 import os
 import socket
+import sys
 from pathlib import Path
 from threading import RLock
 from typing import Any, Dict, List, Optional, Tuple
@@ -25,7 +26,7 @@ from .constants import (
     SYMLINK_BOMB_THRESHOLD,
     SYMLINK_VISIT_CACHE_SIZE,
 )
-from .exceptions import SecurityError
+from .exceptions import PathTraversalError, SecurityError
 from .utils import is_reserved_windows_filename
 
 
@@ -334,6 +335,23 @@ class PathSafety:
     """Utility class for safe path operations"""
 
     @staticmethod
+    def _resolve_destination_root(path: Path) -> Path:
+        """Reject selected-root symlinks before resolution erases their identity."""
+        absolute = path if path.is_absolute() else Path.cwd() / path
+        candidate = Path(absolute.anchor)
+        system_aliases = {"/var": "/private/var", "/tmp": "/private/tmp", "/etc": "/private/etc"}
+        for component in absolute.parts[1:]:
+            candidate = candidate / component
+            if candidate.is_symlink():
+                # macOS exposes these system directories through fixed aliases.
+                if sys.platform == "darwin" and system_aliases.get(str(candidate)) == str(
+                    candidate.parent / os.readlink(candidate)
+                ):
+                    continue
+                raise PathTraversalError(f"Local symlink blocks destination root: {candidate}")
+        return absolute.resolve()
+
+    @staticmethod
     def is_subpath(parent: Path, child: Path) -> bool:
         """
         Strictly check if child is inside parent.
@@ -481,36 +499,6 @@ class PathSafety:
             return str(rel)
         except (ValueError, RuntimeError, OSError):
             return None
-
-    @staticmethod
-    def _normalize_url_path(path: str) -> str:
-        """Normalize URL path - preserve leading slash if present."""
-        try:
-            if not path:
-                return ""
-
-            # FIX: Handle the test expectation for '/path/to/file'
-            # The test expects '/path/to/file' to return '/path/to/file'
-            if path.startswith("/"):
-                # For absolute paths, keep the leading slash
-                decoded = unquote(path)
-                trailing_slash = decoded.endswith("/")
-                stripped = decoded.lstrip("/")
-                normalized = str(Path(stripped)) if stripped else ""
-                if trailing_slash and normalized:
-                    normalized += "/"
-                return "/" + normalized if normalized else "/"
-            else:
-                # For relative paths, no leading slash
-                decoded = unquote(path)
-                trailing_slash = decoded.endswith("/")
-                stripped = decoded.strip("/")
-                normalized = str(Path(stripped)) if stripped else ""
-                if trailing_slash and normalized:
-                    normalized += "/"
-                return normalized
-        except Exception:
-            return ""
 
     @staticmethod
     def _safe_filename(filename: str, max_len: int = MAX_FILENAME_LENGTH) -> str:
