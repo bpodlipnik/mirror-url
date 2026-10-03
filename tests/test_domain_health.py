@@ -28,31 +28,27 @@ from mirror_url.domain_health import (
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.skipif(os.name != "posix", reason="Requires native POSIX paths")
 def test_path_resolution_posix_prefers_xdg_cache_home(monkeypatch, tmp_path):
-    monkeypatch.setattr("os.name", "posix")
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "xdgcache"))
     path = get_domain_health_path()
     assert path == tmp_path / "xdgcache" / "mirror-url" / "domain_health.json"
 
 
+@pytest.mark.skipif(os.name != "posix", reason="Requires native POSIX paths")
 def test_path_resolution_posix_falls_back_to_dot_cache(monkeypatch, tmp_path):
-    monkeypatch.setattr("os.name", "posix")
     monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
     monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
     path = get_domain_health_path()
     assert path == tmp_path / ".cache" / "mirror-url" / "domain_health.json"
 
 
-# pathlib.WindowsPath refuses to instantiate on a real POSIX OS regardless
-# of an os.name monkeypatch (its own __new__ re-checks os.name), so these
-# can only meaningfully run on an actual Windows machine/CI runner --
-# skipped everywhere else rather than asserting something pathlib itself
-# won't let us construct.
+# Each platform's cache layout is tested with its native pathlib implementation
+# on the matching CI runner; changing os.name cannot emulate another filesystem.
 @pytest.mark.skipif(
     os.name != "nt", reason="WindowsPath cannot be instantiated on a non-Windows OS"
 )
 def test_path_resolution_windows_prefers_localappdata(monkeypatch, tmp_path):
-    monkeypatch.setattr("os.name", "nt")
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
     path = get_domain_health_path()
     assert path == tmp_path / "local" / "mirror-url" / "domain_health.json"
@@ -62,7 +58,6 @@ def test_path_resolution_windows_prefers_localappdata(monkeypatch, tmp_path):
     os.name != "nt", reason="WindowsPath cannot be instantiated on a non-Windows OS"
 )
 def test_path_resolution_windows_falls_back_to_appdata(monkeypatch, tmp_path):
-    monkeypatch.setattr("os.name", "nt")
     monkeypatch.delenv("LOCALAPPDATA", raising=False)
     monkeypatch.setenv("APPDATA", str(tmp_path / "roaming"))
     path = get_domain_health_path()

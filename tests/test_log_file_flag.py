@@ -300,11 +300,14 @@ def test_different_large_suffix_sets_never_collide_on_filename(monkeypatch, tmp_
     preview must still produce different filenames -- the hash covers
     the *full* sorted suffix list, not just the previewed prefix."""
     dest = tmp_path / "dest"
-    logs = tmp_path / "logs"
-    logs.mkdir()
+    logs_a = tmp_path / "logs-a"
+    logs_b = tmp_path / "logs-b"
+    logs_a.mkdir()
+    logs_b.mkdir()
+    monkeypatch.setattr(cli_module.time, "strftime", lambda *args: "20261003_123456")
 
     set_a = [f"2607{d:02d}" for d in range(1, 32)]  # July 1-31
-    set_b = [f"2607{d:02d}" for d in range(1, 31)]  # July 1-30 (one fewer, same first 3)
+    set_b = [*set_a[:-1], "260801"]  # Same preview and count; only the digest differs.
 
     _run_main(
         monkeypatch,
@@ -314,7 +317,7 @@ def test_different_large_suffix_sets_never_collide_on_filename(monkeypatch, tmp_
             "--dest-path",
             str(dest),
             "--log-path",
-            str(logs),
+            str(logs_a),
             "--dir-suffix",
             *set_a,
             "--log-file",
@@ -322,10 +325,7 @@ def test_different_large_suffix_sets_never_collide_on_filename(monkeypatch, tmp_
             "--dry-run",
         ],
     )
-    name_a = list(logs.glob("*.log"))[0].name
-
-    for f in logs.glob("*.log"):
-        f.unlink()
+    name_a = list(logs_a.glob("*.log"))[0].name
 
     _run_main(
         monkeypatch,
@@ -335,7 +335,7 @@ def test_different_large_suffix_sets_never_collide_on_filename(monkeypatch, tmp_
             "--dest-path",
             str(dest),
             "--log-path",
-            str(logs),
+            str(logs_b),
             "--dir-suffix",
             *set_b,
             "--log-file",
@@ -343,7 +343,7 @@ def test_different_large_suffix_sets_never_collide_on_filename(monkeypatch, tmp_
             "--dry-run",
         ],
     )
-    name_b = list(logs.glob("*.log"))[0].name
+    name_b = list(logs_b.glob("*.log"))[0].name
 
     assert name_a != name_b
 

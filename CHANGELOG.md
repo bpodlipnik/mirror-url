@@ -29,6 +29,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   HTTP preservation tests and six targeted guard mutations.
 - Add native macOS and Windows full-suite CI jobs with and without optional
   accelerators; retain the Linux Python 3.9–3.14 matrix.
+- Use native temporary paths in CLI tests, run cache-layout tests on their
+  matching platforms, and compare log names without unlinking an active log.
 - Include fixtures, validation scripts and guides in source distributions.
 
 ## [3.1.78] - 2026-10-02
