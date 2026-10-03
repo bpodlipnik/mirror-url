@@ -27,6 +27,36 @@ else:
 
 
 class CleanupMixin(MirrorHost):
+    def _archive_destination(self, archive: Path, relative: Path, *, directory: bool) -> Path:
+        """Choose an unused archive path without following local symlinks."""
+        dest = archive / relative
+
+        def validate(candidate: Path) -> None:
+            mapped = PathSafety.safe_join(
+                archive,
+                *candidate.relative_to(archive).parts,
+                max_depth=self.config.max_depth + 1,
+                create_base=False,
+            )
+            if mapped is None or mapped != candidate.resolve():
+                raise OSError("Unsafe archive destination")
+
+        validate(dest)
+        if dest.exists():
+            timestamp = int(time.time() * 1000)
+            name = (
+                f"{dest.name}_{timestamp}" if directory else f"{dest.stem}_{timestamp}{dest.suffix}"
+            )
+            dest = dest.with_name(name)
+        # A timestamp is not a uniqueness guarantee. Preserve earlier archives,
+        # including dangling links, instead of overwriting or following them.
+        if dest.exists() or dest.is_symlink():
+            raise FileExistsError(f"Archive destination already exists: {dest}")
+        validate(dest)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        validate(dest)
+        return dest
+
     def _scan_local_tree(self) -> Tuple[List[Path], List[Path]]:
         """Single-pass recursive walk of target_dir, collecting both files
         and directories in one traversal via os.scandir().
@@ -321,14 +351,7 @@ class CleanupMixin(MirrorHost):
             if self.config.cleanup_policy == CleanupPolicy.MOVE and obsolete_dir:
                 try:
                     rel_path = item.relative_to(self.target_dir)
-                    dest = obsolete_dir / rel_path
-                    if not PathSafety.is_subpath(obsolete_dir, dest):
-                        raise OSError("Archive destination escapes archive directory")
-                    dest.parent.mkdir(parents=True, exist_ok=True)
-
-                    if dest.exists():
-                        timestamp = int(time.time() * 1000)
-                        dest = dest.with_name(f"{dest.stem}_{timestamp}{dest.suffix}")
+                    dest = self._archive_destination(obsolete_dir, rel_path, directory=False)
                     shutil.move(
                         str(item), str(dest)
                     )  # FIX: Handles cross-filesystem moves without OSError
@@ -389,10 +412,7 @@ class CleanupMixin(MirrorHost):
                     ):
                         try:
                             rel_path = item.relative_to(self.target_dir)
-                            dest = obsolete_dir / rel_path
-                            if not PathSafety.is_subpath(obsolete_dir, dest):
-                                raise OSError("Archive destination escapes archive directory")
-                            dest.parent.mkdir(parents=True, exist_ok=True)
+                            dest = self._archive_destination(obsolete_dir, rel_path, directory=True)
                             # FIX: shutil.move() already relocates the
                             # directory to `dest`. The previous code followed
                             # it with `item.rename(dest)`, but `item` no longer
@@ -402,9 +422,6 @@ class CleanupMixin(MirrorHost):
                             # moved_dirs uncounted and `changed` unset (stalling
                             # the empty-dir cleanup loop). Removed the redundant
                             # rename so the success path runs.
-                            if dest.exists():
-                                timestamp = int(time.time() * 1000)
-                                dest = dest.with_name(f"{dest.name}_{timestamp}")
                             shutil.move(str(item), str(dest))
                             moved_dirs += 1
                             logging.info(f"Moved obsolete dir: {item} → {dest}")
@@ -419,9 +436,11 @@ class CleanupMixin(MirrorHost):
                             changed = True
                             logging.info(f"Removed empty dir: {item}")
                         except Exception as e:
-                            logging.debug(f"Error removing directory {item}: {e}")
-                except Exception:
-                    pass
+                            logging.error(f"Failed to remove directory {item}: {e}")
+                            failed_operations += 1
+                except Exception as e:
+                    logging.error(f"Failed to inspect directory {item}: {e}")
+                    failed_operations += 1
 
         logging.info(f"{prefix}Cleaning up stale cache metadata...")
         try:

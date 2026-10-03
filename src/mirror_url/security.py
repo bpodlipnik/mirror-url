@@ -176,10 +176,6 @@ class SecurityValidator:
                 sockaddr = info[4]
                 ip = str(sockaddr[0])
 
-                # Skip IPv6 link-local addresses
-                if ip.startswith("fe80::"):
-                    continue
-
                 if SecurityValidator.is_private_ip(ip):
                     private_ips.append(ip)
                 else:
@@ -189,11 +185,8 @@ class SecurityValidator:
             if private_ips:
                 raise SecurityError(f"Hostname {hostname} resolves to private IP(s): {private_ips}")
 
-            if public_ips:
-                return public_ips[0]
-
-            # No usable addresses (everything was filtered out).
-            raise SecurityError(f"All resolved IPs are private/blocked for {hostname}")
+            # infos is nonempty and every answer was classified above.
+            return public_ips[0]
 
         except socket.gaierror as e:
             raise SecurityError(f"Failed to resolve hostname: {hostname}: {e}") from e
@@ -321,7 +314,7 @@ class SecurityValidator:
                     if "/.." in decoded_twice or decoded_twice.startswith(".."):
                         return False, "Double-encoded path traversal detected"
                 except Exception:
-                    pass  # Fail closed on decode errors
+                    return False, "Invalid path encoding"
 
             return True, None
 
@@ -366,23 +359,8 @@ class PathSafety:
         try:
             parent_resolved = parent.resolve()
             child_resolved = child.resolve()
-            if os.name == "nt":
-                parent_drive = parent_resolved.drive.lower()
-                child_drive = child_resolved.drive.lower()
-                if parent_drive != child_drive:
-                    return False
-            try:
-                if child_resolved == parent_resolved:
-                    return True
-                try:
-                    common = os.path.commonpath([str(parent_resolved), str(child_resolved)])
-                    if Path(common).resolve() != parent_resolved:
-                        return False
-                except ValueError:
-                    return False
-                return parent_resolved in child_resolved.parents
-            except ValueError:
-                return False
+            child_resolved.relative_to(parent_resolved)
+            return True
         except (ValueError, RuntimeError, OSError) as e:
             logging.warning(f"Path safety resolution failed: {e}")
             return False
@@ -421,10 +399,7 @@ class PathSafety:
                 return None
             if not base.exists() and create_base:
                 base.mkdir(parents=True, exist_ok=True)
-            try:
-                base_resolved = base.resolve(strict=False)
-            except TypeError:
-                base_resolved = base.resolve()
+            base_resolved = base.resolve(strict=False)
             if base.is_symlink():
                 logging.warning(f"Base path became a symlink during setup, blocking: {base}")
                 return None
@@ -444,9 +419,6 @@ class PathSafety:
                     logging.warning(f"Path traversal attempt detected in part: {part}")
                     return None
                 filename = PathSafety._safe_filename(part, max_len=max_filename_len)
-                if not filename:
-                    logging.warning(f"Invalid filename after sanitization: {part}")
-                    return None
                 sanitized_parts.append(filename)
                 depth += 1
                 if depth > max_depth:

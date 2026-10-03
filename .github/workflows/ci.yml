@@ -55,11 +55,15 @@ jobs:
       - run: pip install -e ".[all,dev]"
       - name: Run all tests, including local HTTP integration
         run: >-
-          pytest --cov=mirror_url --cov-branch --cov-fail-under=70
+          pytest --cov=mirror_url --cov-branch --cov-fail-under=80
           --cov-report=term-missing --cov-report=xml:coverage.xml
           --cov-report=json:coverage.json --cov-report=html
       - name: Require 100% statement and branch coverage for both download modules
         run: python scripts/check_download_coverage.py coverage.json
+      - name: Require 100% statement and branch coverage for discovery, mapping, cleanup and security
+        run: python scripts/check_safety_coverage.py coverage.json
+      - name: Verify safety tests reject weakened guards
+        run: python scripts/check_safety_mutations.py
       - name: Save coverage reports
         if: always()
         uses: actions/upload-artifact@v7
@@ -70,3 +74,21 @@ jobs:
             coverage.json
             htmlcov/
           if-no-files-found: ignore
+
+  native-platforms:
+    name: Native filesystem and HTTP tests (${{ matrix.os }}, ${{ matrix.extras }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+        extras: [dev, "all,dev"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -e ".[${{ matrix.extras }}]"
+      - name: Run full suite including real HTTP and filesystem preservation tests
+        run: python -m pytest

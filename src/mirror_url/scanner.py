@@ -231,10 +231,10 @@ class DirectoryScanner:
 
                 # Compare origin and validated decoded path, never URL text
                 # prefixes; query parameters do not decide directory type.
-                try:
-                    full_parsed = urlsplit(full_url)
-                except Exception:
-                    continue
+                # urljoin has already parsed the same URL. Any URL/parser
+                # failure must reach the outer scan-failure handler so cleanup
+                # cannot mistake an invalid listing for a complete one.
+                full_parsed = urlsplit(full_url)
                 if full_parsed.scheme not in ("http", "https"):
                     continue
                 if not url_within_scope(full_url, self.base_url):
