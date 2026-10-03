@@ -19,6 +19,7 @@ from ..async_connection import AdaptiveAsyncManager, AsyncConnectionManager, Asy
 from ..compat import TQDM_AVAILABLE
 from ..constants import ADAPTIVE_START_CONCURRENCY, AUTO_CONCURRENCY_SAMPLES
 from ..decorators import log_performance
+from ..destination_lock import destination_operation
 from ..enums import CleanupPolicy, DownloadMethod
 from ..progress import ProgressTracker
 from ..utils import format_bytes, format_duration, sanitize_url_for_log
@@ -34,6 +35,7 @@ class ReportMixin(MirrorHost):
     async_connection_manager: Optional[AsyncConnectionManager]
     async_task_manager: Optional[AsyncTaskManager]
 
+    @destination_operation
     def sync(self) -> bool:
         """Main sync method - v3.0.2 with true parallel file downloads."""
         prefix = self._get_prefix()

@@ -9,14 +9,19 @@ discovers files behind an HTTP(S) directory listing and mirrors them locally
 with adaptive concurrency, resumable/partial downloads, integrity verification,
 and an SSRF-hardened transport layer.
 
+The development checkout includes `--verify-content` and destination locking;
+these changes are not in the published 3.1.79 package yet. See
+[the unreleased changelog](CHANGELOG.md#unreleased).
+
 ## Features
 
 - **Recursive discovery** of remote directory trees (BFS, depth/exclude limits, cycle-safe).
 - **True parallel downloads** — multiple files and multiple chunks per file concurrently.
 - **Adaptive async concurrency** that tunes itself to server RTT, throughput, and error rate.
 - **Resumable & partial downloads** with HTTP range requests and chunk assembly.
-- **Integrity checks** — size/timestamp comparison, ETag handling, and verified byte ranges; no comparison against a remote cryptographic content digest.
+- **Integrity checks** — size/timestamp comparison, ETag handling, verified byte ranges, and opt-in `--verify-content` SHA-256 checks of local files; no comparison against a remote cryptographic content digest.
 - **Resilience** — per-domain circuit breakers, exponential backoff, rate limiting.
+- **Destination ownership** — cooperating processes reject overlapping local trees and shared cache/state paths; hard process termination releases ownership automatically.
 - **Security** — path-traversal and symlink-bomb defenses, private-IP/SSRF guards, URL-scope enforcement.
 - **Operability** — metrics collection, multi-level progress, optional HTTP health-check server.
 - **Caching** — directory listings and file metadata; discovery currently keeps the remote file list in memory.
@@ -53,7 +58,8 @@ mirror-url --version
 mirror-url --help
 ```
 
-Core dependencies: `httpx[http2]`, `pydantic` (v2), `PyYAML`. Optional extras:
+Core dependencies: `httpx[http2]`, `pydantic` (v2), `PyYAML`, `portalocker`
+(including `pywin32` on Windows). Optional extras:
 `fast` (stringzilla, lxml), `progress` (tqdm), `monitor` (psutil), and `all`
 (all optional runtime packages). Contributor setup is described below.
 

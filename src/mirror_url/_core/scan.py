@@ -23,6 +23,7 @@ from urllib.parse import urlparse, urlsplit
 import httpx
 
 from ..decorators import log_performance
+from ..destination_lock import destination_operation
 from ..enums import MemoryPressure
 from ..security import PathSafety
 from ..utils import _relative_url_path, sanitize_url_for_log, trim_url, url_within_scope
@@ -170,6 +171,7 @@ class ScanMixin(MirrorHost):
                 self.symlink_tracker.record_skip(symlink_url)
 
     @log_performance("get_remote_files")
+    @destination_operation
     def get_remote_files(self) -> Optional[List[str]]:
         """Get remote files list through directory discovery."""
         prefix = self._get_prefix()
@@ -342,6 +344,7 @@ class ScanMixin(MirrorHost):
         if lossy_mapping:
             raise ValueError("Remote filename would be changed by local path sanitization")
 
+    @destination_operation
     def list_directories(self) -> bool:
         """Discover, log, and print the directory tree under the target URL /
         --dir-suffix, without scanning files, comparing freshness, or
@@ -465,6 +468,7 @@ class ScanMixin(MirrorHost):
 
         return not getattr(self, "scan_incomplete", False)
 
+    @destination_operation
     def list_files(self) -> bool:
         """Discover, log, and print the files under the target URL /
         --dir-suffix, without comparing freshness or downloading/deleting

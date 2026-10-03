@@ -56,6 +56,34 @@ MUTATIONS = (
         "if False:",
         "tests/test_http_mirror_workflows.py::test_lossy_filename_cannot_overwrite_an_unrelated_local_file",
     ),
+    (
+        "local content receipt",
+        "_core/compare.py",
+        'local_content_matches(local_path, stored.get("sha256"))',
+        "True",
+        "tests/test_content_verification.py::test_same_size_edit_with_identical_cached_stat_fields_requires_download",
+    ),
+    (
+        "hash deadline",
+        "_core/compare.py",
+        'check_timeout = None if getattr(self.config, "verify_content", False) else 30.0',
+        "check_timeout = 30.0",
+        "tests/test_content_verification.py::test_async_hashing_keeps_event_loop_responsive",
+    ),
+    (
+        "destination ownership",
+        "destination_lock.py",
+        "portalocker.lock(handle, flags | portalocker.LOCK_NB)",
+        "pass",
+        "tests/test_destination_lock.py::test_overlapping_trees_are_exclusive_and_released",
+    ),
+    (
+        "abandoned writer ownership",
+        "destination_lock.py",
+        "if self._closing and self._active == 0:",
+        "if self._closing:",
+        "tests/test_destination_lock.py::test_operation_leases_keep_lock_after_cleanup_returns",
+    ),
 )
 
 

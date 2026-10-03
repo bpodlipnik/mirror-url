@@ -119,6 +119,7 @@ def _plain(value):
         ("scan_mode: sequential\n", "scan_mode", "sequential"),
         ("symlink_mode: follow\n", "symlink_mode", "follow"),
         ("stats: true\n", "stats", True),
+        ("verify_content: true\n", "verify_content", True),
     ],
 )
 def test_yaml_value_survives_when_flag_absent(run_main, yaml, field, expected):
@@ -245,6 +246,8 @@ def test_explicit_max_concurrent_downloads_equal_to_default_overrides_yaml(run_m
         (["--scan-mode", "async"], "scan_mode: sequential\n", "scan_mode", "async"),
         (["--cache-html"], "cache_html: false\n", "cache_html", True),
         (["--no-cache-html"], "cache_html: true\n", "cache_html", False),
+        (["--verify-content"], "verify_content: false\n", "verify_content", True),
+        (["--no-verify-content"], "verify_content: true\n", "verify_content", False),
     ],
 )
 def test_cli_flag_overrides_yaml(run_main, tmp_path, argv, yaml, field, expected):

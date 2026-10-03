@@ -33,6 +33,7 @@ from ..compat import LXML_AVAILABLE, PSUTIL_AVAILABLE, TQDM_AVAILABLE
 from ..concurrency import UnifiedConcurrencyManager
 from ..connection import ConnectionManager
 from ..constants import ADAPTIVE_MAX_CONCURRENCY, DEFAULT_RATE_LIMIT
+from ..destination_lock import DestinationLock, MirrorFileHandler, current_run_lock
 from ..download import ParallelDownloadManager, PartialDownloadManager
 from ..enums import CleanupPolicy
 from ..exceptions import URLScopeError
@@ -169,6 +170,35 @@ class _MirrorBase(MirrorHost):
                 part, max_len=config.max_filename_len
             )
         computed_target_path = PathSafety._resolve_destination_root(requested_target)
+        self._closed = False
+        self._destination_lock: Optional[DestinationLock] = None
+        resources = [computed_target_path]
+        if config.cleanup_policy == CleanupPolicy.MOVE:
+            resources.append(
+                computed_target_path.parent / (computed_target_path.name + "_obsolete")
+            )
+        if config.chunk_assembly_dir is not None:
+            resources.append(config.chunk_assembly_dir)
+        if config.use_disk_backed_sets and config.disk_cache_dir is not None:
+            resources.append(config.disk_cache_dir)
+        if config.metrics_json is not None:
+            resources.append(config.metrics_json)
+        self._destination_lock = DestinationLock(resources, parent=current_run_lock())
+        try:
+            self._initialize(config, computed_target_path, suffix_index, total_suffixes)
+        except BaseException:
+            self.cleanup()
+            raise
+
+    def _initialize(
+        self,
+        config: MirrorConfig,
+        computed_target_path: Path,
+        suffix_index: int,
+        total_suffixes: int,
+    ) -> None:
+        """Bring up managers only after exclusive destination ownership."""
+        suffix = config.dir_suffix
         self.suffix_index = suffix_index
         self.total_suffixes = total_suffixes
         self.is_dry_run = config.dry_run
@@ -300,13 +330,17 @@ class _MirrorBase(MirrorHost):
 
         # Create log directory only if needed and not in dry-run
         if not config.dry_run:
+            log_filepath = self.log_path / log_filename
+            if self._destination_lock is not None:
+                self._destination_lock.add_paths([log_filepath])
             try:
                 # Ensure log directory exists BEFORE using FileHandler
-                log_filepath = self.log_path / log_filename
                 log_filepath.parent.mkdir(parents=True, exist_ok=True)
             except Exception:
                 # Fallback to system temp if we can't create the log path
                 temp_log_dir = Path(tempfile.gettempdir()) / f"mirrorurl_logs_{os.getpid()}"
+                if self._destination_lock is not None:
+                    self._destination_lock.add_paths([temp_log_dir / log_filename])
                 temp_log_dir.mkdir(parents=True, exist_ok=True)
                 log_filepath = temp_log_dir / log_filename
                 logging.warning(
@@ -353,6 +387,8 @@ class _MirrorBase(MirrorHost):
         # 16. CACHE MANAGER
         # ============================================================================
         if self.cache_file:
+            if self._destination_lock is not None:
+                self._destination_lock.add_paths([self.cache_file])
             self.cache_manager = CacheManager(self.cache_file, config, self.metrics)
         else:
             # cache_file is None only if constructing the path itself raised
@@ -716,12 +752,23 @@ class _MirrorBase(MirrorHost):
             signal.signal(signum, self._signal_handler)
 
     def cleanup(self) -> None:
-        """Enhanced cleanup with proper ordering and resource management."""
+        """Close once; retain destination ownership until old writers stop."""
+        # A second call on the main thread must restore handlers even when
+        # resource cleanup first ran on a background thread.
         if threading.current_thread() is threading.main_thread():
             for signum, previous in getattr(self, "_previous_signal_handlers", {}).items():
                 if signal.getsignal(signum) == self._signal_handler:
                     signal.signal(signum, previous)
             self._previous_signal_handlers = {}
+        guard = getattr(self, "_destination_lock", None)
+        self._closed = True
+        if guard is not None:
+            guard.close(self._cleanup_resources)
+        else:
+            self._cleanup_resources()
+
+    def _cleanup_resources(self) -> None:
+        """Enhanced cleanup with proper ordering and resource management."""
         logging.debug("Starting MirrorURL cleanup...")
 
         # 1. Stop health server FIRST (so no new requests come in)
@@ -893,15 +940,6 @@ class _MirrorBase(MirrorHost):
             except Exception as e:
                 logging.debug(f"Concurrency manager shutdown error: {e}")
 
-        # 11. Close log handlers
-        if hasattr(self, "log_handlers"):
-            for handler in self.log_handlers:
-                try:
-                    handler.flush()
-                    handler.close()
-                except Exception as e:
-                    logging.debug(f"Log handler close error: {e}")
-
         # 12. Save final metrics if configured
         if hasattr(self, "config") and self.config.metrics_json and not self.config.dry_run:
             try:
@@ -912,6 +950,21 @@ class _MirrorBase(MirrorHost):
                 logging.debug(f"Failed to export final metrics: {e}")
 
         logging.debug("MirrorURL cleanup complete")
+
+        # 11. Close log handlers
+        guard = getattr(self, "_destination_lock", None)
+        # CLI logs belong to the whole run, whose parent still owns the log tree.
+        retain_for_run = guard is not None and guard._parent is not None
+        if hasattr(self, "log_handlers") and not retain_for_run:
+            for handler in self.log_handlers:
+                try:
+                    logging.root.removeHandler(handler)
+                    if handler in _log_files:
+                        _log_files.remove(handler)
+                    handler.flush()
+                    handler.close()
+                except Exception as e:
+                    logging.debug(f"Log handler close error: {e}")
 
     def setup_logging(self) -> None:
         """Setup logging configuration for this mirror instance."""
@@ -940,6 +993,10 @@ class _MirrorBase(MirrorHost):
 
         log_filepath = self.log_path / log_filename
 
+        guard = getattr(self, "_destination_lock", None)
+        if guard is not None:
+            guard.add_paths([log_filepath])
+
         # FIX: Ensure log directory exists BEFORE creating FileHandler
         if not self.config.dry_run:
             try:
@@ -947,6 +1004,8 @@ class _MirrorBase(MirrorHost):
             except Exception:
                 # Fallback to system temp if we can't create the log path
                 temp_log_dir = Path(tempfile.gettempdir()) / f"mirrorurl_logs_{os.getpid()}"
+                if guard is not None:
+                    guard.add_paths([temp_log_dir / log_filename])
                 temp_log_dir.mkdir(parents=True, exist_ok=True)
                 log_filepath = temp_log_dir / log_filename
                 # Store the fallback path for later use
@@ -985,7 +1044,7 @@ class _MirrorBase(MirrorHost):
 
         # File handler (always add)
         try:
-            file_handler = logging.FileHandler(str(log_filepath), mode="a", encoding="utf-8")
+            file_handler = MirrorFileHandler(str(log_filepath), mode="a", encoding="utf-8")
             file_handler.setLevel(logging.DEBUG if self.config.debug else logging.INFO)
             file_handler.setFormatter(
                 logging.Formatter(

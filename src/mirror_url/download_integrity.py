@@ -2,12 +2,47 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
+import stat
 import tempfile
 from pathlib import Path
 from typing import Optional
+
+
+def file_sha256(path: Path, enabled: bool = True) -> Optional[str]:
+    """Hash a regular file in bounded chunks, rejecting changes during the read.
+
+    Downloaders call this on their completed staging file before publication.
+    This detects observable races; callers still need exclusive destination
+    ownership to exclude arbitrary concurrent writers.
+    """
+    if not enabled:
+        return None
+    before = path.lstat()
+    if not stat.S_ISREG(before.st_mode):
+        raise OSError("Content verification requires a regular file")
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        while block := file.read(1024 * 1024):
+            digest.update(block)
+    after = path.lstat()
+    identity = ("st_dev", "st_ino", "st_size", "st_mtime_ns", "st_ctime_ns")
+    if any(getattr(before, field) != getattr(after, field) for field in identity):
+        raise OSError("File changed during content verification")
+    return digest.hexdigest()
+
+
+def local_content_matches(path: Path, expected) -> bool:
+    """A missing or malformed receipt cannot validate local bytes."""
+    if not isinstance(expected, str) or not re.fullmatch(r"[0-9a-f]{64}", expected):
+        return False
+    try:
+        return file_sha256(path) == expected
+    except OSError:
+        return False
 
 
 def strong_etag(headers) -> Optional[str]:

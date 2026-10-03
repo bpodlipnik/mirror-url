@@ -7,6 +7,7 @@ import html
 import re
 import socket
 import threading
+from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
 from urllib.parse import quote, unquote, urlsplit
@@ -21,8 +22,8 @@ from mirror_url.transport import SecureAsyncTransport, SecureTransport
 pytestmark = pytest.mark.integration
 
 
-@pytest.fixture
-def remote(monkeypatch):
+@contextmanager
+def local_archive(monkeypatch):
     state = SimpleNamespace(
         files={}, listings={}, requests=[], failures={}, redirects={}, drops={}, etag=True
     )
@@ -125,6 +126,12 @@ def remote(monkeypatch):
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+
+
+@pytest.fixture
+def remote(monkeypatch):
+    with local_archive(monkeypatch) as state:
+        yield state
 
 
 @pytest.fixture

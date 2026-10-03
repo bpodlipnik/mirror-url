@@ -43,7 +43,14 @@ from .constants import (
     PARTIAL_SUFFIX,
     STREAMING_WRITE_BUFFER_SIZE,
 )
-from .download_integrity import clear_resume_metadata, content_length, strong_etag, validate_range
+from .destination_lock import destination_operation
+from .download_integrity import (
+    clear_resume_metadata,
+    content_length,
+    file_sha256,
+    strong_etag,
+    validate_range,
+)
 from .enums import DownloadMethod
 from .exceptions import ChunkAssemblyError, ChunkDownloadError
 from .models import ChunkInfo, ParallelFileDownload
@@ -77,6 +84,7 @@ class ParallelDownloadManager:
         self.bandwidth_limiter = bandwidth_limiter
         self.concurrency_manager = concurrency_manager
         self.mirror = mirror
+        self._destination_lock = getattr(mirror, "_destination_lock", None)
 
         # Determine download mode from config
         self.enabled = False
@@ -260,6 +268,7 @@ class ParallelDownloadManager:
                 # Don't let cleanup errors crash the thread
                 logging.debug(f"Periodic cleanup error (non-critical): {e}")
 
+    @destination_operation
     def _cleanup_idle_resources(self) -> None:
         """Clean up idle per-IP semaphores and stale download tracking entries."""
         now = time.time()
@@ -342,6 +351,7 @@ class ParallelDownloadManager:
         chunks = min(chunks, self.max_chunks_per_file)
         return chunks
 
+    @destination_operation
     def create_chunks(
         self, url: str, local_path: Path, file_size: int
     ) -> Optional[ParallelFileDownload]:
@@ -435,6 +445,7 @@ class ParallelDownloadManager:
         """Write a verified range into a preallocated, unpublished staging file."""
         return self._download_verified_chunk(chunk, streaming=True)
 
+    @destination_operation
     def _download_verified_chunk(self, chunk: ChunkInfo, *, streaming: bool) -> bool:
         chunk.status = "downloading"
         parsed = urlparse(chunk.file_url)
@@ -532,6 +543,7 @@ class ParallelDownloadManager:
         finally:
             self.rate_limiter.register_chunk_complete(ip)
 
+    @destination_operation
     def download_parallel(self, download: ParallelFileDownload) -> bool:
         """Download all chunks of a file in parallel with batch rate limiting - FIXED"""
         if download.status != "downloading" and download.status != "streaming":
@@ -616,6 +628,7 @@ class ParallelDownloadManager:
             return self._finish_streaming(download)
         return self.assemble_file(download)
 
+    @destination_operation
     def _finish_streaming(self, download: ParallelFileDownload) -> bool:
         """Publish only after all validated chunks are complete and flushed."""
         try:
@@ -625,6 +638,9 @@ class ParallelDownloadManager:
                 raise ChunkAssemblyError("Streaming size mismatch")
             with open(download.staging_path, "r+b") as f:
                 os.fsync(f.fileno())
+            digest = file_sha256(
+                download.staging_path, enabled=getattr(self.config, "verify_content", False)
+            )
             os.replace(download.staging_path, download.final_path)
             download.staging_path = None
             self._restore_server_timestamp(download)
@@ -634,12 +650,15 @@ class ParallelDownloadManager:
                 if self.mirror:
                     self.mirror.files_processed.increment(1)
                     self.mirror.total_downloaded_size.add(download.file_size)
-                    if hasattr(self.mirror, "cache_manager") and download.server_etag:
+                    if hasattr(self.mirror, "cache_manager") and (
+                        download.server_etag or digest is not None
+                    ):
                         self.mirror.cache_manager.save_file_metadata(
                             download.final_path,
                             download.server_etag,
                             time.time(),
                             download.file_size,
+                            sha256=digest,
                         )
                     if hasattr(self.mirror, "fs_cache"):
                         self.mirror.fs_cache.invalidate(download.final_path)
@@ -681,6 +700,7 @@ class ParallelDownloadManager:
                         self._ip_semaphores_last_used.pop(k, None)
             return sem
 
+    @destination_operation
     def _download_chunk_with_semaphore(self, chunk: ChunkInfo) -> bool:
         parsed = urlparse(chunk.file_url)
 
@@ -772,6 +792,7 @@ class ParallelDownloadManager:
             return self._finish_streaming(download)
         return self.assemble_file(download)
 
+    @destination_operation
     def assemble_file(self, download: ParallelFileDownload) -> bool:
         """Assemble chunks into final file using memory-mapped I/O - PRODUCTION HARDENED v3.1.
 
@@ -930,6 +951,9 @@ class ParallelDownloadManager:
             # The assembly file is in the destination directory, so a
             # failed replace must leave the old file intact. A copy/move
             # fallback could destroy it before that fallback completes.
+            digest = file_sha256(
+                temp_assembly, enabled=getattr(self.config, "verify_content", False)
+            )
             os.replace(temp_assembly, download.final_path)
             temp_file_moved = True
             self._restore_server_timestamp(download)
@@ -942,9 +966,15 @@ class ParallelDownloadManager:
                 if self.mirror:
                     self.mirror.files_processed.increment(1)
                     self.mirror.total_downloaded_size.add(file_size)
-                    if hasattr(self.mirror, "cache_manager") and download.server_etag:
+                    if hasattr(self.mirror, "cache_manager") and (
+                        download.server_etag or digest is not None
+                    ):
                         self.mirror.cache_manager.save_file_metadata(
-                            download.final_path, download.server_etag, time.time(), file_size
+                            download.final_path,
+                            download.server_etag,
+                            time.time(),
+                            file_size,
+                            sha256=digest,
                         )
                     if hasattr(self.mirror, "fs_cache"):
                         self.mirror.fs_cache.invalidate(download.final_path)

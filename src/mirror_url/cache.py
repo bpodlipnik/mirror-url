@@ -246,7 +246,7 @@ class CacheManager:
                 f.flush()
                 os.fsync(f.fileno())
 
-            temp_file.rename(self.cache_file)
+            os.replace(temp_file, self.cache_file)
             self.metrics.set_cache_signatures(len(directories))
             logging.info(
                 f"💾 Saved cache v2 with {len(directories)} directory signatures, {file_count} files"
@@ -392,7 +392,15 @@ class CacheManager:
             self.lru_file_cache.invalidate(key)
             return None
 
-    def save_file_metadata(self, local_path: Path, etag: str, mtime: float, size: int = 0) -> None:
+    def save_file_metadata(
+        self,
+        local_path: Path,
+        etag: Optional[str],
+        mtime: float,
+        size: int = 0,
+        *,
+        sha256: Optional[str] = None,
+    ) -> None:
         """
         Save file metadata to cache.
 
@@ -401,9 +409,12 @@ class CacheManager:
             etag: ETag value
             mtime: Modification time
             size: File size
+            sha256: Receipt from the completed staging file, before publication
         """
         key = str(local_path.resolve())
         data = {"etag": etag, "mtime": mtime, "size": size, "updated": datetime.now().isoformat()}
+        if sha256 is not None:
+            data["sha256"] = sha256
         try:
             stat = local_path.stat()
             data.update(local_mtime_ns=stat.st_mtime_ns, local_ctime_ns=stat.st_ctime_ns)
@@ -563,7 +574,15 @@ class NullCacheManager:
     def get_file_metadata(self, local_path: Path) -> Optional[Dict]:
         return None
 
-    def save_file_metadata(self, local_path: Path, etag: str, mtime: float, size: int = 0) -> None:
+    def save_file_metadata(
+        self,
+        local_path: Path,
+        etag: Optional[str],
+        mtime: float,
+        size: int = 0,
+        *,
+        sha256: Optional[str] = None,
+    ) -> None:
         pass
 
     def cleanup_file_metadata(self, local_path: Path) -> None:

@@ -13,7 +13,7 @@ repeats the essentials so you can work from it alone.
 - **Package:** `mirror_url` (src-layout under `src/`)
 - **Version:** 3.1.79
 - **Python:** 3.9 or newer; CI tests Python 3.9–3.14
-- **Runtime deps:** `httpx[http2]` (including `h2`), `pydantic` v2, `PyYAML` (optional: `stringzilla`,
+- **Runtime deps:** `httpx[http2]` (including `h2`), `pydantic` v2, `PyYAML`, `portalocker` 3.x (optional: `stringzilla`,
   `lxml`, `tqdm`, `psutil`)
 
 ---
@@ -45,7 +45,7 @@ repeats the essentials so you can work from it alone.
 
 MirrorURL began as a single `mirror_url.py` of ~15,000 lines containing ~70
 classes and ~25 module-level functions. It was split into the modular
-`src/mirror_url/` package (44 Python files, organized by responsibilities) by a
+`src/mirror_url/` package (45 Python files, organized by responsibilities) by a
 **behavior-preserving** migration: code was relocated verbatim and class/function
 method sets were verified identical to the original via AST comparison. Logic
 changes were kept out of the migration and made only in separate, reviewable
@@ -91,7 +91,7 @@ changes — most review feedback traces back to one of these.
 
 ```
 mirror-url/
-├── src/mirror_url/          # the package (44 Python files including private helpers)
+├── src/mirror_url/          # the package (45 Python files including private helpers)
 │   ├── __init__.py          # public API re-exports
 │   ├── __main__.py          # `python -m mirror_url`
 │   ├── _version.py          # __version__, __author__  (one of two version sources)
@@ -124,7 +124,7 @@ those groupings. The important invariant is an acyclic runtime import graph.
 
 ```
 Foundations: _version · compat · constants · exceptions · enums · utils
-Data and primitives: models · async_primitives · primitives · parsing · security
+Data and primitives: models · async_primitives · primitives · parsing · security · destination_lock
 Managers: transport · storage · circuit_breaker · rate_limiter · queue · cache
 Runtime support: metrics · progress · monitoring · connection · async_connection · concurrency
 Engines: download · download_integrity · scanner · health · domain_health · config · tuner
@@ -201,6 +201,18 @@ pool warm-up checks each redirect before contacting its target.
 - `transport.py` — `SecureTransport`, `SecureAsyncTransport`: httpx transports
   that block loopback/private IPs (SSRF hardening). Both honor a `test_mode` flag
   used to relax the guard in tests.
+- `destination_lock.py` — per-user shared ancestor locks and exclusive resource
+  locks. `_MirrorBase` acquires ownership before managers start; cache and log
+  paths are added before access. Operation leases retain the handles until
+  cleanup and active writers finish, including after a bounded shutdown timeout.
+  `DestinationLockError` rejects overlap and use after cleanup. Lock files remain
+  in `~/.mirror-url/locks-v1/`; never unlink them during a run. Portalocker 3.x
+  provides native Windows/POSIX locks. This is cooperative local-filesystem
+  protection with a common home directory, not multi-host coordination.
+  The CLI's `run_ownership` context reserves all selected roots and the log tree
+  before shared logging; `ContextVar` supplies an explicit parent to each
+  suffix instance. Child cleanup ends its lifecycle without closing the run's
+  handles. Child writer and cleanup leases also retain parent ownership.
 - `storage.py` — `FileSystemCache`, `DiskBackedSet` (tracking with disk spills,
   memory-only duplicate suppression and pruning; no persistent membership index).
 - `circuit_breaker.py` — `CircuitBreaker`, `AsyncCircuitBreaker`,
@@ -406,7 +418,24 @@ Cached file ETags are bound to size, `st_mtime_ns`, and `st_ctime_ns` by
 `CompareMixin._comparison_metadata`. These stat fields do not prove content
 identity: same-size local edits with unchanged timestamps can be missed.
 Metadata-change regressions must explicitly advance the file timestamp rather
-than rely on native clock resolution; content hashes are not checked here.
+than rely on native clock resolution. With `verify_content=True`, the size and
+SHA-256 receipt instead validate local identity; timestamp-only changes do not
+invalidate an otherwise matching receipt. Missing or invalid receipts fail
+closed even when a HEAD response reports matching size/time. Async checks run
+the hashing step in `_meta_check_executor` to avoid blocking the event loop.
+Content-verification runs disable the enclosing 30-second check and 120-second
+batch deadlines while retaining the 15-second HEAD timeout. Otherwise a hash
+can outlive its cancelled task and be repeated by fallback workers, causing
+unnecessary downloads of large unchanged files.
+
+`download_integrity.file_sha256` reads regular files in 1 MiB chunks and rejects
+observable stat changes during hashing. The single, assembled and streaming
+download paths hash the completed staging file before `os.replace`, then pass
+the digest to `CacheManager.save_file_metadata(..., sha256=digest)`. Cache entries
+can contain a receipt without an ETag. Cache saves use `os.replace` so existing
+JSON can be replaced on Windows. Legacy receipts are not invented from an
+unverified destination: missing receipts require downloading the file again.
+This mode adds local verification; remote freshness retains the HTTP policy.
 
 The regression contracts live in `test_release_audit_regressions.py`, the
 download failure/integrity/storage-fault tests, HTTP workflow tests, and config
@@ -691,7 +720,7 @@ branch coverage separately for `download.py` and `download_integrity.py`, using
 the exact missing counts in the JSON report. It uploads HTML, JSON, and XML
 reports. The safety gate separately requires 100% statements and branches for
 `scanner.py`, `_core/scan.py`, `_core/urls.py`, `_core/cleanup.py`, `security.py`
-and `transport.py`, plus `utils.url_within_scope` and `utils._relative_url_path`.
+`transport.py` and `destination_lock.py`, plus `utils.url_within_scope` and `utils._relative_url_path`.
 It uses exact missing counts and checks helper exclusions; unrelated uncovered
 utility functions do not get hidden or counted as covered.
 
@@ -699,13 +728,45 @@ Hypothesis generates once-decoded path identities, origin boundaries and nested
 traversal encodings. Filesystem tests inject permission, resolution, listing and
 move failures, and assert preserved source and archive bytes. Local HTTP tests
 assert that malformed listings and lossy filenames fail before destructive
-cleanup or publication. The mutation check temporarily weakens six guards:
+cleanup or publication. The mutation check temporarily weakens ten guards:
 mixed DNS rejection, archive collision rejection, incomplete-scan cleanup,
-same-origin scope, address pinning and lossy filename preflight. Each selected
+same-origin scope, address pinning, lossy filename preflight and content receipt
+verification, the long-hash deadline policy, destination locking and retention
+of abandoned-worker ownership. Each selected
 test must first pass against the original source and then fail an assertion
 against the mutation. Collection or environment errors do not count as success.
 These checks improve evidence of correctness; neither 100% coverage nor this
 small mutation set guarantees that all bugs have been found.
+
+`test_process_recovery.py` starts real subprocesses against the local HTTP
+fixture, kills them at deterministic IO checkpoints, then restarts the same
+destination. Checkpoints cover partial/chunk writes, both sides of publication,
+partial cache JSON serialization and a completed MOVE before cleanup finishes.
+All three download modes assert complete destination bytes, preserved obsolete
+bytes, persisted receipts and a subsequent sync without another file download.
+`process_recovery_worker.py` supplies test-only checkpoints; production has no
+crash hooks or loopback security bypass. Process kill tests do not simulate
+power loss or arbitrary external writers. A competing process must fail at
+every checkpoint before the owner is killed. `test_process_destination_lock.py`
+also checks simultaneous starts, parent/child overlap, independent trees, shared
+state, normal release, hard-kill recovery and cleanup while an HTTP writer is
+blocked. Native CI runs these tests on Windows and macOS too.
+
+For a 24-hour synthetic soak, use the dev environment and a new output directory:
+
+```bash
+PYTHONPATH=src python scripts/run_local_soak.py \
+  --output /path/to/new-soak-directory --duration-hours 24 --interval 60
+```
+
+The harness cycles through all download modes, repairs same-size corruption,
+preserves files on failed listings, checks MOVE collisions and recovers dropped
+connections and process kills. It writes atomic `status.json`, source hashes,
+resource samples and bounded logs. Freeze `src/`, `tests/` and `scripts/` for a
+long run: source changes invalidate the result. With optional psutil, resource
+checks include RSS and descriptors/handles; thread counts are always checked.
+An elapsed short smoke run is not long-duration evidence. Local synthetic tests
+also do not replace a representative archive/destination soak.
 
 Native macOS and Windows CI jobs also run the full suite on Python 3.12 with
 core dependencies and with all optional dependencies. The coverage gate runs
