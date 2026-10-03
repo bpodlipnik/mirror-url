@@ -24,7 +24,11 @@ from test_immediate_audit_fixes import parallel as parallel
 from test_transfer_storage_lifecycle import make_download
 
 
-@pytest.mark.parametrize("content", [b"", b"hello", bytes(range(256)) * 8193])
+@pytest.mark.parametrize(
+    "content",
+    [b"", b"hello", bytes(range(256)) * 8193],
+    ids=["empty", "small", "multiple-chunks"],
+)
 def test_hash_matches_complete_bytes_with_bounded_reads(tmp_path, monkeypatch, content):
     path = tmp_path / "file"
     path.write_bytes(content)
