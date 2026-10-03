@@ -33,6 +33,8 @@ class MirrorFileHandler(logging.FileHandler):
     after cleanup releases filesystem ownership.
     """
 
+    _closed: bool  # Initialized by logging.Handler; absent from typeshed's public API.
+
     def emit(self, record: logging.LogRecord) -> None:
         if not self._closed:
             super().emit(record)
