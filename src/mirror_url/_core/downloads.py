@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Optional
 import httpx
 
 from ..constants import DOWNLOAD_CHUNK_SIZE
+from ..destination_lock import destination_operation
 from ..download_integrity import (
     clear_resume_metadata,
     content_length,
@@ -36,6 +37,7 @@ else:
 
 
 class DownloadMixin(MirrorHost):
+    @destination_operation
     def download_file_with_resume(
         self, remote_url: str, local_path: Path, file_size: Optional[int] = None
     ) -> bool:
@@ -65,6 +67,7 @@ class DownloadMixin(MirrorHost):
         # Fallback for files that don't meet parallel criteria (too small, disabled, etc.)
         return self._download_file_single(remote_url, local_path)
 
+    @destination_operation
     def _download_file_single(self, remote_url: str, local_path: Path) -> bool:
         """Original single-threaded download method with atomic counter updates."""
         remote_url = trim_url(remote_url)

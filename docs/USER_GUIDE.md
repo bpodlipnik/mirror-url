@@ -59,7 +59,7 @@ incremental runs, and strong SSRF/path-traversal protections.
 - **Python 3.9 or newer.**
 - Runtime dependencies (installed automatically): `httpx` (with the
   `http2` extra, which pulls in `h2` -- HTTP/2 is on by default, see
-  `--no-http2`), `pydantic` (v2), `PyYAML`.
+  `--no-http2`), `pydantic` (v2), `PyYAML`, `portalocker` 3.x (and `pywin32` on Windows).
 - Optional accelerators (install via extras, see below): `stringzilla` + `lxml`
   (faster parsing), `tqdm` (progress bars), `psutil` (memory/disk monitoring).
 
@@ -524,6 +524,31 @@ file, but never publishes that unfinished file under the destination filename.
 `--no-etag` disables freshness comparisons, while range transfers still require
 ETags to verify that all bytes belong to the same remote representation.
 
+### Concurrent runs and destination ownership
+
+The development checkout acquires cooperative OS locks before starting a
+mirror. Overlapping destinations (including parent/child trees), shared cache
+or log files, configured chunk/disk cache directories, metrics files and MOVE
+archives reject a competing run with `DestinationLockError`; the CLI exits
+with status 1. Separate trees and state paths can run concurrently. Dry runs
+also acquire ownership because cache loading can repair existing cache state.
+CLI runs reserve their log directory and all selected suffixes before shared
+logging starts, and retain them until the whole run finishes. Destination keys
+are conservatively case-folded and Unicode-normalized, so equivalent names
+conflict even on a case-sensitive filesystem.
+
+Lock files live in `~/.mirror-url/locks-v1/`, outside the destination. They
+remain after cleanup; **do not delete them while any mirror is running**.
+Process termination releases the OS locks automatically, including after a
+hard kill. No stale PID file needs removal. Use `with MirrorURL(config)` or
+call `cleanup()` explicitly. Cleanup rejects new work; a writer still running
+after a shutdown timeout retains ownership until it stops.
+
+This protects cooperating new-version processes using the same account, home
+directory and local filesystem. Published 3.1.79 and older versions and other
+applications do not participate. Network filesystems, multiple hosts, mount
+aliases and external writers need separate coordination.
+
 ---
 
 ## Filtering and scope
@@ -972,7 +997,7 @@ except (ConfigError, ValidationError) as e:
 
 Useful exported names: `MirrorURL`, `MirrorConfig`, `load_config_from_args`,
 `main`, and the exception types (`MirrorError`, `ConfigError`,
-`MirrorConnectionError`, `SecurityError`, `DownloadError`,
+`MirrorConnectionError`, `SecurityError`, `DownloadError`, `DestinationLockError`,
 `PathTraversalError`, `URLScopeError`).
 
 For a configuration dictionary, use `MirrorConfig.model_validate(data)` to

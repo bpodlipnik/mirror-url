@@ -78,6 +78,16 @@ def test_process_kill_preserves_complete_files_and_recovery(remote, config, tmp_
                     break
                 time.sleep(0.02)
             assert checkpoint and checkpoint["phase"] == phase, log.read_text(errors="replace")
+            competing = subprocess.run(
+                [*command, "none", str(tmp_path / "contender.json")],
+                cwd=tmp_path,
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                timeout=15,
+            )
+            assert competing.returncode != 0
+            assert b"Destination or shared state is already in use" in competing.stdout
             process.kill()
             process.wait(timeout=10)
             assert process.returncode != 0

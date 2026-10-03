@@ -19,6 +19,7 @@ from .config import MirrorConfig, load_config_from_args
 from .core import MirrorURL
 from .exceptions import (
     ConfigError,
+    DestinationLockError,
     DownloadError,
     MirrorConnectionError,
     MirrorError,
@@ -39,6 +40,7 @@ __all__ = [
     "PathTraversalError",
     "URLScopeError",
     "ConfigError",
+    "DestinationLockError",
     "SecurityError",
     "DownloadError",
 ]

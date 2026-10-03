@@ -18,6 +18,7 @@ MODULES = tuple(
         "_core/cleanup.py",
         "security.py",
         "transport.py",
+        "destination_lock.py",
     )
 )
 HELPERS = ("url_within_scope", "_relative_url_path")

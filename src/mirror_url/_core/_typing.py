@@ -25,6 +25,7 @@ if TYPE_CHECKING:  # pragma: no cover - declarations have no runtime implementat
     from ..concurrency import UnifiedConcurrencyManager
     from ..config import MirrorConfig
     from ..connection import ConnectionManager
+    from ..destination_lock import DestinationLock
     from ..download import ParallelDownloadManager, PartialDownloadManager
     from ..health import HealthChecker, HealthCheckServer
     from ..metrics import MetricsCollector
@@ -42,6 +43,8 @@ if TYPE_CHECKING:  # pragma: no cover - declarations have no runtime implementat
         """State and cross-mixin methods provided by MirrorURL's composition."""
 
         config: MirrorConfig
+        _destination_lock: Optional[DestinationLock]
+        _closed: bool
         suffix_index: int
         total_suffixes: int
         is_dry_run: bool

@@ -17,6 +17,7 @@ import re
 import sys
 import tempfile
 import time
+from contextlib import ExitStack
 from pathlib import Path
 from typing import List, Optional
 
@@ -58,8 +59,10 @@ from .constants import (
     TARGET_BATCH_TIME_SECONDS,
 )
 from .core import MirrorURL
+from .destination_lock import MirrorFileHandler, run_ownership
 from .enums import CleanupPolicy, ScanMode
-from .exceptions import ConfigError, PathTraversalError, URLScopeError
+from .exceptions import ConfigError, DestinationLockError, PathTraversalError, URLScopeError
+from .security import PathSafety
 from .utils import _log_files, sanitize_command_line
 
 
@@ -100,7 +103,7 @@ def setup_shared_logging(
                 pass
 
     # Create file handler (always)
-    file_handler = logging.FileHandler(str(log_path), mode="a", encoding="utf-8")
+    file_handler = MirrorFileHandler(str(log_path), mode="a", encoding="utf-8")
     file_handler.setLevel(logging.DEBUG if args.debug else logging.INFO)
     file_handler.setFormatter(
         logging.Formatter("[%(asctime)s] [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
@@ -339,6 +342,25 @@ def _cli_overrides(args: argparse.Namespace, explicit: set) -> dict:
 
 
 def main() -> None:
+    """Own the complete CLI run, including logging before mirror construction."""
+    previous = set(_log_files)
+    with ExitStack() as ownership:
+        try:
+            _main(ownership)
+        finally:
+            _close_run_handlers([handler for handler in _log_files if handler not in previous])
+
+
+def _close_run_handlers(handlers) -> None:
+    for handler in handlers:
+        logging.root.removeHandler(handler)
+        if handler in _log_files:
+            _log_files.remove(handler)
+        handler.flush()
+        handler.close()
+
+
+def _main(ownership: ExitStack) -> None:
     """Main entry point with true parallel file downloads"""
     parser = argparse.ArgumentParser(
         description=f"MirrorURL v{__version__} - HTTP(S) directory-listing mirroring",
@@ -1110,19 +1132,40 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
     except ValueError:
         args.cleanup_policy = CleanupPolicy.SAFE_NO_DELETE
 
+    effective, base_config = None, None
+    if args.config:
+        try:
+            base_config = MirrorConfig.from_yaml(Path(args.config), silent=True)
+            effective = _effective_args(args, explicit_dests, base_config)
+        except Exception:
+            pass  # The existing per-suffix config path reports invalid configuration.
+
+    # Reserve selected roots and all shared output before even the logging
+    # header writes. Per-suffix MirrorURL instances borrow this run's ownership.
+    settings = effective if effective is not None else args
+    resources = [Path(args.log_path)]
+    try:
+        for suffix in args.dir_suffix or [""]:
+            target = Path(args.dest_path)
+            for part in (part for part in suffix.split("/") if part):
+                target /= PathSafety._safe_filename(part, max_len=settings.max_filename_len)
+            target = PathSafety._resolve_destination_root(target)
+            resources.append(target)
+            if settings.cleanup_policy == CleanupPolicy.MOVE:
+                resources.append(target.parent / (target.name + "_obsolete"))
+        for field in ("chunk_assembly_dir", "disk_cache_dir", "metrics_json"):
+            value = getattr(settings, field, getattr(base_config, field, None))
+            if value is not None:
+                resources.append(Path(value))
+        ownership.enter_context(run_ownership(resources))
+    except (DestinationLockError, PathTraversalError) as error:
+        print(f"Destination ownership error: {error}", file=sys.stderr)
+        sys.exit(1)
+
     # Setup shared logging if requested
     if args.log_file:
-        effective = None
-        if args.config:
-            try:
-                effective = _effective_args(
-                    args,
-                    explicit_dests,
-                    MirrorConfig.from_yaml(Path(args.config), silent=True),
-                )
-            except Exception:
-                effective = None  # header falls back to describing the CLI values
         setup_shared_logging(args, effective)
+        ownership.callback(_close_run_handlers, list(logging.root.handlers))
         use_shared = True
     else:
         use_shared = False
@@ -1533,6 +1576,9 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
             failed.append(suf or "ROOT")
         except URLScopeError as e:
             logging.critical(f"URL scope error for {suf or 'ROOT'}: {e}")
+            failed.append(suf or "ROOT")
+        except DestinationLockError as e:
+            logging.critical(f"Destination ownership error for {suf or 'ROOT'}: {e}")
             failed.append(suf or "ROOT")
         except Exception as e:
             logging.critical(f"Error with {suf or 'ROOT'}: {e}", exc_info=True)

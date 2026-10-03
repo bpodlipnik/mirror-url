@@ -76,6 +76,12 @@ class DownloadError(MirrorError):
     pass
 
 
+class DestinationLockError(MirrorError):
+    """Raised when a mirror cannot exclusively own its destination or state."""
+
+    pass
+
+
 class HealthCheckError(MirrorError):
     """Raised when health check fails"""
 
@@ -143,6 +149,7 @@ __all__ = [
     "AdaptiveAsyncError",
     "SecurityError",
     "DownloadError",
+    "DestinationLockError",
     "HealthCheckError",
     "SymlinkLoopError",
     "SymlinkBombError",

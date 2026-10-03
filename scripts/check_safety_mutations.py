@@ -70,6 +70,20 @@ MUTATIONS = (
         "check_timeout = 30.0",
         "tests/test_content_verification.py::test_async_hashing_keeps_event_loop_responsive",
     ),
+    (
+        "destination ownership",
+        "destination_lock.py",
+        "portalocker.lock(handle, flags | portalocker.LOCK_NB)",
+        "pass",
+        "tests/test_destination_lock.py::test_overlapping_trees_are_exclusive_and_released",
+    ),
+    (
+        "abandoned writer ownership",
+        "destination_lock.py",
+        "if self._closing and self._active == 0:",
+        "if self._closing:",
+        "tests/test_destination_lock.py::test_operation_leases_keep_lock_after_cleanup_returns",
+    ),
 )
 
 

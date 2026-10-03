@@ -329,7 +329,8 @@ protections.</p>
 <li>Runtime dependencies (installed automatically): <code>httpx</code>
 (with the <code>http2</code> extra, which pulls in <code>h2</code> --
 HTTP/2 is on by default, see <code>--no-http2</code>),
-<code>pydantic</code> (v2), <code>PyYAML</code>.</li>
+<code>pydantic</code> (v2), <code>PyYAML</code>,
+<code>portalocker</code> 3.x (and <code>pywin32</code> on Windows).</li>
 <li>Optional accelerators (install via extras, see below):
 <code>stringzilla</code> + <code>lxml</code> (faster parsing),
 <code>tqdm</code> (progress bars), <code>psutil</code> (memory/disk
@@ -1172,6 +1173,32 @@ unfinished file under the destination filename. <code>--no-etag</code>
 disables freshness comparisons, while range transfers still require
 ETags to verify that all bytes belong to the same remote
 representation.</p>
+<h3 id="concurrent-runs-and-destination-ownership">Concurrent runs and
+destination ownership</h3>
+<p>The development checkout acquires cooperative OS locks before
+starting a mirror. Overlapping destinations (including parent/child
+trees), shared cache or log files, configured chunk/disk cache
+directories, metrics files and MOVE archives reject a competing run with
+<code>DestinationLockError</code>; the CLI exits with status 1. Separate
+trees and state paths can run concurrently. Dry runs also acquire
+ownership because cache loading can repair existing cache state. CLI
+runs reserve their log directory and all selected suffixes before shared
+logging starts, and retain them until the whole run finishes.
+Destination keys are conservatively case-folded and Unicode-normalized,
+so equivalent names conflict even on a case-sensitive filesystem.</p>
+<p>Lock files live in <code>~/.mirror-url/locks-v1/</code>, outside the
+destination. They remain after cleanup; <strong>do not delete them while
+any mirror is running</strong>. Process termination releases the OS
+locks automatically, including after a hard kill. No stale PID file
+needs removal. Use <code>with MirrorURL(config)</code> or call
+<code>cleanup()</code> explicitly. Cleanup rejects new work; a writer
+still running after a shutdown timeout retains ownership until it
+stops.</p>
+<p>This protects cooperating new-version processes using the same
+account, home directory and local filesystem. Published 3.1.79 and older
+versions and other applications do not participate. Network filesystems,
+multiple hosts, mount aliases and external writers need separate
+coordination.</p>
 <hr />
 <h2 id="filtering-and-scope-1">Filtering and scope</h2>
 <ul>
@@ -1662,7 +1689,8 @@ class="sourceCode python"><code class="sourceCode python"><span id="cb33-1"><a h
 <code>main</code>, and the exception types (<code>MirrorError</code>,
 <code>ConfigError</code>, <code>MirrorConnectionError</code>,
 <code>SecurityError</code>, <code>DownloadError</code>,
-<code>PathTraversalError</code>, <code>URLScopeError</code>).</p>
+<code>DestinationLockError</code>, <code>PathTraversalError</code>,
+<code>URLScopeError</code>).</p>
 <p>For a configuration dictionary, use
 <code>MirrorConfig.model_validate(data)</code> to validate it and obtain
 a model. To obtain informational warnings about an existing

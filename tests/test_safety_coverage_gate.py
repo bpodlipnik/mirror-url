@@ -34,6 +34,7 @@ def test_safety_gate_rejects_gaps_and_unmeasured_helpers(tmp_path, fault):
         "_core/cleanup.py",
         "security.py",
         "transport.py",
+        "destination_lock.py",
     ]
     files = {
         "src/mirror_url/" + name: {

@@ -22,17 +22,34 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the same destination and verify original, replacement and archived bytes.
 - Add mutation checks that weaken the content receipt guard and impose
   metadata-only deadlines on hashing.
+- Acquire cooperative per-user destination locks before starting managers.
+  Reject overlapping trees, MOVE archives and shared cache, log, chunk, disk
+  cache or metrics paths. Keep ownership while abandoned writers finish; kernel
+  locks release automatically after process termination. Use portalocker 3.x
+  for native shared/exclusive locks on Linux, macOS and Windows.
+- Add process contention, simultaneous-start and lock recovery tests, a 100%
+  statement/branch gate for the lock module, and mutations that remove locks or
+  prematurely release abandoned-worker ownership.
+- Add an isolated local soak harness with repeated downloads in all modes,
+  content repair, failed scans, MOVE collisions, dropped connections, process
+  kills and resource-growth checks. A short smoke run is not a 24-hour result.
 
 ### Fixed
 
 - Publish cache JSON with `os.replace()` so updates replace an existing cache
   on Windows while retaining the previous complete file on failure.
+- Reserve CLI destinations and the log tree before shared logging starts;
+  keep the run's ownership across suffix cleanup. Normalize Unicode destination
+  aliases, restore signals on a later main-thread cleanup, and detach closed
+  instance handlers so logging cannot reopen a file after ownership is released.
 
 ### Documentation
 
 - Explain local content receipts, initial redownloads, hashing costs and cache
   options. This verifies local bytes; it does not authenticate remote content
-  against a server-provided cryptographic checksum or exclude concurrent writers.
+  against a server-provided cryptographic checksum. Explain cooperative locking
+  and its limits: old versions, external writers and network filesystems require
+  separate coordination.
 
 ## [3.1.79] - 2026-10-03
 

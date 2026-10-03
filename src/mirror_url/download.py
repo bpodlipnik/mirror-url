@@ -43,6 +43,7 @@ from .constants import (
     PARTIAL_SUFFIX,
     STREAMING_WRITE_BUFFER_SIZE,
 )
+from .destination_lock import destination_operation
 from .download_integrity import (
     clear_resume_metadata,
     content_length,
@@ -83,6 +84,7 @@ class ParallelDownloadManager:
         self.bandwidth_limiter = bandwidth_limiter
         self.concurrency_manager = concurrency_manager
         self.mirror = mirror
+        self._destination_lock = getattr(mirror, "_destination_lock", None)
 
         # Determine download mode from config
         self.enabled = False
@@ -266,6 +268,7 @@ class ParallelDownloadManager:
                 # Don't let cleanup errors crash the thread
                 logging.debug(f"Periodic cleanup error (non-critical): {e}")
 
+    @destination_operation
     def _cleanup_idle_resources(self) -> None:
         """Clean up idle per-IP semaphores and stale download tracking entries."""
         now = time.time()
@@ -348,6 +351,7 @@ class ParallelDownloadManager:
         chunks = min(chunks, self.max_chunks_per_file)
         return chunks
 
+    @destination_operation
     def create_chunks(
         self, url: str, local_path: Path, file_size: int
     ) -> Optional[ParallelFileDownload]:
@@ -441,6 +445,7 @@ class ParallelDownloadManager:
         """Write a verified range into a preallocated, unpublished staging file."""
         return self._download_verified_chunk(chunk, streaming=True)
 
+    @destination_operation
     def _download_verified_chunk(self, chunk: ChunkInfo, *, streaming: bool) -> bool:
         chunk.status = "downloading"
         parsed = urlparse(chunk.file_url)
@@ -538,6 +543,7 @@ class ParallelDownloadManager:
         finally:
             self.rate_limiter.register_chunk_complete(ip)
 
+    @destination_operation
     def download_parallel(self, download: ParallelFileDownload) -> bool:
         """Download all chunks of a file in parallel with batch rate limiting - FIXED"""
         if download.status != "downloading" and download.status != "streaming":
@@ -622,6 +628,7 @@ class ParallelDownloadManager:
             return self._finish_streaming(download)
         return self.assemble_file(download)
 
+    @destination_operation
     def _finish_streaming(self, download: ParallelFileDownload) -> bool:
         """Publish only after all validated chunks are complete and flushed."""
         try:
@@ -693,6 +700,7 @@ class ParallelDownloadManager:
                         self._ip_semaphores_last_used.pop(k, None)
             return sem
 
+    @destination_operation
     def _download_chunk_with_semaphore(self, chunk: ChunkInfo) -> bool:
         parsed = urlparse(chunk.file_url)
 
@@ -784,6 +792,7 @@ class ParallelDownloadManager:
             return self._finish_streaming(download)
         return self.assemble_file(download)
 
+    @destination_operation
     def assemble_file(self, download: ParallelFileDownload) -> bool:
         """Assemble chunks into final file using memory-mapped I/O - PRODUCTION HARDENED v3.1.
 

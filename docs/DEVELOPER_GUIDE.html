@@ -282,9 +282,9 @@ repeats the essentials so you can work from it alone.</p>
 <li><strong>Version:</strong> 3.1.79</li>
 <li><strong>Python:</strong> 3.9 or newer; CI tests Python 3.9–3.14</li>
 <li><strong>Runtime deps:</strong> <code>httpx[http2]</code> (including
-<code>h2</code>), <code>pydantic</code> v2, <code>PyYAML</code>
-(optional: <code>stringzilla</code>, <code>lxml</code>,
-<code>tqdm</code>, <code>psutil</code>)</li>
+<code>h2</code>), <code>pydantic</code> v2, <code>PyYAML</code>,
+<code>portalocker</code> 3.x (optional: <code>stringzilla</code>,
+<code>lxml</code>, <code>tqdm</code>, <code>psutil</code>)</li>
 </ul>
 <hr />
 <h2 id="table-of-contents">Table of contents</h2>
@@ -323,7 +323,7 @@ map</a></li>
 monolith and the refactor</h2>
 <p>MirrorURL began as a single <code>mirror_url.py</code> of ~15,000
 lines containing ~70 classes and ~25 module-level functions. It was
-split into the modular <code>src/mirror_url/</code> package (44 Python
+split into the modular <code>src/mirror_url/</code> package (45 Python
 files, organized by responsibilities) by a
 <strong>behavior-preserving</strong> migration: code was relocated
 verbatim and class/function method sets were verified identical to the
@@ -371,7 +371,7 @@ green after every change.</li>
 <hr />
 <h2 id="repository-layout">Repository layout</h2>
 <pre><code>mirror-url/
-├── src/mirror_url/          # the package (44 Python files including private helpers)
+├── src/mirror_url/          # the package (45 Python files including private helpers)
 │   ├── __init__.py          # public API re-exports
 │   ├── __main__.py          # `python -m mirror_url`
 │   ├── _version.py          # __version__, __author__  (one of two version sources)
@@ -400,7 +400,7 @@ architecture</h2>
 cross those groupings. The important invariant is an acyclic runtime
 import graph.</p>
 <pre><code>Foundations: _version · compat · constants · exceptions · enums · utils
-Data and primitives: models · async_primitives · primitives · parsing · security
+Data and primitives: models · async_primitives · primitives · parsing · security · destination_lock
 Managers: transport · storage · circuit_breaker · rate_limiter · queue · cache
 Runtime support: metrics · progress · monitoring · connection · async_connection · concurrency
 Engines: download · download_integrity · scanner · health · domain_health · config · tuner
@@ -496,6 +496,21 @@ filename defenses).</li>
 <code>SecureAsyncTransport</code>: httpx transports that block
 loopback/private IPs (SSRF hardening). Both honor a
 <code>test_mode</code> flag used to relax the guard in tests.</li>
+<li><code>destination_lock.py</code> — per-user shared ancestor locks
+and exclusive resource locks. <code>_MirrorBase</code> acquires
+ownership before managers start; cache and log paths are added before
+access. Operation leases retain the handles until cleanup and active
+writers finish, including after a bounded shutdown timeout.
+<code>DestinationLockError</code> rejects overlap and use after cleanup.
+Lock files remain in <code>~/.mirror-url/locks-v1/</code>; never unlink
+them during a run. Portalocker 3.x provides native Windows/POSIX locks.
+This is cooperative local-filesystem protection with a common home
+directory, not multi-host coordination. The CLI's
+<code>run_ownership</code> context reserves all selected roots and the
+log tree before shared logging; <code>ContextVar</code> supplies an
+explicit parent to each suffix instance. Child cleanup ends its
+lifecycle without closing the run's handles. Child writer and cleanup
+leases also retain parent ownership.</li>
 <li><code>storage.py</code> — <code>FileSystemCache</code>,
 <code>DiskBackedSet</code> (tracking with disk spills, memory-only
 duplicate suppression and pruning; no persistent membership index).</li>
@@ -1122,7 +1137,8 @@ the exact missing counts in the JSON report. It uploads HTML, JSON, and
 XML reports. The safety gate separately requires 100% statements and
 branches for <code>scanner.py</code>, <code>_core/scan.py</code>,
 <code>_core/urls.py</code>, <code>_core/cleanup.py</code>,
-<code>security.py</code> and <code>transport.py</code>, plus
+<code>security.py</code> <code>transport.py</code> and
+<code>destination_lock.py</code>, plus
 <code>utils.url_within_scope</code> and
 <code>utils._relative_url_path</code>. It uses exact missing counts and
 checks helper exclusions; unrelated uncovered utility functions do not
@@ -1132,14 +1148,15 @@ and nested traversal encodings. Filesystem tests inject permission,
 resolution, listing and move failures, and assert preserved source and
 archive bytes. Local HTTP tests assert that malformed listings and lossy
 filenames fail before destructive cleanup or publication. The mutation
-check temporarily weakens eight guards: mixed DNS rejection, archive
+check temporarily weakens ten guards: mixed DNS rejection, archive
 collision rejection, incomplete-scan cleanup, same-origin scope, address
-pinning, lossy filename preflight and content receipt verification and
-the long-hash deadline policy. Each selected test must first pass
-against the original source and then fail an assertion against the
-mutation. Collection or environment errors do not count as success.
-These checks improve evidence of correctness; neither 100% coverage nor
-this small mutation set guarantees that all bugs have been found.</p>
+pinning, lossy filename preflight and content receipt verification, the
+long-hash deadline policy, destination locking and retention of
+abandoned-worker ownership. Each selected test must first pass against
+the original source and then fail an assertion against the mutation.
+Collection or environment errors do not count as success. These checks
+improve evidence of correctness; neither 100% coverage nor this small
+mutation set guarantees that all bugs have been found.</p>
 <p><code>test_process_recovery.py</code> starts real subprocesses
 against the local HTTP fixture, kills them at deterministic IO
 checkpoints, then restarts the same destination. Checkpoints cover
@@ -1149,9 +1166,28 @@ download modes assert complete destination bytes, preserved obsolete
 bytes, persisted receipts and a subsequent sync without another file
 download. <code>process_recovery_worker.py</code> supplies test-only
 checkpoints; production has no crash hooks or loopback security bypass.
-Process kill tests do not simulate power loss, arbitrary external
-writers or concurrent mirror processes. A destination still needs one
-owner; no interprocess lock is implemented.</p>
+Process kill tests do not simulate power loss or arbitrary external
+writers. A competing process must fail at every checkpoint before the
+owner is killed. <code>test_process_destination_lock.py</code> also
+checks simultaneous starts, parent/child overlap, independent trees,
+shared state, normal release, hard-kill recovery and cleanup while an
+HTTP writer is blocked. Native CI runs these tests on Windows and macOS
+too.</p>
+<p>For a 24-hour synthetic soak, use the dev environment and a new
+output directory:</p>
+<div class="sourceCode" id="cb7"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="va">PYTHONPATH</span><span class="op">=</span>src <span class="ex">python</span> scripts/run_local_soak.py <span class="dt">\</span></span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--output</span> /path/to/new-soak-directory <span class="at">--duration-hours</span> 24 <span class="at">--interval</span> 60</span></code></pre></div>
+<p>The harness cycles through all download modes, repairs same-size
+corruption, preserves files on failed listings, checks MOVE collisions
+and recovers dropped connections and process kills. It writes atomic
+<code>status.json</code>, source hashes, resource samples and bounded
+logs. Freeze <code>src/</code>, <code>tests/</code> and
+<code>scripts/</code> for a long run: source changes invalidate the
+result. With optional psutil, resource checks include RSS and
+descriptors/handles; thread counts are always checked. An elapsed short
+smoke run is not long-duration evidence. Local synthetic tests also do
+not replace a representative archive/destination soak.</p>
 <p>Native macOS and Windows CI jobs also run the full suite on Python
 3.12 with core dependencies and with all optional dependencies. The
 coverage gate runs on Linux with optional dependencies; its results do
@@ -1192,11 +1228,11 @@ the source metadata, changelog, and guides; push the release branch and
 merge its reviewed pull request.</li>
 <li><strong>Tag the merged release on <code>main</code> and push the
 tag:</strong>
-<div class="sourceCode" id="cb7"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> switch main</span>
-<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> pull <span class="at">--ff-only</span> origin main</span>
-<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> tag <span class="at">-a</span> vX.Y.Z <span class="at">-m</span> <span class="st">&quot;mirror-url X.Y.Z&quot;</span></span>
-<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> push origin vX.Y.Z</span></code></pre></div></li>
+<div class="sourceCode" id="cb8"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> switch main</span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> pull <span class="at">--ff-only</span> origin main</span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> tag <span class="at">-a</span> vX.Y.Z <span class="at">-m</span> <span class="st">&quot;mirror-url X.Y.Z&quot;</span></span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> push origin vX.Y.Z</span></code></pre></div></li>
 <li>The tag triggers <code>.github/workflows/release.yml</code>, which
 builds the wheel/sdist, creates a GitHub Release, and (when configured)
 publishes to PyPI via <strong>Trusted Publishing</strong> (OIDC — no API
