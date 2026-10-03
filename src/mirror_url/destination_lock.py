@@ -33,11 +33,21 @@ class MirrorFileHandler(logging.FileHandler):
     after cleanup releases filesystem ownership.
     """
 
-    _closed: bool  # Initialized by logging.Handler; absent from typeshed's public API.
+    # Python 3.9's logging.Handler has no _closed attribute. Keep our own
+    # immutable class default, replaced with an instance flag when closing.
+    _mirror_closed = False
 
     def emit(self, record: logging.LogRecord) -> None:
-        if not self._closed:
+        if not self._mirror_closed:
             super().emit(record)
+
+    def close(self) -> None:
+        self.acquire()
+        try:
+            self._mirror_closed = True
+            super().close()
+        finally:
+            self.release()
 
 
 def _check_directory(path: Path, posix: bool = os.name == "posix") -> None:

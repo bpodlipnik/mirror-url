@@ -317,3 +317,23 @@ def test_delayed_log_record_cannot_reopen_a_closed_file(tmp_path):
     before = path.read_bytes()
     handler.handle(logging.LogRecord("closed", logging.INFO, "", 0, "too late", (), None))
     assert path.read_bytes() == before and handler.stream is None
+
+
+def test_log_close_failure_still_disables_records_and_releases_handler_lock(tmp_path, monkeypatch):
+    handler = locks.MirrorFileHandler(tmp_path / "mirror.log")
+    with monkeypatch.context() as patch:
+        patch.setattr(logging.FileHandler, "close", Mock(side_effect=OSError("flush failed")))
+        with pytest.raises(OSError):
+            handler.close()
+    acquired = []
+
+    def take_lock():
+        acquired.append(handler.lock.acquire(blocking=False))
+        if acquired[-1]:
+            handler.lock.release()
+
+    worker = threading.Thread(target=take_lock)
+    worker.start()
+    worker.join(timeout=5)
+    assert acquired == [True] and handler._mirror_closed
+    handler.close()
