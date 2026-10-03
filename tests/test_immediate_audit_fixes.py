@@ -679,7 +679,11 @@ def test_trusted_metadata_304_is_current_and_local_edit_is_not(mirror):
     mirror.connection_manager.request.return_value = response(304)
     assert mirror.file_exists_and_up_to_date(path, BASE + "a")
     assert mirror.connection_manager.request.call_args.kwargs["headers"]["If-None-Match"] == '"v1"'
+    original_stat = path.stat()
     path.write_bytes(b"XYZ")
+    # A rapid same-size rewrite need not advance the native filesystem clock.
+    # This regression exercises a changed metadata identity, not content hashing.
+    os.utime(path, ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns + 2_000_000_000))
     assert not mirror.file_exists_and_up_to_date(path, BASE + "a")
     assert "If-None-Match" not in mirror.connection_manager.request.call_args.kwargs["headers"]
 

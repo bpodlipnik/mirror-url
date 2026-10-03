@@ -794,6 +794,13 @@ bounded download batch scheduler.</p>
 documenting an effect. Seven reserved model fields also emit warnings
 when explicitly changed: see <code>_UNUSED_CONFIG_FIELDS</code> and
 <code>warn_unused_fields()</code> in <code>config.py</code>.</p>
+<p>Cached file ETags are bound to size, <code>st_mtime_ns</code>, and
+<code>st_ctime_ns</code> by
+<code>CompareMixin._comparison_metadata</code>. These stat fields do not
+prove content identity: same-size local edits with unchanged timestamps
+can be missed. Metadata-change regressions must explicitly advance the
+file timestamp rather than rely on native clock resolution; content
+hashes are not checked here.</p>
 <p>The regression contracts live in
 <code>test_release_audit_regressions.py</code>, the download
 failure/integrity/storage-fault tests, HTTP workflow tests, and config

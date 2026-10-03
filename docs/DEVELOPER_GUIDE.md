@@ -402,6 +402,12 @@ Other accepted compatibility settings include RGET-LIST options,
 an effect. Seven reserved model fields also emit warnings when explicitly
 changed: see `_UNUSED_CONFIG_FIELDS` and `warn_unused_fields()` in `config.py`.
 
+Cached file ETags are bound to size, `st_mtime_ns`, and `st_ctime_ns` by
+`CompareMixin._comparison_metadata`. These stat fields do not prove content
+identity: same-size local edits with unchanged timestamps can be missed.
+Metadata-change regressions must explicitly advance the file timestamp rather
+than rely on native clock resolution; content hashes are not checked here.
+
 The regression contracts live in `test_release_audit_regressions.py`, the
 download failure/integrity/storage-fault tests, HTTP workflow tests, and config
 precedence tests. Keep those observable contracts intact during refactoring.

@@ -708,7 +708,10 @@ roots do not share one cache accidentally.
 
 Normal runs still discover the remote tree and check existing files. A cached
 file ETag is trusted only when the recorded local size, modification time, and
-change time match the current file. Otherwise the file is checked again.
+filesystem change/creation timestamp match the current file. Otherwise the
+file is checked again. Same-size local edits that leave these timestamps
+unchanged can be missed, including rapid writes on filesystems with coarse
+timestamp resolution. This check does not hash local file contents.
 Directory-listing ETags and signatures do not establish that child file
 contents are unchanged. Without usable file ETags, checks fall back to size and
 the server's `Last-Modified` header when available; changes that preserve those
