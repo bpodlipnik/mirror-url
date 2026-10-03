@@ -9,13 +9,16 @@ discovers files behind an HTTP(S) directory listing and mirrors them locally
 with adaptive concurrency, resumable/partial downloads, integrity verification,
 and an SSRF-hardened transport layer.
 
+The development checkout includes `--verify-content`; this option is not in
+the published 3.1.79 package yet. See [the unreleased changelog](CHANGELOG.md#unreleased).
+
 ## Features
 
 - **Recursive discovery** of remote directory trees (BFS, depth/exclude limits, cycle-safe).
 - **True parallel downloads** — multiple files and multiple chunks per file concurrently.
 - **Adaptive async concurrency** that tunes itself to server RTT, throughput, and error rate.
 - **Resumable & partial downloads** with HTTP range requests and chunk assembly.
-- **Integrity checks** — size/timestamp comparison, ETag handling, and verified byte ranges; no comparison against a remote cryptographic content digest.
+- **Integrity checks** — size/timestamp comparison, ETag handling, verified byte ranges, and opt-in `--verify-content` SHA-256 checks of local files; no comparison against a remote cryptographic content digest.
 - **Resilience** — per-domain circuit breakers, exponential backoff, rate limiting.
 - **Security** — path-traversal and symlink-bomb defenses, private-IP/SSRF guards, URL-scope enforcement.
 - **Operability** — metrics collection, multi-level progress, optional HTTP health-check server.

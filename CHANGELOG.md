@@ -4,6 +4,36 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Opt-in `--verify-content` / `verify_content` checks local files against saved
+  SHA-256 receipts before trusting remote freshness metadata. Downloads hash
+  completed staging files before publication in all three download modes.
+  Missing, expired or invalid receipts require a download; `--no-cache` therefore
+  redownloads existing files. `--no-verify-content` overrides YAML settings.
+- Keep async content hashing on metadata worker threads. Reject the conflicting
+  combination of content verification and missing-only downloads.
+  Retain HTTP request timeouts without imposing metadata-only deadlines on
+  full-file disk reads.
+- Test real process termination during downloads, before and after atomic
+  publication, during cache serialization and during MOVE cleanup, then restart
+  the same destination and verify original, replacement and archived bytes.
+- Add mutation checks that weaken the content receipt guard and impose
+  metadata-only deadlines on hashing.
+
+### Fixed
+
+- Publish cache JSON with `os.replace()` so updates replace an existing cache
+  on Windows while retaining the previous complete file on failure.
+
+### Documentation
+
+- Explain local content receipts, initial redownloads, hashing costs and cache
+  options. This verifies local bytes; it does not authenticate remote content
+  against a server-provided cryptographic checksum or exclude concurrent writers.
+
 ## [3.1.79] - 2026-10-03
 
 ### Fixed

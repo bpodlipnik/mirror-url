@@ -186,6 +186,7 @@ class MirrorConfig(BaseModel):
     cache_max_age: int = Field(default=DEFAULT_CACHE_MAX_AGE_DAYS, ge=0, le=MAX_CACHE_AGE_DAYS)
     no_etag: bool = False
     missing_files: bool = False
+    verify_content: bool = False
     list_dirs: bool = False
     list_dirs_n: int = 0
     list_files: bool = False
@@ -214,7 +215,7 @@ class MirrorConfig(BaseModel):
     hash_algorithm: str = Field(
         default="md5",
         pattern="^(md5|sha256|blake2b)$",
-        description="Hash algorithm for file integrity checks",
+        description="Hash algorithm for directory/cache signatures; content receipts always use SHA-256",
     )
     adaptive_async: bool = ADAPTIVE_ASYNC_ENABLED
     adaptive_error_threshold: float = Field(default=ADAPTIVE_ERROR_THRESHOLD, ge=0, le=1)
@@ -372,6 +373,12 @@ class MirrorConfig(BaseModel):
         modes = [self.parallel_downloads, self.streaming_parallel, self.sequential_downloads]
         if sum(modes) > 1:
             raise ConfigError("Cannot enable multiple download modes simultaneously.")
+        return self
+
+    @model_validator(mode="after")
+    def validate_content_verification(self) -> MirrorConfig:
+        if self.verify_content and self.missing_files:
+            raise ConfigError("Cannot combine verify_content with missing_files.")
         return self
 
     @model_validator(mode="after")
@@ -732,6 +739,7 @@ def load_config_from_args(args: argparse.Namespace, silent: bool = False) -> Mir
         "cache_max_age": args.cache_max_age,
         "no_etag": getattr(args, "no_etag", False),
         "missing_files": getattr(args, "missing_files", False),
+        "verify_content": getattr(args, "verify_content", False),
         "list_dirs": getattr(args, "list_dirs", None) is not None,
         "list_dirs_n": getattr(args, "list_dirs", None) or 0,
         "list_files": getattr(args, "list_files", None) is not None,

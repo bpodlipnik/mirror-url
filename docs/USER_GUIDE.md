@@ -232,6 +232,8 @@ list of options. The most commonly used options:
 | `--refresh-cache` | Force a full cache refresh this run. |
 | `--cache-max-age DAYS` | Max cache age before auto-refresh (default 7). |
 | `--no-etag` | Disable ETag-based change detection. |
+| `--verify-content` | Verify existing local files against saved SHA-256 receipts before checking remote freshness. Hash completed downloads before publication. Default: disabled; incompatible with `--missing-files`. |
+| `--no-verify-content` | Disable content verification, including when enabled in a config file. |
 | `--missing-files` | Skip per-file freshness checks for files that already exist locally — only download what's absent. Much faster on large, largely-static datasets, but won't detect a file that changed in place on the server under the same name. Pair with occasional full runs (without this flag) to still catch in-place changes. |
 | `--quick` | Quick mode: refresh the cache timestamp only. |
 | `--no-cache-html` | Disable caching of parsed HTML directory listings (HTML caching is on by default). |
@@ -706,7 +708,7 @@ cache under `--log-path`. Keep this path stable between runs. The file name
 contains the directory suffix and a hash of the base URL, so different remote
 roots do not share one cache accidentally.
 
-Normal runs still discover the remote tree and check existing files. A cached
+Normal runs still discover the remote tree and check existing files. By default, a cached
 file ETag is trusted only when the recorded local size, modification time, and
 filesystem change/creation timestamp match the current file. Otherwise the
 file is checked again. Same-size local edits that leave these timestamps
@@ -717,6 +719,31 @@ contents are unchanged. Without usable file ETags, checks fall back to size and
 the server's `Last-Modified` header when available; changes that preserve those
 values can be missed. No remote cryptographic digest comparison is performed.
 
+The development checkout adds `--verify-content` (or `verify_content: true` in
+YAML) to detect local changes
+even when file sizes and timestamps still match. This mode saves a SHA-256
+receipt of each completed staging file **before** atomic publication, then
+hashes existing local files before trusting freshness metadata. A missing,
+expired, malformed or mismatched receipt requires a new download. Enabling it
+for an existing mirror therefore redownloads files whose cache has no receipt.
+Keep `--log-path` stable so those receipts persist between runs.
+
+Hashing reads every verified file in 1 MiB chunks, adding disk IO proportional
+to the selected data size on every full run. Async metadata checks perform
+hashing on worker threads. `--hash-algorithm` does not change these SHA-256
+receipts, and the compatibility flag `--no-content-hash` does not disable them;
+use `--no-verify-content` for that.
+Network request timeouts still apply; local hashing is allowed to finish without
+the metadata-only async check/batch deadlines. Slow storage can lengthen a run.
+
+Content verification proves agreement with the saved local receipt. Remote
+freshness still depends on the server's HTTP validators, size and modification
+time; a remote change that preserves those values can be missed. This mode does
+not compare against a server-provided cryptographic checksum. Give each
+destination to one mirror process at a time and avoid external edits during a
+run: there is no interprocess destination lock, and arbitrary concurrent writes
+are outside the guarantee.
+
 Parsed HTML listings also have bounded **in-memory** caches. They are not
 restored from disk on a new process launch. `--html-cache-max-age` controls their
 lifetime within the process; it does not mean a fresh CLI invocation will skip
@@ -724,18 +751,28 @@ fetching the remote listing.
 
 - `--cache-max-age DAYS`: discard expired JSON metadata (default 7 days).
 - `--refresh-cache`: ignore saved metadata and cached listing results for this run.
-- `--no-cache`: bypass those caches; existing files are still checked, not
-  unconditionally downloaded.
+- `--no-cache`: bypass those caches; existing files are still checked. With
+  `--verify-content`, unavailable receipts require downloading existing files.
 - `--no-etag`: use size/time rather than file ETags for freshness checks.
 - `--missing-files`: download only absent files. Existing files are not checked
   for freshness, so in-place remote changes will be missed. Use occasional
   normal runs when those changes matter.
+  It cannot be combined with `--verify-content`.
 - `--quick`: refresh an existing JSON cache's expiry timestamp, without scanning
   or downloading. It does not verify that local or remote files are current and
   does not create a missing cache. Connection setup can still contact the server.
 
 The cache can be written after a complete scan and updated again after the
 normal download/cleanup path. It is separate from resumable file state in `.mirror-url-state/`.
+
+Process-interruption tests cover all three download modes. Killing a process
+before publication preserves the previous complete destination; killing it
+after publication leaves the complete replacement. A restart checks receipts
+again, resumes validated sequential partials where possible, and can redownload
+files published before their receipt was persisted. Interrupted cache writes
+leave the previous complete JSON authoritative. MOVE cleanup can be restarted
+with obsolete bytes preserved in their source or archive. These tests cover
+process termination, not power loss or failure of the storage device.
 
 `--use-disk-backed-sets`, `--memory-cache-size`, and `--download-queue-size` do
 not bound the current workflow's remote file list: discovery collects that list

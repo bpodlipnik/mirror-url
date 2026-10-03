@@ -979,6 +979,20 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
         default=True,
         help="Compatibility setting; has no effect on file freshness checks",
     )
+    verification = advanced.add_mutually_exclusive_group()
+    verification.add_argument(
+        "--verify-content",
+        action="store_true",
+        default=False,
+        help="Verify local files against saved SHA-256 receipts before freshness checks",
+    )
+    verification.add_argument(
+        "--no-verify-content",
+        action="store_false",
+        dest="verify_content",
+        default=False,
+        help="Disable content verification (overrides a config file)",
+    )
 
     # NEW v3.0.0 parallel download arguments
 
@@ -1206,6 +1220,7 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
             cache_max_age=args.cache_max_age,
             no_etag=getattr(args, "no_etag", False),
             missing_files=getattr(args, "missing_files", False),
+            verify_content=getattr(args, "verify_content", False),
             use_shared_log=use_shared,
             scan_mode=ScanMode(args.scan_mode) if args.scan_mode else ScanMode.ADAPTIVE,
             parallel_threshold=args.parallel_threshold,
@@ -1380,6 +1395,7 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
                     cache_max_age=args.cache_max_age,
                     no_etag=getattr(args, "no_etag", False),
                     missing_files=getattr(args, "missing_files", False),
+                    verify_content=getattr(args, "verify_content", False),
                     list_dirs=getattr(args, "list_dirs", None) is not None,
                     list_dirs_n=getattr(args, "list_dirs", None) or 0,
                     list_files=getattr(args, "list_files", None) is not None,

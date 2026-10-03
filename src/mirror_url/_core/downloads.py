@@ -20,6 +20,7 @@ from ..constants import DOWNLOAD_CHUNK_SIZE
 from ..download_integrity import (
     clear_resume_metadata,
     content_length,
+    file_sha256,
     load_resume_metadata,
     save_resume_metadata,
     strong_etag,
@@ -190,6 +191,9 @@ class DownloadMixin(MirrorHost):
                     download_time = time.time() - start
                     self.metrics.add_download_time(download_time)
 
+                    digest = file_sha256(
+                        partial_path, enabled=getattr(self.config, "verify_content", False)
+                    )
                     os.replace(partial_path, local_path)
                     try:
                         clear_resume_metadata(partial_path)
@@ -208,10 +212,10 @@ class DownloadMixin(MirrorHost):
                             pass
 
                     remote_etag = r.headers.get("ETag")
-                    if remote_etag:
+                    if remote_etag or digest is not None:
                         try:
                             self.cache_manager.save_file_metadata(
-                                local_path, remote_etag, time.time(), size
+                                local_path, remote_etag, time.time(), size, sha256=digest
                             )
                         except Exception as error:
                             logging.warning(f"Published file metadata could not be cached: {error}")

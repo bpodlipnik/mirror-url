@@ -637,6 +637,17 @@ still checked for freshness.</td>
 <td>Disable ETag-based change detection.</td>
 </tr>
 <tr>
+<td><code>--verify-content</code></td>
+<td>Verify existing local files against saved SHA-256 receipts before
+checking remote freshness. Hash completed downloads before publication.
+Default: disabled; incompatible with <code>--missing-files</code>.</td>
+</tr>
+<tr>
+<td><code>--no-verify-content</code></td>
+<td>Disable content verification, including when enabled in a config
+file.</td>
+</tr>
+<tr>
 <td><code>--missing-files</code></td>
 <td>Skip per-file freshness checks for files that already exist locally
 — only download what's absent. Much faster on large, largely-static
@@ -1359,17 +1370,43 @@ JSON cache under <code>--log-path</code>. Keep this path stable between
 runs. The file name contains the directory suffix and a hash of the base
 URL, so different remote roots do not share one cache accidentally.</p>
 <p>Normal runs still discover the remote tree and check existing files.
-A cached file ETag is trusted only when the recorded local size,
-modification time, and filesystem change/creation timestamp match the
-current file. Otherwise the file is checked again. Same-size local edits
-that leave these timestamps unchanged can be missed, including rapid
-writes on filesystems with coarse timestamp resolution. This check does
-not hash local file contents. Directory-listing ETags and signatures do
-not establish that child file contents are unchanged. Without usable
-file ETags, checks fall back to size and the server's
+By default, a cached file ETag is trusted only when the recorded local
+size, modification time, and filesystem change/creation timestamp match
+the current file. Otherwise the file is checked again. Same-size local
+edits that leave these timestamps unchanged can be missed, including
+rapid writes on filesystems with coarse timestamp resolution. This check
+does not hash local file contents. Directory-listing ETags and
+signatures do not establish that child file contents are unchanged.
+Without usable file ETags, checks fall back to size and the server's
 <code>Last-Modified</code> header when available; changes that preserve
 those values can be missed. No remote cryptographic digest comparison is
 performed.</p>
+<p>The development checkout adds <code>--verify-content</code> (or
+<code>verify_content: true</code> in YAML) to detect local changes even
+when file sizes and timestamps still match. This mode saves a SHA-256
+receipt of each completed staging file <strong>before</strong> atomic
+publication, then hashes existing local files before trusting freshness
+metadata. A missing, expired, malformed or mismatched receipt requires a
+new download. Enabling it for an existing mirror therefore redownloads
+files whose cache has no receipt. Keep <code>--log-path</code> stable so
+those receipts persist between runs.</p>
+<p>Hashing reads every verified file in 1 MiB chunks, adding disk IO
+proportional to the selected data size on every full run. Async metadata
+checks perform hashing on worker threads. <code>--hash-algorithm</code>
+does not change these SHA-256 receipts, and the compatibility flag
+<code>--no-content-hash</code> does not disable them; use
+<code>--no-verify-content</code> for that. Network request timeouts
+still apply; local hashing is allowed to finish without the
+metadata-only async check/batch deadlines. Slow storage can lengthen a
+run.</p>
+<p>Content verification proves agreement with the saved local receipt.
+Remote freshness still depends on the server's HTTP validators, size and
+modification time; a remote change that preserves those values can be
+missed. This mode does not compare against a server-provided
+cryptographic checksum. Give each destination to one mirror process at a
+time and avoid external edits during a run: there is no interprocess
+destination lock, and arbitrary concurrent writes are outside the
+guarantee.</p>
 <p>Parsed HTML listings also have bounded <strong>in-memory</strong>
 caches. They are not restored from disk on a new process launch.
 <code>--html-cache-max-age</code> controls their lifetime within the
@@ -1381,12 +1418,14 @@ remote listing.</p>
 <li><code>--refresh-cache</code>: ignore saved metadata and cached
 listing results for this run.</li>
 <li><code>--no-cache</code>: bypass those caches; existing files are
-still checked, not unconditionally downloaded.</li>
+still checked. With <code>--verify-content</code>, unavailable receipts
+require downloading existing files.</li>
 <li><code>--no-etag</code>: use size/time rather than file ETags for
 freshness checks.</li>
 <li><code>--missing-files</code>: download only absent files. Existing
 files are not checked for freshness, so in-place remote changes will be
-missed. Use occasional normal runs when those changes matter.</li>
+missed. Use occasional normal runs when those changes matter. It cannot
+be combined with <code>--verify-content</code>.</li>
 <li><code>--quick</code>: refresh an existing JSON cache's expiry
 timestamp, without scanning or downloading. It does not verify that
 local or remote files are current and does not create a missing cache.
@@ -1395,6 +1434,15 @@ Connection setup can still contact the server.</li>
 <p>The cache can be written after a complete scan and updated again
 after the normal download/cleanup path. It is separate from resumable
 file state in <code>.mirror-url-state/</code>.</p>
+<p>Process-interruption tests cover all three download modes. Killing a
+process before publication preserves the previous complete destination;
+killing it after publication leaves the complete replacement. A restart
+checks receipts again, resumes validated sequential partials where
+possible, and can redownload files published before their receipt was
+persisted. Interrupted cache writes leave the previous complete JSON
+authoritative. MOVE cleanup can be restarted with obsolete bytes
+preserved in their source or archive. These tests cover process
+termination, not power loss or failure of the storage device.</p>
 <p><code>--use-disk-backed-sets</code>,
 <code>--memory-cache-size</code>, and <code>--download-queue-size</code>
 do not bound the current workflow's remote file list: discovery collects

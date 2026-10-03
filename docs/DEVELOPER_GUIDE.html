@@ -799,8 +799,27 @@ when explicitly changed: see <code>_UNUSED_CONFIG_FIELDS</code> and
 <code>CompareMixin._comparison_metadata</code>. These stat fields do not
 prove content identity: same-size local edits with unchanged timestamps
 can be missed. Metadata-change regressions must explicitly advance the
-file timestamp rather than rely on native clock resolution; content
-hashes are not checked here.</p>
+file timestamp rather than rely on native clock resolution. With
+<code>verify_content=True</code>, the size and SHA-256 receipt instead
+validate local identity; timestamp-only changes do not invalidate an
+otherwise matching receipt. Missing or invalid receipts fail closed even
+when a HEAD response reports matching size/time. Async checks run the
+hashing step in <code>_meta_check_executor</code> to avoid blocking the
+event loop. Content-verification runs disable the enclosing 30-second
+check and 120-second batch deadlines while retaining the 15-second HEAD
+timeout. Otherwise a hash can outlive its cancelled task and be repeated
+by fallback workers, causing unnecessary downloads of large unchanged
+files.</p>
+<p><code>download_integrity.file_sha256</code> reads regular files in 1
+MiB chunks and rejects observable stat changes during hashing. The
+single, assembled and streaming download paths hash the completed
+staging file before <code>os.replace</code>, then pass the digest to
+<code>CacheManager.save_file_metadata(..., sha256=digest)</code>. Cache
+entries can contain a receipt without an ETag. Cache saves use
+<code>os.replace</code> so existing JSON can be replaced on Windows.
+Legacy receipts are not invented from an unverified destination: missing
+receipts require downloading the file again. This mode adds local
+verification; remote freshness retains the HTTP policy.</p>
 <p>The regression contracts live in
 <code>test_release_audit_regressions.py</code>, the download
 failure/integrity/storage-fault tests, HTTP workflow tests, and config
@@ -1113,13 +1132,26 @@ and nested traversal encodings. Filesystem tests inject permission,
 resolution, listing and move failures, and assert preserved source and
 archive bytes. Local HTTP tests assert that malformed listings and lossy
 filenames fail before destructive cleanup or publication. The mutation
-check temporarily weakens six guards: mixed DNS rejection, archive
+check temporarily weakens eight guards: mixed DNS rejection, archive
 collision rejection, incomplete-scan cleanup, same-origin scope, address
-pinning and lossy filename preflight. Each selected test must first pass
+pinning, lossy filename preflight and content receipt verification and
+the long-hash deadline policy. Each selected test must first pass
 against the original source and then fail an assertion against the
 mutation. Collection or environment errors do not count as success.
 These checks improve evidence of correctness; neither 100% coverage nor
 this small mutation set guarantees that all bugs have been found.</p>
+<p><code>test_process_recovery.py</code> starts real subprocesses
+against the local HTTP fixture, kills them at deterministic IO
+checkpoints, then restarts the same destination. Checkpoints cover
+partial/chunk writes, both sides of publication, partial cache JSON
+serialization and a completed MOVE before cleanup finishes. All three
+download modes assert complete destination bytes, preserved obsolete
+bytes, persisted receipts and a subsequent sync without another file
+download. <code>process_recovery_worker.py</code> supplies test-only
+checkpoints; production has no crash hooks or loopback security bypass.
+Process kill tests do not simulate power loss, arbitrary external
+writers or concurrent mirror processes. A destination still needs one
+owner; no interprocess lock is implemented.</p>
 <p>Native macOS and Windows CI jobs also run the full suite on Python
 3.12 with core dependencies and with all optional dependencies. The
 coverage gate runs on Linux with optional dependencies; its results do

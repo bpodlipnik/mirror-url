@@ -43,7 +43,13 @@ from .constants import (
     PARTIAL_SUFFIX,
     STREAMING_WRITE_BUFFER_SIZE,
 )
-from .download_integrity import clear_resume_metadata, content_length, strong_etag, validate_range
+from .download_integrity import (
+    clear_resume_metadata,
+    content_length,
+    file_sha256,
+    strong_etag,
+    validate_range,
+)
 from .enums import DownloadMethod
 from .exceptions import ChunkAssemblyError, ChunkDownloadError
 from .models import ChunkInfo, ParallelFileDownload
@@ -625,6 +631,9 @@ class ParallelDownloadManager:
                 raise ChunkAssemblyError("Streaming size mismatch")
             with open(download.staging_path, "r+b") as f:
                 os.fsync(f.fileno())
+            digest = file_sha256(
+                download.staging_path, enabled=getattr(self.config, "verify_content", False)
+            )
             os.replace(download.staging_path, download.final_path)
             download.staging_path = None
             self._restore_server_timestamp(download)
@@ -634,12 +643,15 @@ class ParallelDownloadManager:
                 if self.mirror:
                     self.mirror.files_processed.increment(1)
                     self.mirror.total_downloaded_size.add(download.file_size)
-                    if hasattr(self.mirror, "cache_manager") and download.server_etag:
+                    if hasattr(self.mirror, "cache_manager") and (
+                        download.server_etag or digest is not None
+                    ):
                         self.mirror.cache_manager.save_file_metadata(
                             download.final_path,
                             download.server_etag,
                             time.time(),
                             download.file_size,
+                            sha256=digest,
                         )
                     if hasattr(self.mirror, "fs_cache"):
                         self.mirror.fs_cache.invalidate(download.final_path)
@@ -930,6 +942,9 @@ class ParallelDownloadManager:
             # The assembly file is in the destination directory, so a
             # failed replace must leave the old file intact. A copy/move
             # fallback could destroy it before that fallback completes.
+            digest = file_sha256(
+                temp_assembly, enabled=getattr(self.config, "verify_content", False)
+            )
             os.replace(temp_assembly, download.final_path)
             temp_file_moved = True
             self._restore_server_timestamp(download)
@@ -942,9 +957,15 @@ class ParallelDownloadManager:
                 if self.mirror:
                     self.mirror.files_processed.increment(1)
                     self.mirror.total_downloaded_size.add(file_size)
-                    if hasattr(self.mirror, "cache_manager") and download.server_etag:
+                    if hasattr(self.mirror, "cache_manager") and (
+                        download.server_etag or digest is not None
+                    ):
                         self.mirror.cache_manager.save_file_metadata(
-                            download.final_path, download.server_etag, time.time(), file_size
+                            download.final_path,
+                            download.server_etag,
+                            time.time(),
+                            file_size,
+                            sha256=digest,
                         )
                     if hasattr(self.mirror, "fs_cache"):
                         self.mirror.fs_cache.invalidate(download.final_path)
