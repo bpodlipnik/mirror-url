@@ -1,0 +1,4 @@
+include CHANGELOG.md CONTRIBUTING.md
+recursive-include tests *.py
+recursive-include scripts *.py *.sh *.lua
+recursive-include docs *.md *.html

@@ -287,7 +287,7 @@ class ScanMixin(MirrorHost):
                                 f"Memory pressure (warning): freed "
                                 f"{freed_parse + freed_cache} cache entries"
                             )
-                        elif pressure == MemoryPressure.CRITICAL:
+                        else:  # The only remaining MemoryPressure value is CRITICAL.
                             freed_parse = self.scanner.parse_cache.shrink_to(0.3)
                             freed_cache = self.cache_manager.handle_memory_pressure(pressure)
                             logging.warning(
@@ -324,6 +324,7 @@ class ScanMixin(MirrorHost):
     def _validate_remote_paths(self, remote_files):
         """Refuse lossy or reserved filename mappings before downloading."""
         destinations = {}
+        lossy_mapping = False
         for remote_url in remote_files:
             local = self._get_local_path_from_url(remote_url)
             if (
@@ -335,6 +336,11 @@ class ScanMixin(MirrorHost):
             if key in destinations and destinations[key] != remote_url:
                 raise ValueError("Distinct remote URLs map to the same local filename")
             destinations[key] = remote_url
+            relative = _relative_url_path(remote_url, self.target_parsed.geturl())
+            if relative != local.relative_to(self.target_dir.resolve()).as_posix():
+                lossy_mapping = True
+        if lossy_mapping:
+            raise ValueError("Remote filename would be changed by local path sanitization")
 
     def list_directories(self) -> bool:
         """Discover, log, and print the directory tree under the target URL /

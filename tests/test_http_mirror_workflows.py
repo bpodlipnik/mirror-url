@@ -23,7 +23,9 @@ pytestmark = pytest.mark.integration
 
 @pytest.fixture
 def remote(monkeypatch):
-    state = SimpleNamespace(files={}, requests=[], failures={}, redirects={}, drops={}, etag=True)
+    state = SimpleNamespace(
+        files={}, listings={}, requests=[], failures={}, redirects={}, drops={}, etag=True
+    )
     lock = threading.Lock()
 
     class Handler(BaseHTTPRequestHandler):
@@ -45,6 +47,9 @@ def remote(monkeypatch):
                 status = state.failures[path]
             elif path in state.redirects:
                 status, headers = 302, {"Location": state.redirects[path]}
+            elif path in state.listings:
+                body = state.listings[path].encode()
+                headers["Content-Type"] = "text/html"
             elif path.endswith("/") or not path:
                 children = sorted(
                     {
@@ -228,6 +233,37 @@ def test_incomplete_http_discovery_preserves_local_files_and_reports_failure(rem
         old.write_bytes(b"important")
         assert mirror.sync() is False
         assert old.read_bytes() == b"important"
+
+
+@pytest.mark.parametrize("name", ["a" * 70 + ".bin", "new\x01.bin", "CON.txt"])
+def test_lossy_filename_cannot_overwrite_an_unrelated_local_file(remote, config, name):
+    from mirror_url.security import PathSafety
+
+    config.max_filename_len = 64
+    config.cleanup_policy = CleanupPolicy.DELETE
+    config.no_cache = True
+    remote.files = {name: b"unrelated remote bytes"}
+    with MirrorURL(config) as mirror:
+        victim = mirror.target_dir / PathSafety._safe_filename(name, 64)
+        victim.write_bytes(b"preserve original bytes")
+        result = mirror.sync()
+        assert victim.read_bytes() == b"preserve original bytes"
+        assert result is False
+        assert not any(
+            method == "GET" and path == name for method, path, headers in remote.requests
+        )
+
+
+def test_malformed_real_http_listing_cannot_trigger_cleanup(remote, config):
+    config.cleanup_policy = CleanupPolicy.DELETE
+    config.no_cache = True
+    remote.listings = {"": '<a href="http://[broken">bad</a>'}
+    with MirrorURL(config) as mirror:
+        victim = mirror.target_dir / "old.bin"
+        victim.write_bytes(b"preserve original bytes")
+        assert mirror.sync() is False
+        assert mirror.scan_incomplete
+        assert victim.read_bytes() == b"preserve original bytes"
 
 
 def test_interrupted_http_body_is_resumed_with_range_and_strong_validator(remote, config):

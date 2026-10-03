@@ -92,12 +92,8 @@ def run_main(tmp_path, monkeypatch):
 
 
 def _plain(value):
-    """Normalise enums / Paths so they compare with plain literals."""
-    return (
-        getattr(value, "value", None)
-        if hasattr(value, "value")
-        else (str(value) if isinstance(value, Path) else value)
-    )
+    """Normalise enums while preserving native Path comparisons."""
+    return value.value if hasattr(value, "value") else value
 
 
 # --------------------------------------------------------------------------
@@ -242,7 +238,7 @@ def test_explicit_max_concurrent_downloads_equal_to_default_overrides_yaml(run_m
         (["--parallel-threshold", "2"], "parallel_threshold: 10\n", "parallel_threshold", 2),
         (["--stats"], "stats: false\n", "stats", True),
         (["--progress-bar"], "progress_bar: false\n", "progress_bar", True),
-        (["--metrics-json", "/tmp/m.json"], "", "metrics_json", "/tmp/m.json"),
+        (["--metrics-json", "m.json"], "", "metrics_json", Path("m.json")),
         (["--health-check-port", "9999"], "health_check_port: 8080\n", "health_check_port", 9999),
         (["--max-symlink-depth", "2"], "max_symlink_depth: 5\n", "max_symlink_depth", 2),
         (["--cleanup", "preview"], "cleanup_policy: safe\n", "cleanup_policy", "preview"),
@@ -251,7 +247,10 @@ def test_explicit_max_concurrent_downloads_equal_to_default_overrides_yaml(run_m
         (["--no-cache-html"], "cache_html: true\n", "cache_html", False),
     ],
 )
-def test_cli_flag_overrides_yaml(run_main, argv, yaml, field, expected):
+def test_cli_flag_overrides_yaml(run_main, tmp_path, argv, yaml, field, expected):
+    if isinstance(expected, Path):
+        expected = tmp_path / expected
+        argv = [*argv[:-1], str(expected)]
     cfg = run_main(argv, yaml)
     assert _plain(getattr(cfg, field)) == expected
 
@@ -362,7 +361,7 @@ TYPED = [
     ("--min-chunk-size", "5", "min_chunk_size_mb", 5),
     ("--max-parallel-chunks", "12", "max_parallel_chunks_total", 12),
     ("--max-concurrent-downloads", "4", "max_concurrent_downloads", 4),
-    ("--chunk-assembly-dir", "/tmp/asm", "chunk_assembly_dir", "/tmp/asm"),
+    ("--chunk-assembly-dir", "asm", "chunk_assembly_dir", Path("asm")),
     ("--chunk-timeout-multiplier", "2.5", "chunk_timeout_multiplier", 2.5),
     ("--workers", "5", "workers", 5),
     ("--timeout", "45", "timeout", 45),
@@ -381,7 +380,7 @@ TYPED = [
     ("--max-symlink-depth", "3", "max_symlink_depth", 3),
     ("--max-symlinks-per-dir", "30", "max_symlinks_per_dir", 30),
     ("--symlink-bomb-threshold", "500", "symlink_bomb_threshold", 500),
-    ("--metrics-json", "/tmp/m.json", "metrics_json", "/tmp/m.json"),
+    ("--metrics-json", "m.json", "metrics_json", Path("m.json")),
     ("--scan-mode", "sequential", "scan_mode", "sequential"),
     ("--parallel-threshold", "4", "parallel_threshold", 4),
     ("--max-depth", "3", "max_depth", 3),
@@ -391,7 +390,7 @@ TYPED = [
     ("--max-batch-size", "300", "max_batch_size", 300),
     ("--target-batch-time", "2.5", "target_batch_time", 2.5),
     ("--memory-cache-size", "1234", "memory_cache_size", 1234),
-    ("--disk-cache-dir", "/tmp/dc", "disk_cache_dir", "/tmp/dc"),
+    ("--disk-cache-dir", "dc", "disk_cache_dir", Path("dc")),
     ("--fs-cache-ttl", "9.5", "fs_cache_ttl", 9.5),
     ("--health-check-port", "9099", "health_check_port", 9099),
     ("--cleanup", "preview", "cleanup_policy", "preview"),
@@ -447,13 +446,23 @@ def test_typed_table_covers_every_valued_option():
 
 
 @pytest.mark.parametrize("opt, value, field, expected", TYPED, ids=[t[0] for t in TYPED])
-def test_valued_option_reaches_config_without_config_file(run_main, opt, value, field, expected):
+def test_valued_option_reaches_config_without_config_file(
+    run_main, tmp_path, opt, value, field, expected
+):
+    if isinstance(expected, Path):
+        expected = tmp_path / expected
+        value = str(expected)
     cfg = run_main([opt, value])
     assert _plain(getattr(cfg, field)) == expected
 
 
 @pytest.mark.parametrize("opt, value, field, expected", TYPED, ids=[t[0] for t in TYPED])
-def test_valued_option_reaches_config_with_config_file(run_main, opt, value, field, expected):
+def test_valued_option_reaches_config_with_config_file(
+    run_main, tmp_path, opt, value, field, expected
+):
+    if isinstance(expected, Path):
+        expected = tmp_path / expected
+        value = str(expected)
     cfg = run_main([opt, value], "")
     assert _plain(getattr(cfg, field)) == expected
 

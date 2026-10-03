@@ -6,7 +6,7 @@ the remote directory tree, decides which files are new or changed, and downloads
 them efficiently — with adaptive concurrency, resumable/parallel downloads,
 integrity checks, incremental caching, and an SSRF-hardened transport layer.
 
-- **Version:** 3.1.78
+- **Version:** 3.1.79
 - **Python:** 3.9 or newer; CI tests Python 3.9–3.14
 - **License:** MIT
 
@@ -81,21 +81,21 @@ From a checkout of the repository on a build machine:
 
 ```bash
 pip install build
-python -m build          # produces dist/mirror_url-3.1.78-py3-none-any.whl
+python -m build          # produces dist/mirror_url-3.1.79-py3-none-any.whl
 ```
 
 Copy the wheel to the target server and install it:
 
 ```bash
 python3 -m venv /opt/mirror-url
-/opt/mirror-url/bin/pip install /tmp/mirror_url-3.1.78-py3-none-any.whl
+/opt/mirror-url/bin/pip install /tmp/mirror_url-3.1.79-py3-none-any.whl
 /opt/mirror-url/bin/mirror-url --help
 ```
 
 To include the optional speed extras:
 
 ```bash
-/opt/mirror-url/bin/pip install "/tmp/mirror_url-3.1.78-py3-none-any.whl[fast]"
+/opt/mirror-url/bin/pip install "/tmp/mirror_url-3.1.79-py3-none-any.whl[fast]"
 ```
 
 Available extras: `fast` (stringzilla + lxml), `progress` (tqdm),
@@ -104,24 +104,24 @@ Available extras: `fast` (stringzilla + lxml), `progress` (tqdm),
 ### From a Git repository
 
 ```bash
-pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.78"
+pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.79"
 # private repo over SSH:
-pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.1.78"
+pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.1.79"
 ```
 
 ### As an isolated CLI with pipx
 
 ```bash
-pipx install /tmp/mirror_url-3.1.78-py3-none-any.whl
-# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.78"
+pipx install /tmp/mirror_url-3.1.79-py3-none-any.whl
+# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.79"
 ```
 
 ### With Docker
 
 ```dockerfile
 FROM python:3.12-slim
-COPY dist/mirror_url-3.1.78-py3-none-any.whl /tmp/
-RUN pip install --no-cache-dir "/tmp/mirror_url-3.1.78-py3-none-any.whl[fast]"
+COPY dist/mirror_url-3.1.79-py3-none-any.whl /tmp/
+RUN pip install --no-cache-dir "/tmp/mirror_url-3.1.79-py3-none-any.whl[fast]"
 ENTRYPOINT ["mirror-url"]
 ```
 
@@ -251,7 +251,7 @@ list of options. The most commonly used options:
 | `--max-depth N` | Maximum directory recursion depth (default 50; CLI-only `--list-dirs` defaults to 1). With a config file, its `max_depth` or the model default of 50 applies unless explicitly overridden. |
 | `--scan-mode {adaptive,sequential,parallel,async}` | Accepted for compatibility; directory discovery and parsing currently use sequential scanning regardless of this value. Async workers apply to file metadata checks. |
 | `--parallel-threshold N` | *Currently has no effect* (accepted for backward compatibility); the value is parsed but not used to choose a scan strategy. |
-| `--max-filename-len N` | Sanitize/truncate local filenames (default 255). If distinct URLs map to the same local name, the sync fails before downloading; use a larger limit or a narrower scope. |
+| `--max-filename-len N` | Maximum local filename length (default 255). Sync rejects filenames that would require truncation or sanitization, including Windows reserved names, before downloading. Distinct URLs mapping to the same local name are also rejected; use a larger limit or a narrower scope. |
 | `--download-queue-size N` | Accepted for compatibility; the current sync pipeline collects the full remote file list and does not enqueue downloads through the bounded queue. |
 | `--max-symlink-depth N` | With `--handle-symlinks`, how many symlink hops deep to follow before stopping (default 10). |
 | `--list-dirs [N]` | Discover and print the directory tree under `--url`/`--dir-suffix`, then exit — no file scanning, freshness checks, or downloads/deletes. Respects `--exclude-dir`/`--max-depth` (without `--config`, defaults to `1` — the current folder's immediate children only; config-file runs use the file/model depth unless `--max-depth` is explicit); `--filter` doesn't apply (files only). With `N`, shows only the last `N` directories overall, sorted **lexicographically by relative path** (a name sort, not a true timestamp sort), with the root (`.`) excluded from that ranking. Always followed by a `# Directories N/total` summary line, including unrestricted runs (`N == total`). Without `--config`, doesn't require `--dest-path`/`--log-path`. |
@@ -708,7 +708,10 @@ roots do not share one cache accidentally.
 
 Normal runs still discover the remote tree and check existing files. A cached
 file ETag is trusted only when the recorded local size, modification time, and
-change time match the current file. Otherwise the file is checked again.
+filesystem change/creation timestamp match the current file. Otherwise the
+file is checked again. Same-size local edits that leave these timestamps
+unchanged can be missed, including rapid writes on filesystems with coarse
+timestamp resolution. This check does not hash local file contents.
 Directory-listing ETags and signatures do not establish that child file
 contents are unchanged. Without usable file ETags, checks fall back to size and
 the server's `Last-Modified` header when available; changes that preserve those
@@ -757,6 +760,9 @@ clean the selected local files; an incomplete scan skips cleanup and fails the
 run. Cleanup operation failures also fail the run.
 If the MOVE archive cannot be created, cleanup stops; a failed move leaves
 the source in place and never falls back to deletion.
+MOVE also refuses symlinked archive paths and existing timestamp collision
+names. It preserves the source and previous archives and reports a failed
+cleanup operation; inspect the archive before retrying.
 
 ```bash
 # Observe cleanup without downloads or changes to mirrored files
@@ -1029,3 +1035,15 @@ enables the coordinator's chunk pool; file transfers and metadata comparisons
 retain their separate executors.
 Local path checks assume the destination tree is not concurrently mutated by
 another process; they do not provide filesystem isolation against such a process.
+
+## Release 3.1.79 behavior
+
+Sync now rejects filenames that would need truncation or sanitization before
+starting downloads. This includes control characters and Windows reserved
+names. Increase `--max-filename-len` or narrow the selection when the configured
+length limit is too small.
+
+MOVE cleanup rejects symlinked archive paths and occupied timestamp collision
+names, preserving the source and previous archives. Directory inspection or
+removal failures are reported as cleanup failures. The transport rejects mixed
+public and link-local DNS results, and URL decoding failures reject the request.

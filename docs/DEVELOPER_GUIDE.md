@@ -11,7 +11,7 @@ If you only want to *use* MirrorURL (install, CLI, config, Python API), read
 repeats the essentials so you can work from it alone.
 
 - **Package:** `mirror_url` (src-layout under `src/`)
-- **Version:** 3.1.78
+- **Version:** 3.1.79
 - **Python:** 3.9 or newer; CI tests Python 3.9–3.14
 - **Runtime deps:** `httpx[http2]` (including `h2`), `pydantic` v2, `PyYAML` (optional: `stringzilla`,
   `lxml`, `tqdm`, `psutil`)
@@ -402,6 +402,12 @@ Other accepted compatibility settings include RGET-LIST options,
 an effect. Seven reserved model fields also emit warnings when explicitly
 changed: see `_UNUSED_CONFIG_FIELDS` and `warn_unused_fields()` in `config.py`.
 
+Cached file ETags are bound to size, `st_mtime_ns`, and `st_ctime_ns` by
+`CompareMixin._comparison_metadata`. These stat fields do not prove content
+identity: same-size local edits with unchanged timestamps can be missed.
+Metadata-change regressions must explicitly advance the file timestamp rather
+than rely on native clock resolution; content hashes are not checked here.
+
 The regression contracts live in `test_release_audit_regressions.py`, the
 download failure/integrity/storage-fault tests, HTTP workflow tests, and config
 precedence tests. Keep those observable contracts intact during refactoring.
@@ -595,7 +601,8 @@ The suite lives in `tests/` and runs under `pytest`. Test lanes:
   `test_integration.py` and `test_http_mirror_workflows.py`, using the static
   server fixture or a controllable Range/ETag/failure server.
 - **Full coverage lane** — both lanes together, plus 100% statement/branch
-  gates for the two download modules. It requires all optional dependencies
+  gates for the two download modules, six safety modules and shared URL scope
+  helpers (see below). It requires all optional dependencies
   and local socket binding. A sandbox socket denial is an environment error,
   not a successful full-suite run.
 
@@ -659,10 +666,12 @@ ruff format --check .     # canonical formatter
 mypy                      # required type-check of src/mirror_url (zero errors)
 pytest -m "not integration"   # fast lane
 pytest                        # full suite (includes integration)
-pytest --cov=mirror_url --cov-branch --cov-fail-under=70 \
+pytest --cov=mirror_url --cov-branch --cov-fail-under=80 \
   --cov-report=term-missing --cov-report=xml:coverage.xml \
   --cov-report=json:coverage.json --cov-report=html
 python scripts/check_download_coverage.py coverage.json  # each download module: 100%
+python scripts/check_safety_coverage.py coverage.json
+python scripts/check_safety_mutations.py
 
 # build distributions
 pip install build twine
@@ -676,11 +685,34 @@ bash scripts/render_guides.sh
 CI (`.github/workflows/ci.yml`) runs lint/format checks on Python 3.12 and the
 fast test lane across Python 3.9–3.14.
 A separate Python 3.12 coverage job installs `[all,dev]`, runs every test,
-including real local HTTP mirroring, and requires at least 70% combined
+including real local HTTP mirroring, and requires at least 80% combined
 statement/branch coverage overall. It additionally requires 100% statement and
 branch coverage separately for `download.py` and `download_integrity.py`, using
 the exact missing counts in the JSON report. It uploads HTML, JSON, and XML
-reports. `scripts/render_guides.sh` renders both Markdown guides with Pandoc and
+reports. The safety gate separately requires 100% statements and branches for
+`scanner.py`, `_core/scan.py`, `_core/urls.py`, `_core/cleanup.py`, `security.py`
+and `transport.py`, plus `utils.url_within_scope` and `utils._relative_url_path`.
+It uses exact missing counts and checks helper exclusions; unrelated uncovered
+utility functions do not get hidden or counted as covered.
+
+Hypothesis generates once-decoded path identities, origin boundaries and nested
+traversal encodings. Filesystem tests inject permission, resolution, listing and
+move failures, and assert preserved source and archive bytes. Local HTTP tests
+assert that malformed listings and lossy filenames fail before destructive
+cleanup or publication. The mutation check temporarily weakens six guards:
+mixed DNS rejection, archive collision rejection, incomplete-scan cleanup,
+same-origin scope, address pinning and lossy filename preflight. Each selected
+test must first pass against the original source and then fail an assertion
+against the mutation. Collection or environment errors do not count as success.
+These checks improve evidence of correctness; neither 100% coverage nor this
+small mutation set guarantees that all bugs have been found.
+
+Native macOS and Windows CI jobs also run the full suite on Python 3.12 with
+core dependencies and with all optional dependencies. The coverage gate runs
+on Linux with optional dependencies; its results do not claim native Windows
+branches were executed on a different OS.
+
+`scripts/render_guides.sh` renders both Markdown guides with Pandoc and
 the committed `docs/guide-style.html`. Its Lua filter points cross-guide links
 to HTML copies. It keeps the Markdown's table of contents and emits one title
 per guide; run it after editing either guide and review the
@@ -705,8 +737,8 @@ and documentation synchronized when upgrading the formatter.
 3. **Validate and commit the release.** Run `mypy`, `ruff check .`,
    `ruff format --check .`, the full `pytest` suite, `python -m build`,
    `twine check dist/*`, and `git diff --check`. All checks must pass.
-   Include the full branch-coverage run and `check_download_coverage.py` gate
-   shown above, and require release PR CI to pass before tagging.
+   Include the full branch-coverage run, both coverage gates and the safety
+   mutation check shown above, and require release PR CI to pass before tagging.
    Commit the source metadata, changelog, and guides; push the release branch
    and merge its reviewed pull request.
 4. **Tag the merged release on `main` and push the tag:**
@@ -778,7 +810,7 @@ Preserve these constraints when extending or refactoring the current code.
 
 ---
 
-*This guide describes the architecture as of version 3.1.78. When you change the
+*This guide describes the architecture as of version 3.1.79. When you change the
 structure, update this document in the same PR.*
 
 ## Release 3.1.78 behavior
@@ -805,3 +837,17 @@ scanner HTML cache were removed. Scanner HTML statistics now read the live
 CacheManager cache. Public compatibility fields and framework hooks remain.
 Local path checks assume the destination tree is not concurrently mutated by
 another process; they do not provide filesystem isolation against such a process.
+
+## Release 3.1.79 behavior
+
+Remote-path preflight rejects mappings that change the once-decoded filename,
+including truncation, control-character removal and reserved-name rewriting,
+before any download. Archive destinations are checked before creating parents
+and again after selecting a collision name. Existing timestamp names and
+symlinked archive paths fail the move while preserving source/archive bytes.
+Directory inspection and removal exceptions contribute to cleanup failure
+metrics, which fail the sync run.
+
+DNS validation classifies every returned answer, including IPv6 link-local
+addresses. URL decode exceptions reject the request. The safety coverage and
+mutation gates and native CI lanes described above are release requirements.

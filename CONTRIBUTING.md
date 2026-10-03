@@ -34,13 +34,15 @@ pytest                # full suite, including live HTTP integration
 `pytest -m "not integration"` runs the fast lane across Python 3.9–3.14 in CI.
 The separate coverage job runs the full suite on Python 3.12 with all optional
 dependencies, including the local HTTP tests, and gates combined statement and
-branch coverage at 70%:
+branch coverage at 80%:
 
 ```bash
 pip install -e ".[all,dev]"
-pytest --cov=mirror_url --cov-branch --cov-fail-under=70 \
+pytest --cov=mirror_url --cov-branch --cov-fail-under=80 \
   --cov-report=term-missing --cov-report=json:coverage.json --cov-report=html
 python scripts/check_download_coverage.py coverage.json
+python scripts/check_safety_coverage.py coverage.json
+python scripts/check_safety_mutations.py
 ```
 
 Open `htmlcov/index.html` to inspect missed lines and branches. CI also saves
@@ -50,6 +52,20 @@ and branch coverage. The gate checks missing counts separately for each module;
 rounded percentages and the overall average cannot hide a gap. Exercise real
 filesystem operations and inject network or disk faults to verify preservation
 of existing files, response closure, retry boundaries, and resource cleanup.
+
+The safety gate requires 100% statement and branch coverage separately for
+`scanner.py`, `_core/scan.py`, `_core/urls.py`, `_core/cleanup.py`, `security.py`,
+and `transport.py`, plus the shared `url_within_scope` and `_relative_url_path`
+helpers. It does not assert 100% coverage of the entire package. Hypothesis
+generates encoded path and origin-boundary cases. The mutation check runs six
+deliberately weakened guards in temporary source copies and requires the
+corresponding preservation tests to fail; this is a targeted check of test
+strength, not exhaustive mutation testing. Complete coverage measures execution,
+not correctness or a guarantee of production safety.
+
+Native macOS and Windows jobs run the full suite on Python 3.12 both with and
+without optional accelerators. Linux retains the Python 3.9–3.14 fast lane and
+the full coverage job with all optional dependencies.
 
 A change is ready to merge when `ruff check` is clean, the formatter reports no
 diffs, and `pytest` passes.

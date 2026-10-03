@@ -279,7 +279,7 @@ repeats the essentials so you can work from it alone.</p>
 <ul>
 <li><strong>Package:</strong> <code>mirror_url</code> (src-layout under
 <code>src/</code>)</li>
-<li><strong>Version:</strong> 3.1.78</li>
+<li><strong>Version:</strong> 3.1.79</li>
 <li><strong>Python:</strong> 3.9 or newer; CI tests Python 3.9–3.14</li>
 <li><strong>Runtime deps:</strong> <code>httpx[http2]</code> (including
 <code>h2</code>), <code>pydantic</code> v2, <code>PyYAML</code>
@@ -794,6 +794,13 @@ bounded download batch scheduler.</p>
 documenting an effect. Seven reserved model fields also emit warnings
 when explicitly changed: see <code>_UNUSED_CONFIG_FIELDS</code> and
 <code>warn_unused_fields()</code> in <code>config.py</code>.</p>
+<p>Cached file ETags are bound to size, <code>st_mtime_ns</code>, and
+<code>st_ctime_ns</code> by
+<code>CompareMixin._comparison_metadata</code>. These stat fields do not
+prove content identity: same-size local edits with unchanged timestamps
+can be missed. Metadata-change regressions must explicitly advance the
+file timestamp rather than rely on native clock resolution; content
+hashes are not checked here.</p>
 <p>The regression contracts live in
 <code>test_release_audit_regressions.py</code>, the download
 failure/integrity/storage-fault tests, HTTP workflow tests, and config
@@ -1004,9 +1011,10 @@ across Python 3.9–3.14.</li>
 <code>test_http_mirror_workflows.py</code>, using the static server
 fixture or a controllable Range/ETag/failure server.</li>
 <li><strong>Full coverage lane</strong> — both lanes together, plus 100%
-statement/branch gates for the two download modules. It requires all
-optional dependencies and local socket binding. A sandbox socket denial
-is an environment error, not a successful full-suite run.</li>
+statement/branch gates for the two download modules, six safety modules
+and shared URL scope helpers (see below). It requires all optional
+dependencies and local socket binding. A sandbox socket denial is an
+environment error, not a successful full-suite run.</li>
 </ul>
 <p><strong>End-to-end tests:</strong>
 <code>tests/test_integration.py</code> runs a real local HTTP mirror
@@ -1070,29 +1078,55 @@ class="sourceCode bash"><code class="sourceCode bash"><span id="cb6-1"><a href="
 <span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a><span class="ex">mypy</span>                      <span class="co"># required type-check of src/mirror_url (zero errors)</span></span>
 <span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a><span class="ex">pytest</span> <span class="at">-m</span> <span class="st">&quot;not integration&quot;</span>   <span class="co"># fast lane</span></span>
 <span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a><span class="ex">pytest</span>                        <span class="co"># full suite (includes integration)</span></span>
-<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a><span class="ex">pytest</span> <span class="at">--cov</span><span class="op">=</span>mirror_url <span class="at">--cov-branch</span> <span class="at">--cov-fail-under</span><span class="op">=</span>70 <span class="dt">\</span></span>
+<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a><span class="ex">pytest</span> <span class="at">--cov</span><span class="op">=</span>mirror_url <span class="at">--cov-branch</span> <span class="at">--cov-fail-under</span><span class="op">=</span>80 <span class="dt">\</span></span>
 <span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">--cov-report</span><span class="op">=</span>term-missing <span class="at">--cov-report</span><span class="op">=</span>xml:coverage.xml <span class="dt">\</span></span>
 <span id="cb6-12"><a href="#cb6-12" aria-hidden="true" tabindex="-1"></a>  <span class="at">--cov-report</span><span class="op">=</span>json:coverage.json <span class="at">--cov-report</span><span class="op">=</span>html</span>
 <span id="cb6-13"><a href="#cb6-13" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> scripts/check_download_coverage.py coverage.json  <span class="co"># each download module: 100%</span></span>
-<span id="cb6-14"><a href="#cb6-14" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb6-15"><a href="#cb6-15" aria-hidden="true" tabindex="-1"></a><span class="co"># build distributions</span></span>
-<span id="cb6-16"><a href="#cb6-16" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> install build twine</span>
-<span id="cb6-17"><a href="#cb6-17" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> <span class="at">-m</span> build           <span class="co"># wheel + sdist into dist/</span></span>
-<span id="cb6-18"><a href="#cb6-18" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> <span class="at">-m</span> twine check dist/<span class="pp">*</span></span>
-<span id="cb6-19"><a href="#cb6-19" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb6-20"><a href="#cb6-20" aria-hidden="true" tabindex="-1"></a><span class="co"># regenerate both HTML guides after Markdown edits (requires pandoc)</span></span>
-<span id="cb6-21"><a href="#cb6-21" aria-hidden="true" tabindex="-1"></a><span class="fu">bash</span> scripts/render_guides.sh</span></code></pre></div>
+<span id="cb6-14"><a href="#cb6-14" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> scripts/check_safety_coverage.py coverage.json</span>
+<span id="cb6-15"><a href="#cb6-15" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> scripts/check_safety_mutations.py</span>
+<span id="cb6-16"><a href="#cb6-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-17"><a href="#cb6-17" aria-hidden="true" tabindex="-1"></a><span class="co"># build distributions</span></span>
+<span id="cb6-18"><a href="#cb6-18" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> install build twine</span>
+<span id="cb6-19"><a href="#cb6-19" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> <span class="at">-m</span> build           <span class="co"># wheel + sdist into dist/</span></span>
+<span id="cb6-20"><a href="#cb6-20" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> <span class="at">-m</span> twine check dist/<span class="pp">*</span></span>
+<span id="cb6-21"><a href="#cb6-21" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-22"><a href="#cb6-22" aria-hidden="true" tabindex="-1"></a><span class="co"># regenerate both HTML guides after Markdown edits (requires pandoc)</span></span>
+<span id="cb6-23"><a href="#cb6-23" aria-hidden="true" tabindex="-1"></a><span class="fu">bash</span> scripts/render_guides.sh</span></code></pre></div>
 <p>CI (<code>.github/workflows/ci.yml</code>) runs lint/format checks on
 Python 3.12 and the fast test lane across Python 3.9–3.14. A separate
 Python 3.12 coverage job installs <code>[all,dev]</code>, runs every
-test, including real local HTTP mirroring, and requires at least 70%
+test, including real local HTTP mirroring, and requires at least 80%
 combined statement/branch coverage overall. It additionally requires
 100% statement and branch coverage separately for
 <code>download.py</code> and <code>download_integrity.py</code>, using
 the exact missing counts in the JSON report. It uploads HTML, JSON, and
-XML reports. <code>scripts/render_guides.sh</code> renders both Markdown
-guides with Pandoc and the committed <code>docs/guide-style.html</code>.
-Its Lua filter points cross-guide links to HTML copies. It keeps the
+XML reports. The safety gate separately requires 100% statements and
+branches for <code>scanner.py</code>, <code>_core/scan.py</code>,
+<code>_core/urls.py</code>, <code>_core/cleanup.py</code>,
+<code>security.py</code> and <code>transport.py</code>, plus
+<code>utils.url_within_scope</code> and
+<code>utils._relative_url_path</code>. It uses exact missing counts and
+checks helper exclusions; unrelated uncovered utility functions do not
+get hidden or counted as covered.</p>
+<p>Hypothesis generates once-decoded path identities, origin boundaries
+and nested traversal encodings. Filesystem tests inject permission,
+resolution, listing and move failures, and assert preserved source and
+archive bytes. Local HTTP tests assert that malformed listings and lossy
+filenames fail before destructive cleanup or publication. The mutation
+check temporarily weakens six guards: mixed DNS rejection, archive
+collision rejection, incomplete-scan cleanup, same-origin scope, address
+pinning and lossy filename preflight. Each selected test must first pass
+against the original source and then fail an assertion against the
+mutation. Collection or environment errors do not count as success.
+These checks improve evidence of correctness; neither 100% coverage nor
+this small mutation set guarantees that all bugs have been found.</p>
+<p>Native macOS and Windows CI jobs also run the full suite on Python
+3.12 with core dependencies and with all optional dependencies. The
+coverage gate runs on Linux with optional dependencies; its results do
+not claim native Windows branches were executed on a different OS.</p>
+<p><code>scripts/render_guides.sh</code> renders both Markdown guides
+with Pandoc and the committed <code>docs/guide-style.html</code>. Its
+Lua filter points cross-guide links to HTML copies. It keeps the
 Markdown's table of contents and emits one title per guide; run it after
 editing either guide and review the HTML too. Keep Ruff's version in
 <code>pyproject.toml</code>, <code>.pre-commit-config.yaml</code>, and
@@ -1120,7 +1154,7 @@ a Changelog (<code>### Added/Changed/Fixed</code>).</li>
 <code>ruff format --check .</code>, the full <code>pytest</code> suite,
 <code>python -m build</code>, <code>twine check dist/*</code>, and
 <code>git diff --check</code>. All checks must pass. Include the full
-branch-coverage run and <code>check_download_coverage.py</code> gate
+branch-coverage run, both coverage gates and the safety mutation check
 shown above, and require release PR CI to pass before tagging. Commit
 the source metadata, changelog, and guides; push the release branch and
 merge its reviewed pull request.</li>
@@ -1264,7 +1298,7 @@ public)</td>
 </tbody>
 </table>
 <hr />
-<p><em>This guide describes the architecture as of version 3.1.78. When
+<p><em>This guide describes the architecture as of version 3.1.79. When
 you change the structure, update this document in the same PR.</em></p>
 <h2 id="release-3178-behavior">Release 3.1.78 behavior</h2>
 <p>Discovery, mapping, exclusions and cleanup share
@@ -1293,5 +1327,18 @@ Public compatibility fields and framework hooks remain. Local path
 checks assume the destination tree is not concurrently mutated by
 another process; they do not provide filesystem isolation against such a
 process.</p>
+<h2 id="release-3179-behavior">Release 3.1.79 behavior</h2>
+<p>Remote-path preflight rejects mappings that change the once-decoded
+filename, including truncation, control-character removal and
+reserved-name rewriting, before any download. Archive destinations are
+checked before creating parents and again after selecting a collision
+name. Existing timestamp names and symlinked archive paths fail the move
+while preserving source/archive bytes. Directory inspection and removal
+exceptions contribute to cleanup failure metrics, which fail the sync
+run.</p>
+<p>DNS validation classifies every returned answer, including IPv6
+link-local addresses. URL decode exceptions reject the request. The
+safety coverage and mutation gates and native CI lanes described above
+are release requirements.</p>
 </body>
 </html>

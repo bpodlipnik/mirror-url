@@ -4,6 +4,37 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.79] - 2026-10-03
+
+### Fixed
+
+- Reject mixed public/IPv6 link-local DNS answers instead of skipping the
+  blocked answers. Reject URL decoder failures instead of accepting the URL.
+- Reject symlinked archive ancestors and collision destinations during MOVE
+  cleanup. Preserve source files and previous archives when timestamp names
+  collide instead of overwriting or redirecting a move.
+- Reject lossy filename mappings before any download: truncation, control
+  removal and Windows reserved-name rewriting could overwrite unrelated files.
+- Count directory inspection/removal failures during cleanup so sync reports
+  failure instead of silently succeeding while obsolete directories remain.
+- Route URL parser failures through the incomplete-scan handler. Simplify
+  resolved-path containment and remove obsolete or unreachable fallbacks.
+
+### Tests
+
+- Require 100% statements and branches for discovery, URL mapping, cleanup,
+  security and transport, retaining both download gates. Ratchet overall
+  combined coverage to 80% without excluding uncovered runtime code.
+- Add generated URL/path cases, real filesystem fault and race tests, local
+  HTTP preservation tests and six targeted guard mutations.
+- Add native macOS and Windows full-suite CI jobs with and without optional
+  accelerators; retain the Linux Python 3.9–3.14 matrix.
+- Use native temporary paths in CLI tests, run cache-layout tests on their
+  matching platforms, and compare log names without unlinking an active log.
+- Make the same-size edit regression explicitly change the file timestamp;
+  document the limits of metadata-only local file validation.
+- Include fixtures, validation scripts and guides in source distributions.
+
 ## [3.1.78] - 2026-10-02
 
 ### Fixed

@@ -9,13 +9,13 @@ from pathlib import Path
 MODULES = ("src/mirror_url/download.py", "src/mirror_url/download_integrity.py")
 
 
-def check_coverage(report: dict) -> bool:
+def check_coverage(report: dict, modules=MODULES) -> bool:
     if not report.get("meta", {}).get("branch_coverage"):
         print("Download coverage gate requires a report collected with --cov-branch.")
         return False
     complete = True
     files = report.get("files", {})
-    for module in MODULES:
+    for module in modules:
         matches = [
             data
             for name, data in files.items()
