@@ -323,7 +323,7 @@ map</a></li>
 monolith and the refactor</h2>
 <p>MirrorURL began as a single <code>mirror_url.py</code> of ~15,000
 lines containing ~70 classes and ~25 module-level functions. It was
-split into the modular <code>src/mirror_url/</code> package (45 Python
+split into the modular <code>src/mirror_url/</code> package (46 Python
 files, organized by responsibilities) by a
 <strong>behavior-preserving</strong> migration: code was relocated
 verbatim and class/function method sets were verified identical to the
@@ -371,7 +371,7 @@ green after every change.</li>
 <hr />
 <h2 id="repository-layout">Repository layout</h2>
 <pre><code>mirror-url/
-├── src/mirror_url/          # the package (45 Python files including private helpers)
+├── src/mirror_url/          # the package (46 Python files including private helpers)
 │   ├── __init__.py          # public API re-exports
 │   ├── __main__.py          # `python -m mirror_url`
 │   ├── _version.py          # __version__, __author__  (one of two version sources)
@@ -514,6 +514,15 @@ leases also retain parent ownership.</li>
 <li><code>storage.py</code> — <code>FileSystemCache</code>,
 <code>DiskBackedSet</code> (tracking with disk spills, memory-only
 duplicate suppression and pruning; no persistent membership index).</li>
+<li><code>scratch.py</code> — flat private parallel workspaces with
+exact manifests and per-work OS leases. A chunk wait timeout retains its
+lease until every submitted future finishes, and late cleanup preserves
+a newer transfer's active tracking entry. Recovery holds
+destination/state ownership, rejects live leases and validates every
+entry before deletion. It never age-deletes arbitrary directories.
+Current work can retire its own lease after IO ends during bounded
+shutdown. Root ownership, malformed records, links and unknown children
+fail closed; unmarked legacy artifacts require manual review.</li>
 <li><code>circuit_breaker.py</code> — <code>CircuitBreaker</code>,
 <code>AsyncCircuitBreaker</code>, <code>ChunkCircuitBreaker</code>,
 <code>CircuitBreakerManager</code> (per-domain). Keep each base and its
@@ -1045,10 +1054,10 @@ across Python 3.9–3.14.</li>
 <code>test_http_mirror_workflows.py</code>, using the static server
 fixture or a controllable Range/ETag/failure server.</li>
 <li><strong>Full coverage lane</strong> — both lanes together, plus 100%
-statement/branch gates for the two download modules, six safety modules
-and shared URL scope helpers (see below). It requires all optional
-dependencies and local socket binding. A sandbox socket denial is an
-environment error, not a successful full-suite run.</li>
+statement/branch gates for the two download modules, eight safety
+modules and shared URL scope helpers (see below). It requires all
+optional dependencies and local socket binding. A sandbox socket denial
+is an environment error, not a successful full-suite run.</li>
 </ul>
 <p><strong>End-to-end tests:</strong>
 <code>tests/test_integration.py</code> runs a real local HTTP mirror
@@ -1137,8 +1146,8 @@ the exact missing counts in the JSON report. It uploads HTML, JSON, and
 XML reports. The safety gate separately requires 100% statements and
 branches for <code>scanner.py</code>, <code>_core/scan.py</code>,
 <code>_core/urls.py</code>, <code>_core/cleanup.py</code>,
-<code>security.py</code> <code>transport.py</code> and
-<code>destination_lock.py</code>, plus
+<code>security.py</code> <code>transport.py</code>,
+<code>destination_lock.py</code> and <code>scratch.py</code>, plus
 <code>utils.url_within_scope</code> and
 <code>utils._relative_url_path</code>. It uses exact missing counts and
 checks helper exclusions; unrelated uncovered utility functions do not
@@ -1148,15 +1157,16 @@ and nested traversal encodings. Filesystem tests inject permission,
 resolution, listing and move failures, and assert preserved source and
 archive bytes. Local HTTP tests assert that malformed listings and lossy
 filenames fail before destructive cleanup or publication. The mutation
-check temporarily weakens ten guards: mixed DNS rejection, archive
+check temporarily weakens thirteen guards: mixed DNS rejection, archive
 collision rejection, incomplete-scan cleanup, same-origin scope, address
 pinning, lossy filename preflight and content receipt verification, the
 long-hash deadline policy, destination locking and retention of
-abandoned-worker ownership. Each selected test must first pass against
-the original source and then fail an assertion against the mutation.
-Collection or environment errors do not count as success. These checks
-improve evidence of correctness; neither 100% coverage nor this small
-mutation set guarantees that all bugs have been found.</p>
+abandoned-worker ownership, scratch manifest ownership, live work leases
+and late chunk writer cleanup. Each selected test must first pass
+against the original source and then fail an assertion against the
+mutation. Collection or environment errors do not count as success.
+These checks improve evidence of correctness; neither 100% coverage nor
+this small mutation set guarantees that all bugs have been found.</p>
 <p><code>test_process_recovery.py</code> starts real subprocesses
 against the local HTTP fixture, kills them at deterministic IO
 checkpoints, then restarts the same destination. Checkpoints cover
@@ -1185,9 +1195,15 @@ and recovers dropped connections and process kills. It writes atomic
 logs. Freeze <code>src/</code>, <code>tests/</code> and
 <code>scripts/</code> for a long run: source changes invalidate the
 result. With optional psutil, resource checks include RSS and
-descriptors/handles; thread counts are always checked. An elapsed short
-smoke run is not long-duration evidence. Local synthetic tests also do
-not replace a representative archive/destination soak.</p>
+descriptors/handles; thread counts are always checked. Each completed
+cycle also asserts zero remaining owned temporary workspaces and bytes,
+and checks MOVE archive payload against the fixture's known legitimate
+files. Filesystem free space is sampled separately because other
+applications can change it. Crash worker output is appended with
+cycle/checkpoint markers and bounded rotation, allowing a full review of
+retained worker and main logs. An elapsed short smoke run is not
+long-duration evidence. Local synthetic tests also do not replace a
+representative archive/destination soak.</p>
 <p>Native macOS and Windows CI jobs also run the full suite on Python
 3.12 with core dependencies and with all optional dependencies. The
 coverage gate runs on Linux with optional dependencies; its results do

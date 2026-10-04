@@ -22,6 +22,7 @@ these changes are not in the published 3.1.79 package yet. See
 - **Integrity checks** — size/timestamp comparison, ETag handling, verified byte ranges, and opt-in `--verify-content` SHA-256 checks of local files; no comparison against a remote cryptographic content digest.
 - **Resilience** — per-domain circuit breakers, exponential backoff, rate limiting.
 - **Destination ownership** — cooperating processes reject overlapping local trees and shared cache/state paths; hard process termination releases ownership automatically.
+- **Crash recovery** — the next owner reclaims recorded abandoned parallel chunks and staging under reserved state; live writers, unknown files and legitimate MOVE archives are preserved.
 - **Security** — path-traversal and symlink-bomb defenses, private-IP/SSRF guards, URL-scope enforcement.
 - **Operability** — metrics collection, multi-level progress, optional HTTP health-check server.
 - **Caching** — directory listings and file metadata; discovery currently keeps the remote file list in memory.

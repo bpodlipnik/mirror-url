@@ -84,6 +84,27 @@ MUTATIONS = (
         "if self._closing:",
         "tests/test_destination_lock.py::test_operation_leases_keep_lock_after_cleanup_returns",
     ),
+    (
+        "scratch manifest ownership",
+        "scratch.py",
+        "if data != expected:",
+        "if False:",
+        "tests/test_owned_scratch.py::test_recovery_preserves_every_byte_when_ownership_is_ambiguous",
+    ),
+    (
+        "scratch live work lease",
+        "scratch.py",
+        "portalocker.lock(stream, portalocker.LOCK_EX | portalocker.LOCK_NB)",
+        "pass",
+        "tests/test_owned_scratch.py::test_recovery_preserves_active_work_then_removes_recorded_abandoned_bytes",
+    ),
+    (
+        "late chunk writer cleanup",
+        "download.py",
+        "        if pending:\n\n            def retire",
+        "        if False:\n\n            def retire",
+        "tests/test_scratch_transfer_lifecycle.py::test_timed_out_chunk_writers_keep_work_leased_until_last_future_exits",
+    ),
 )
 
 

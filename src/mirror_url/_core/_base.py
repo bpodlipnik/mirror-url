@@ -45,6 +45,7 @@ from ..progress import MultiLevelProgress
 from ..queue import DownloadQueue
 from ..rate_limiter import BandwidthLimiter, PerIPRateLimiter
 from ..scanner import DirectoryScanner
+from ..scratch import OwnedScratch
 from ..security import PathSafety, SymlinkTracker
 from ..storage import DiskBackedSet, FileSystemCache
 from ..tuner import AutoConcurrencyTuner
@@ -424,6 +425,7 @@ class _MirrorBase(MirrorHost):
         self.disk_manager: Optional[DiskSpaceManager] = None
         self.performance_monitor = PerformanceMonitor()
         self.partial_manager: Optional[PartialDownloadManager] = None
+        self.scratch_manager: Optional[OwnedScratch] = None
         self.health_checker = HealthChecker(self)
         self.multi_progress = MultiLevelProgress()
         self.per_ip_limiter = PerIPRateLimiter(requests_per_second=DEFAULT_RATE_LIMIT)
@@ -670,6 +672,17 @@ class _MirrorBase(MirrorHost):
                 logging.warning(f"Failed to initialize disk/partial managers: {e}")
                 self.disk_manager = None
                 self.partial_manager = None
+
+            if self.partial_manager is not None and self._destination_lock is not None:
+                self.scratch_manager = OwnedScratch(
+                    self.target_dir,
+                    self.partial_manager._state_directory(),
+                    config.chunk_assembly_dir if self.parallel_manager is not None else None,
+                    self._destination_lock,
+                )
+                if self.parallel_manager is not None:
+                    self.parallel_manager.scratch = self.scratch_manager
+                    self.parallel_manager.assembly_dir = self.scratch_manager.chunk_root
 
         elif self.connection_ok and config.dry_run and self._computed_target_path:
             # Dry-run mode: store path but DON'T create directory

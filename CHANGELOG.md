@@ -36,6 +36,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A chunk wait timeout or executor submission failure now keeps transfer scratch
+  leased until all submitted writers exit. Late cleanup preserves a newer
+  transfer's tracking entry and never publishes timed-out chunks.
+- Identify download, incomplete-scan and cleanup failures separately in failed
+  sync summaries instead of logging a misleading zero-failure completion.
+- Store parallel chunks and staging in manifest-owned private workspaces;
+  reclaim abandoned recorded bytes after exclusive ownership is acquired.
+  Per-work leases preserve live suffix writers, and legacy/unrecognized files
+  and legitimate MOVE archives are preserved. Stop age-based removal of
+  arbitrary assembly subdirectories. Gate scratch statements/branches and test
+  repeated process kills with bounded temporary disk usage.
+- Extend soak evidence with post-cycle temporary-byte/archive assertions and
+  retained, bounded crash-worker history for full log review.
 - Publish cache JSON with `os.replace()` so updates replace an existing cache
   on Windows while retaining the previous complete file on failure.
 - Reserve CLI destinations and the log tree before shared logging starts;

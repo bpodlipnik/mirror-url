@@ -45,7 +45,7 @@ repeats the essentials so you can work from it alone.
 
 MirrorURL began as a single `mirror_url.py` of ~15,000 lines containing ~70
 classes and ~25 module-level functions. It was split into the modular
-`src/mirror_url/` package (45 Python files, organized by responsibilities) by a
+`src/mirror_url/` package (46 Python files, organized by responsibilities) by a
 **behavior-preserving** migration: code was relocated verbatim and class/function
 method sets were verified identical to the original via AST comparison. Logic
 changes were kept out of the migration and made only in separate, reviewable
@@ -91,7 +91,7 @@ changes — most review feedback traces back to one of these.
 
 ```
 mirror-url/
-├── src/mirror_url/          # the package (45 Python files including private helpers)
+├── src/mirror_url/          # the package (46 Python files including private helpers)
 │   ├── __init__.py          # public API re-exports
 │   ├── __main__.py          # `python -m mirror_url`
 │   ├── _version.py          # __version__, __author__  (one of two version sources)
@@ -215,6 +215,14 @@ pool warm-up checks each redirect before contacting its target.
   handles. Child writer and cleanup leases also retain parent ownership.
 - `storage.py` — `FileSystemCache`, `DiskBackedSet` (tracking with disk spills,
   memory-only duplicate suppression and pruning; no persistent membership index).
+- `scratch.py` — flat private parallel workspaces with exact manifests and
+  per-work OS leases. A chunk wait timeout retains its lease until every
+  submitted future finishes, and late cleanup preserves a newer transfer's
+  active tracking entry. Recovery holds destination/state ownership, rejects live
+  leases and validates every entry before deletion. It never age-deletes
+  arbitrary directories. Current work can retire its own lease after IO ends
+  during bounded shutdown. Root ownership, malformed records, links and unknown
+  children fail closed; unmarked legacy artifacts require manual review.
 - `circuit_breaker.py` — `CircuitBreaker`, `AsyncCircuitBreaker`,
   `ChunkCircuitBreaker`, `CircuitBreakerManager` (per-domain). Keep each base and
   its subclasses in this one module.
@@ -630,7 +638,7 @@ The suite lives in `tests/` and runs under `pytest`. Test lanes:
   `test_integration.py` and `test_http_mirror_workflows.py`, using the static
   server fixture or a controllable Range/ETag/failure server.
 - **Full coverage lane** — both lanes together, plus 100% statement/branch
-  gates for the two download modules, six safety modules and shared URL scope
+  gates for the two download modules, eight safety modules and shared URL scope
   helpers (see below). It requires all optional dependencies
   and local socket binding. A sandbox socket denial is an environment error,
   not a successful full-suite run.
@@ -720,7 +728,7 @@ branch coverage separately for `download.py` and `download_integrity.py`, using
 the exact missing counts in the JSON report. It uploads HTML, JSON, and XML
 reports. The safety gate separately requires 100% statements and branches for
 `scanner.py`, `_core/scan.py`, `_core/urls.py`, `_core/cleanup.py`, `security.py`
-`transport.py` and `destination_lock.py`, plus `utils.url_within_scope` and `utils._relative_url_path`.
+`transport.py`, `destination_lock.py` and `scratch.py`, plus `utils.url_within_scope` and `utils._relative_url_path`.
 It uses exact missing counts and checks helper exclusions; unrelated uncovered
 utility functions do not get hidden or counted as covered.
 
@@ -728,11 +736,12 @@ Hypothesis generates once-decoded path identities, origin boundaries and nested
 traversal encodings. Filesystem tests inject permission, resolution, listing and
 move failures, and assert preserved source and archive bytes. Local HTTP tests
 assert that malformed listings and lossy filenames fail before destructive
-cleanup or publication. The mutation check temporarily weakens ten guards:
+cleanup or publication. The mutation check temporarily weakens thirteen guards:
 mixed DNS rejection, archive collision rejection, incomplete-scan cleanup,
 same-origin scope, address pinning, lossy filename preflight and content receipt
 verification, the long-hash deadline policy, destination locking and retention
-of abandoned-worker ownership. Each selected
+of abandoned-worker ownership, scratch manifest ownership, live work leases and
+late chunk writer cleanup. Each selected
 test must first pass against the original source and then fail an assertion
 against the mutation. Collection or environment errors do not count as success.
 These checks improve evidence of correctness; neither 100% coverage nor this
@@ -765,6 +774,11 @@ connections and process kills. It writes atomic `status.json`, source hashes,
 resource samples and bounded logs. Freeze `src/`, `tests/` and `scripts/` for a
 long run: source changes invalidate the result. With optional psutil, resource
 checks include RSS and descriptors/handles; thread counts are always checked.
+Each completed cycle also asserts zero remaining owned temporary workspaces and
+bytes, and checks MOVE archive payload against the fixture's known legitimate
+files. Filesystem free space is sampled separately because other applications
+can change it. Crash worker output is appended with cycle/checkpoint markers and
+bounded rotation, allowing a full review of retained worker and main logs.
 An elapsed short smoke run is not long-duration evidence. Local synthetic tests
 also do not replace a representative archive/destination soak.
 

@@ -510,9 +510,10 @@ published.</td>
 </tr>
 <tr>
 <td><code>--chunk-assembly-dir DIR</code></td>
-<td>Directory for temporary chunk files (defaults to a unique directory
-under the system temporary directory). Final assembly and streaming
-staging remain beside the destination file for atomic replacement.</td>
+<td>Parent for an owned, destination-specific chunk workspace (defaults
+to <code>.mirror-url-state/chunks/</code> in the target). Assembly and
+streaming staging use reserved target state on the destination
+filesystem.</td>
 </tr>
 <tr>
 <td><code>--chunk-timeout-multiplier MULT</code></td>
@@ -1136,17 +1137,19 @@ stay intact until verification and atomic replacement succeed. These
 checks do not compare against a server-provided cryptographic content
 digest; <code>--hash-algorithm</code> does not add such a
 comparison.</p>
-<p>Traditional chunk files default to a unique directory under the
-system temporary directory, or to <code>--chunk-assembly-dir</code>.
-Final assembly and streaming staging use the destination's filesystem.
-Traditional mode can need roughly two additional file-sized copies
-across the temporary and destination storage; streaming needs roughly
-one additional file-sized staging allocation. Existing destination
-copies also continue to occupy space until replacement. Assembly reads
-bounded blocks rather than loading an entire chunk into memory. Both
-chunk modes restore valid server <code>Last-Modified</code> timestamps
-before saving cache metadata; an unsupported local timestamp update is
-logged without failing an otherwise successful transfer.</p>
+<p>Traditional chunk files default to owned
+<code>.mirror-url-state/chunks/</code> state, or a destination-specific
+owned child of <code>--chunk-assembly-dir</code>. Final assembly and
+streaming staging use <code>.mirror-url-state/parallel/</code> on the
+destination's filesystem. Traditional mode can need roughly two
+additional file-sized copies across the temporary and destination
+storage; streaming needs roughly one additional file-sized staging
+allocation. Existing destination copies also continue to occupy space
+until replacement. Assembly reads bounded blocks rather than loading an
+entire chunk into memory. Both chunk modes restore valid server
+<code>Last-Modified</code> timestamps before saving cache metadata; an
+unsupported local timestamp update is logged without failing an
+otherwise successful transfer.</p>
 <h3 id="interrupted-downloads-and-reserved-state">Interrupted downloads
 and reserved state</h3>
 <p>Whole-file transfers use an owned <code>.mirror-url-state/</code>
@@ -1161,18 +1164,30 @@ complete.</p>
 <p>The <code>.mirror-url-state</code> name is reserved
 case-insensitively. A conflicting remote path fails the sync before
 downloading. An existing directory without MirrorURL's valid ownership
-marker is preserved and rejected when partial state is needed;
+marker is preserved and rejected when partial state is initialized;
 obsolete-file cleanup never enters this directory.</p>
 <p>Legacy adjacent <code>*.mirror-partial</code> files are not resumed.
 Review or archive them before enabling obsolete-file cleanup, which may
 remove them if they are absent from the selected remote listing.</p>
 <p>Traditional and streaming chunk state is not resumed across runs;
-failed chunks can retry within a run. An interruption may leave a hidden
-<code>.streaming</code> staging file, but never publishes that
-unfinished file under the destination filename. <code>--no-etag</code>
-disables freshness comparisons, while range transfers still require
-ETags to verify that all bytes belong to the same remote
-representation.</p>
+failed chunks can retry within a run. The next owner reclaims recorded
+abandoned work after acquiring destination/state locks. Per-work OS
+leases protect writers still finishing after bounded cleanup, including
+within a multi-suffix CLI run. Manifests are written before transfer
+bytes; unknown entries, malformed markers, symlinks and hardlinks are
+preserved for review. Incomplete manifests may leave small unrecognized
+workspaces requiring manual review. Legacy unmarked chunk directories
+and adjacent <code>.assembling</code>/<code>.streaming</code> files are
+not automatically reclaimed; requested obsolete-file cleanup can still
+archive adjacent legacy files. Legitimate MOVE archive bytes are
+preserved. Nested mount points must share the reserved staging state's
+filesystem for atomic publication.</p>
+<p>Failed-sync summaries identify download failures, incomplete remote
+scans and cleanup failures separately. A zero failed-download count does
+not certify a complete scan or successful cleanup.
+<code>--no-etag</code> disables freshness comparisons, while range
+transfers still require ETags to verify that all bytes belong to the
+same remote representation.</p>
 <h3 id="concurrent-runs-and-destination-ownership">Concurrent runs and
 destination ownership</h3>
 <p>The development checkout acquires cooperative OS locks before

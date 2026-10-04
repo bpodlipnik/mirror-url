@@ -35,6 +35,7 @@ def test_safety_gate_rejects_gaps_and_unmeasured_helpers(tmp_path, fault):
         "security.py",
         "transport.py",
         "destination_lock.py",
+        "scratch.py",
     ]
     files = {
         "src/mirror_url/" + name: {

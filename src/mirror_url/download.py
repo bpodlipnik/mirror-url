@@ -55,6 +55,7 @@ from .enums import DownloadMethod
 from .exceptions import ChunkAssemblyError, ChunkDownloadError
 from .models import ChunkInfo, ParallelFileDownload
 from .rate_limiter import BandwidthLimiter, ChunkAwareRateLimiter
+from .scratch import OwnedScratch
 from .utils import bounded_executor_shutdown, exponential_backoff, format_bytes
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, avoids an import cycle
@@ -85,6 +86,7 @@ class ParallelDownloadManager:
         self.concurrency_manager = concurrency_manager
         self.mirror = mirror
         self._destination_lock = getattr(mirror, "_destination_lock", None)
+        self.scratch: Optional[OwnedScratch] = None
 
         # Determine download mode from config
         self.enabled = False
@@ -198,6 +200,14 @@ class ParallelDownloadManager:
         # Assembly directory
         if config.chunk_assembly_dir:
             self.assembly_dir = config.chunk_assembly_dir
+        elif (
+            self._destination_lock is not None
+            and mirror is not None
+            and mirror._computed_target_path is not None
+        ):
+            # Initialized after target connection/path checks, and discoverable
+            # by the next exclusive owner after a crash.
+            self.assembly_dir = mirror._computed_target_path / ".mirror-url-state" / "chunks"
         else:
             # Use secure temporary directory with unique name
             unique_id = secrets.token_hex(8)
@@ -222,7 +232,8 @@ class ParallelDownloadManager:
             atexit.register(cleanup_assembly_dir)
 
         try:
-            self.assembly_dir.mkdir(parents=True, exist_ok=True)
+            if self._destination_lock is None or config.chunk_assembly_dir is not None:
+                self.assembly_dir.mkdir(parents=True, exist_ok=True)
         except OSError:
             self.shutdown()
             raise
@@ -387,23 +398,32 @@ class ParallelDownloadManager:
         if self.use_streaming:
             try:
                 local_path.parent.mkdir(parents=True, exist_ok=True)
-                # Same filesystem as destination, but never a plausible final
-                # file after an interruption. The existing file stays intact.
-                fd, name = tempfile.mkstemp(
-                    prefix=".mirror-url-", suffix=".streaming", dir=local_path.parent
-                )
-                download.staging_path = Path(name)
-                with os.fdopen(fd, "wb") as f:
-                    f.truncate(file_size)
+                if self.scratch is not None:
+                    download.staging_path = self.scratch.staging(local_path, "streaming")
+                    with download.staging_path.open("xb") as f:
+                        f.truncate(file_size)
+                else:
+                    fd, name = tempfile.mkstemp(
+                        prefix=".mirror-url-", suffix=".streaming", dir=local_path.parent
+                    )
+                    download.staging_path = Path(name)
+                    with os.fdopen(fd, "wb") as f:
+                        f.truncate(file_size)
                 download.status = "streaming"
             except OSError as e:
                 if download.staging_path:
                     download.staging_path.unlink(missing_ok=True)
+                    if self.scratch is not None:
+                        self.scratch.release(download.staging_path.parent)
                     download.staging_path = None
                 logging.warning(f"Streaming pre-allocation failed, using chunk files: {e}")
+        names = [f"chunk_{i:04d}_{secrets.token_hex(8)}.part" for i in range(chunk_count)]
         if download.staging_path is None:
-            download.temp_dir = self.assembly_dir / f"chunks_{uuid.uuid4().hex}"
-            download.temp_dir.mkdir(parents=True, exist_ok=True)
+            if self.scratch is not None:
+                download.temp_dir = self.scratch.create("chunks", names)
+            else:
+                download.temp_dir = self.assembly_dir / f"chunks_{uuid.uuid4().hex}"
+                download.temp_dir.mkdir(parents=True, exist_ok=True)
             download.status = "downloading"
 
         # Calculate chunk sizes
@@ -419,9 +439,7 @@ class ParallelDownloadManager:
                 start_byte=start,
                 end_byte=end,
                 total_chunks=chunk_count,
-                temp_path=download.temp_dir / f"chunk_{i:04d}_{secrets.token_hex(8)}.part"
-                if download.temp_dir
-                else None,
+                temp_path=download.temp_dir / names[i] if download.temp_dir else None,
                 size=end - start + 1,
                 direct_write=download.staging_path is not None,
                 etag=etag,
@@ -588,11 +606,18 @@ class ParallelDownloadManager:
 
         # Submit all chunks WITH SEMAPHORE WRAPPER
         futures = []
-        for chunk in download.chunks:
-            if chunk.status == "completed":
-                continue
-            future = self.executor.submit(self._download_chunk_with_semaphore, chunk)
-            futures.append((future, chunk))
+        try:
+            for chunk in download.chunks:
+                if chunk.status == "completed":
+                    continue
+                future = self.executor.submit(self._download_chunk_with_semaphore, chunk)
+                download.futures.append(future)
+                futures.append((future, chunk))
+        except Exception as error:
+            logging.error("Could not submit parallel chunks: %s", error)
+            download.status = "failed"
+            self.cleanup_chunks(download)
+            return False
 
         # Wait for all chunks
         completed = sum(c.status == "completed" for c in download.chunks)
@@ -607,11 +632,20 @@ class ParallelDownloadManager:
                     logging.error(f"Chunk {chunk.chunk_id} failed")
             except Exception as e:
                 failed += 1
+                if future.done():
+                    chunk.status = "failed"
                 logging.error(f"Chunk {chunk.chunk_id} exception: {e}")
 
         with download.lock:
             download.completed_chunks = completed
             download.failed_chunks = failed
+
+        if any(not future.done() for future, _ in futures):
+            # A wait timeout does not stop IO. Keep scratch leased until the
+            # last writer exits, and do not publish or retry its ranges.
+            download.status = "failed"
+            self.cleanup_chunks(download)
+            return False
 
         if failed > 0:
             # Try to recover failed chunks
@@ -631,6 +665,7 @@ class ParallelDownloadManager:
     @destination_operation
     def _finish_streaming(self, download: ParallelFileDownload) -> bool:
         """Publish only after all validated chunks are complete and flushed."""
+        staging_work = download.staging_path.parent if download.staging_path else None
         try:
             if not download.staging_path or any(c.status != "completed" for c in download.chunks):
                 raise ChunkAssemblyError("Streaming download is incomplete")
@@ -673,6 +708,8 @@ class ParallelDownloadManager:
             return False
         finally:
             self.cleanup_chunks(download)
+            if self.scratch is not None and staging_work is not None:
+                self.scratch.release(staging_work)
 
     def _get_ip_semaphore(self, ip: str) -> Semaphore:
         """Atomically fetch-or-create the per-IP semaphore."""
@@ -809,6 +846,7 @@ class ParallelDownloadManager:
             if not download.chunks:
                 logging.error(f"No chunks to assemble for {download.final_path}")
                 download.status = "failed"
+                self.cleanup_chunks(download)
                 return False
 
             incomplete = [c for c in download.chunks if c.status != "completed"]
@@ -819,6 +857,7 @@ class ParallelDownloadManager:
                     f"(ids: {[c.chunk_id for c in incomplete]})"
                 )
                 download.status = "failed"
+                self.cleanup_chunks(download)
                 return False
 
             # Snapshot critical state under lock to avoid holding it during I/O
@@ -840,6 +879,8 @@ class ParallelDownloadManager:
 
         try:
             download.final_path.parent.mkdir(parents=True, exist_ok=True)
+            if self.scratch is not None:
+                temp_assembly = self.scratch.staging(download.final_path, "assembling")
 
             # ====================================================================
             # PHASE 3: HANDLE 0-BYTE FILES
@@ -1018,7 +1059,9 @@ class ParallelDownloadManager:
             # ====================================================================
             # PHASE 8: CLEANUP
             # ====================================================================
-            if not temp_file_moved and temp_assembly.exists():
+            if self.scratch is not None:
+                self.scratch.release(temp_assembly.parent)
+            elif not temp_file_moved and temp_assembly.exists():
                 try:
                     temp_assembly.unlink()
                     logging.debug(f"Removed temp assembly file: {temp_assembly}")
@@ -1051,43 +1094,46 @@ class ParallelDownloadManager:
 
     def cleanup_chunks(self, download: ParallelFileDownload) -> None:
         """Remove temporary chunk files."""
+        with download.lock:
+            pending = [future for future in download.futures if not future.done()]
+            if pending:
+                if download.cleanup_deferred:
+                    return
+                download.cleanup_deferred = True
+            else:
+                download.futures.clear()
+        if pending:
+
+            def retire(_future):
+                if all(future.done() for future in download.futures):
+                    self.cleanup_chunks(download)
+
+            for future in pending:
+                future.add_done_callback(retire)
+            return
         try:
             if download.staging_path:
-                download.staging_path.unlink(missing_ok=True)
+                if self.scratch is not None:
+                    self.scratch.release(download.staging_path.parent)
+                else:
+                    download.staging_path.unlink(missing_ok=True)
             if download.temp_dir and download.temp_dir.exists():
-                shutil.rmtree(download.temp_dir)
+                if self.scratch is not None:
+                    self.scratch.release(download.temp_dir)
+                else:
+                    shutil.rmtree(download.temp_dir)
         except Exception as e:
             logging.debug(f"Cleanup error: {e}")
 
         with self.lock:
-            self.active_downloads.pop(download.final_path, None)
+            if self.active_downloads.get(download.final_path) is download:
+                self.active_downloads.pop(download.final_path)
 
     def cleanup_stale_chunks(self) -> int:
-        """Remove stale chunk directories."""
-        cleaned = 0
-        now = time.time()
-        max_age = 24 * 3600
-
-        # FIX: guard against assembly_dir being absent (it may have been
-        # reaped by atexit during interpreter shutdown, or never created
-        # if mkdir failed silently). Previously iterdir() would raise
-        # FileNotFoundError before the per-item try/except could catch it,
-        # so a normal-path call from shutdown() raised under that race.
-        try:
-            entries = list(self.assembly_dir.iterdir())
-        except (FileNotFoundError, NotADirectoryError, OSError) as e:
-            logging.debug(f"cleanup_stale_chunks: assembly_dir unavailable: {e}")
-            return 0
-
-        for item in entries:
-            if item.is_dir():
-                try:
-                    if now - item.stat().st_mtime > max_age:
-                        shutil.rmtree(item)
-                        cleaned += 1
-                except Exception:
-                    pass
-        return cleaned
+        """Recover recorded work only; age/name alone never establish ownership."""
+        if self.scratch is not None and not self._shutdown:
+            return self.scratch.recover()
+        return 0
 
     def get_stats(self) -> Dict[str, Any]:
         """Get parallel download statistics"""

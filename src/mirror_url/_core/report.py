@@ -745,12 +745,16 @@ class ReportMixin(MirrorHost):
             # but ``files_failed`` is an AtomicCounter (object) — comparing the
             # object itself to 0 is always False, so ``sync()`` ALWAYS reported
             # failure even on a clean run. Use ``.value()`` to read the int.
-            if (
-                self.files_failed.value() > 0
-                or self.scan_incomplete
-                or self.metrics.get_summary().get("cleanup_failed_operations", 0) > 0
-            ):
-                logging.warning(f"{prefix}Sync completed with {self.files_failed.value()} failures")
+            cleanup_failures = self.metrics.get_summary().get("cleanup_failed_operations", 0)
+            reasons = []
+            if self.files_failed.value() > 0:
+                reasons.append(f"{self.files_failed.value()} download failures")
+            if self.scan_incomplete:
+                reasons.append("incomplete remote scan")
+            if cleanup_failures > 0:
+                reasons.append(f"{cleanup_failures} cleanup failures")
+            if reasons:
+                logging.warning("%sSync failed: %s", prefix, "; ".join(reasons))
                 return False
 
             logging.info(f"{prefix}Sync completed successfully")

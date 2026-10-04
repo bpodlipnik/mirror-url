@@ -200,7 +200,7 @@ list of options. The most commonly used options:
 | `--auto-concurrency` | Tune parallel concurrency from measured throughput. |
 | `--bandwidth-limit MB/S` | Cap total download bandwidth. |
 | `--max-parallel-chunks N` | Max chunks in flight across *all* files at once (default 50; `--max-chunks` above caps chunks *per file*). |
-| `--chunk-assembly-dir DIR` | Directory for temporary chunk files (defaults to a unique directory under the system temporary directory). Final assembly and streaming staging remain beside the destination file for atomic replacement. |
+| `--chunk-assembly-dir DIR` | Parent for an owned, destination-specific chunk workspace (defaults to `.mirror-url-state/chunks/` in the target). Assembly and streaming staging use reserved target state on the destination filesystem. |
 | `--chunk-timeout-multiplier MULT` | *Currently has no effect* (accepted for backward compatibility). Chunk requests use fixed multiples of `--timeout`. |
 
 ### Performance and networking
@@ -488,9 +488,10 @@ Existing destination files stay intact until verification and atomic
 replacement succeed. These checks do not compare against a server-provided
 cryptographic content digest; `--hash-algorithm` does not add such a comparison.
 
-Traditional chunk files default to a unique directory under the system
-temporary directory, or to `--chunk-assembly-dir`. Final assembly and streaming
-staging use the destination's filesystem. Traditional mode can need roughly
+Traditional chunk files default to owned `.mirror-url-state/chunks/` state,
+or a destination-specific owned child of `--chunk-assembly-dir`. Final assembly
+and streaming staging use `.mirror-url-state/parallel/` on the destination's
+filesystem. Traditional mode can need roughly
 two additional file-sized copies across the temporary and destination storage;
 streaming needs roughly one additional file-sized staging allocation. Existing
 destination copies also continue to occupy space until replacement. Assembly
@@ -512,15 +513,27 @@ never certifies the partial as complete.
 The `.mirror-url-state` name is reserved case-insensitively. A conflicting
 remote path fails the sync before downloading. An existing directory without
 MirrorURL's valid ownership marker is preserved and rejected when partial
-state is needed; obsolete-file cleanup never enters this directory.
+state is initialized; obsolete-file cleanup never enters this directory.
 
 Legacy adjacent `*.mirror-partial` files are not resumed. Review or archive
 them before enabling obsolete-file cleanup, which may remove them if they are
 absent from the selected remote listing.
 
 Traditional and streaming chunk state is not resumed across runs; failed chunks
-can retry within a run. An interruption may leave a hidden `.streaming` staging
-file, but never publishes that unfinished file under the destination filename.
+can retry within a run. The next owner reclaims recorded abandoned work after
+acquiring destination/state locks. Per-work OS leases protect writers still
+finishing after bounded cleanup, including within a multi-suffix CLI run.
+Manifests are written before transfer bytes; unknown entries, malformed markers,
+symlinks and hardlinks are preserved for review. Incomplete manifests may leave
+small unrecognized workspaces requiring manual review. Legacy unmarked chunk
+directories and adjacent `.assembling`/`.streaming` files are not automatically
+reclaimed; requested obsolete-file cleanup can still archive adjacent legacy
+files. Legitimate MOVE archive bytes are preserved. Nested mount points must
+share the reserved staging state's filesystem for atomic publication.
+
+Failed-sync summaries identify download failures, incomplete remote scans and
+cleanup failures separately. A zero failed-download count does not certify a
+complete scan or successful cleanup.
 `--no-etag` disables freshness comparisons, while range transfers still require
 ETags to verify that all bytes belong to the same remote representation.
 

@@ -484,7 +484,7 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
         "--chunk-assembly-dir",
         type=Path,
         metavar="DIR",
-        help="Temporary chunk directory (default: unique system-temp directory); final assembly/staging stay beside the destination",
+        help="Parent for owned chunk workspaces (default: reserved destination state); staging uses the destination filesystem",
     )
     parallel_grp.add_argument(
         "--chunk-timeout-multiplier",

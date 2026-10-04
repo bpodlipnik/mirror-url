@@ -13,6 +13,7 @@ import hashlib
 import json
 import logging
 import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -74,7 +75,12 @@ def kill_and_recover(config, phase, output, iteration):
     worker = ROOT / "tests" / "process_recovery_worker.py"
     command = [sys.executable, str(worker), str(config_path)]
     env = {**os.environ, "PYTHONPATH": str(ROOT / "src")}
-    with (output / "crash-worker.log").open("wb") as log:
+    log_path = output / "crash-worker.log"
+    if log_path.exists() and log_path.stat().st_size >= 5 * 1024 * 1024:
+        os.replace(log_path, output / "crash-worker.log.1")
+    with log_path.open("ab") as log:
+        log.write(f"\n{timestamp()} cycle={iteration + 1} crash={phase}\n".encode("utf-8"))
+        log.flush()
         process = subprocess.Popen(
             [*command, phase, str(ready)], stdout=log, stderr=log, env=env, cwd=output
         )
@@ -98,6 +104,7 @@ def kill_and_recover(config, phase, output, iteration):
             timeout=45,
         )
         assert recovered.returncode == 0, "Process recovery failed; see crash-worker.log"
+        log.write(f"{timestamp()} cycle={iteration + 1} recovery=passed\n".encode("utf-8"))
 
 
 def cycle(remote, config, output, iteration):
@@ -162,6 +169,31 @@ def cycle(remote, config, output, iteration):
     return mode
 
 
+def disk_resources(output, iterations):
+    target = output / "mirror"
+    state = target / ".mirror-url-state"
+    roots = [state / "parallel", *(output / "chunks").glob(".mirror-url-scratch-*")]
+    work = [path for root in roots for path in root.glob("work_*")]
+    temporary_bytes = sum(
+        p.stat().st_size for folder in work for p in folder.rglob("*") if p.is_file()
+    )
+    assert not work, f"Abandoned parallel workspaces remain after recovery: {work}"
+    archive = target.with_name(target.name + "_obsolete")
+    entries = list(archive.iterdir())
+    assert len(entries) == iterations and all(
+        p.name.startswith("obsolete") and p.suffix == ".txt" for p in entries
+    ), "Unexpected or lost MOVE archive data"
+    archived_bytes = sum(p.stat().st_size for p in entries)
+    assert archived_bytes <= iterations * 8, "MOVE archive grew beyond the known fixture payload"
+    return {
+        "temporary_workspaces": len(work),
+        "temporary_bytes": temporary_bytes,
+        "archive_files": len(entries),
+        "archive_payload_bytes": archived_bytes,
+        "filesystem_free_bytes": shutil.disk_usage(output).free,
+    }
+
+
 def run(output, duration_hours, interval):
     output.mkdir(parents=True, exist_ok=False)
     handler = RotatingFileHandler(output / "soak.log", maxBytes=5 * 1024 * 1024, backupCount=3)
@@ -213,6 +245,7 @@ def run(output, duration_hours, interval):
                     mode = cycle(remote, config, output, iteration)
                     gc.collect()
                     sample = resources()
+                    disk = disk_resources(output, iteration + 1)
                     if baseline is None:
                         baseline = sample
                     assert sample["threads"] <= baseline["threads"] + 20, (
@@ -234,6 +267,7 @@ def run(output, duration_hours, interval):
                         elapsed_seconds=time.monotonic() - started,
                         resources=sample,
                         resource_baseline=baseline,
+                        disk=disk,
                         crash_recoveries=status["crash_recoveries"] + (iteration % 7 == 0),
                     )
                     with (output / "samples.jsonl").open("a") as stream:
