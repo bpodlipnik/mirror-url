@@ -282,7 +282,7 @@ repeats the essentials so you can work from it alone.</p>
 <ul>
 <li><strong>Package:</strong> <code>mirror_url</code> (src-layout under
 <code>src/</code>)</li>
-<li><strong>Version:</strong> 3.2.0</li>
+<li><strong>Version:</strong> 3.2.1</li>
 <li><strong>Python:</strong> 3.10 or newer; CI tests Python
 3.10–3.14</li>
 <li><strong>Runtime deps:</strong> <code>httpx[http2]</code> (including
@@ -875,8 +875,8 @@ rate remains 20 requests/second with 50 ms minimum spacing.
 zero for both explicitly requests unpaced traffic. Neither option
 changes security policy. CLI overrides use the existing
 explicit-argument precedence rules for YAML/JSON too.</p>
-<p>The unreleased single-URL shortcut adds <code>download_url</code> as
-an alternative to <code>url_list</code>.
+<p>The 3.2.1 single-URL shortcut adds <code>download_url</code> as an
+alternative to <code>url_list</code>.
 <code>--mode download FILE_URL</code> supplies the parent URL, current
 working directory and a destination-specific system temporary log folder
 only for omitted target fields. Explicit scope/paths win. CLI source
@@ -1444,7 +1444,7 @@ refactoring nearby code.</li>
 </table>
 
 <hr />
-<p><em>This guide describes the architecture as of version 3.2.0. When
+<p><em>This guide describes the architecture as of version 3.2.1. When
 you change the structure, update this document in the same PR.</em></p>
 <h2 id="release-3178-behavior">Release 3.1.78 behavior</h2>
 <p>Discovery, mapping, exclusions and cleanup share

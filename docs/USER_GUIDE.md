@@ -6,7 +6,7 @@ the remote directory tree, decides which files are new or changed, and downloads
 them efficiently — with adaptive concurrency, resumable/parallel downloads,
 integrity checks, incremental caching, and an SSRF-hardened transport layer.
 
-- **Version:** 3.2.0
+- **Version:** 3.2.1
 - **Python:** 3.10 or newer; CI tests Python 3.10–3.14
 - **License:** MIT
 
@@ -85,21 +85,21 @@ From a checkout of the repository on a build machine:
 
 ```bash
 pip install build
-python -m build          # produces dist/mirror_url-3.2.0-py3-none-any.whl
+python -m build          # produces dist/mirror_url-3.2.1-py3-none-any.whl
 ```
 
 Copy the wheel to the target server and install it:
 
 ```bash
 python3 -m venv /opt/mirror-url
-/opt/mirror-url/bin/pip install /tmp/mirror_url-3.2.0-py3-none-any.whl
+/opt/mirror-url/bin/pip install /tmp/mirror_url-3.2.1-py3-none-any.whl
 /opt/mirror-url/bin/mirror-url --help
 ```
 
 To include the optional speed extras:
 
 ```bash
-/opt/mirror-url/bin/pip install "/tmp/mirror_url-3.2.0-py3-none-any.whl[fast]"
+/opt/mirror-url/bin/pip install "/tmp/mirror_url-3.2.1-py3-none-any.whl[fast]"
 ```
 
 Available extras: `fast` (stringzilla + lxml), `progress` (tqdm),
@@ -108,24 +108,24 @@ Available extras: `fast` (stringzilla + lxml), `progress` (tqdm),
 ### From a Git repository
 
 ```bash
-pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.2.0"
+pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.2.1"
 # private repo over SSH:
-pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.2.0"
+pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.2.1"
 ```
 
 ### As an isolated CLI with pipx
 
 ```bash
-pipx install /tmp/mirror_url-3.2.0-py3-none-any.whl
-# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.2.0"
+pipx install /tmp/mirror_url-3.2.1-py3-none-any.whl
+# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.2.1"
 ```
 
 ### With Docker
 
 ```dockerfile
 FROM python:3.12-slim
-COPY dist/mirror_url-3.2.0-py3-none-any.whl /tmp/
-RUN pip install --no-cache-dir "/tmp/mirror_url-3.2.0-py3-none-any.whl[fast]"
+COPY dist/mirror_url-3.2.1-py3-none-any.whl /tmp/
+RUN pip install --no-cache-dir "/tmp/mirror_url-3.2.1-py3-none-any.whl[fast]"
 ENTRYPOINT ["mirror-url"]
 ```
 
@@ -171,9 +171,9 @@ mirror-url --config mirror.yaml
 ## Command-line usage
 
 Either supply `--url`, `--dest-path`, and `--log-path`, **or** point at a config
-file with `--config`. The development checkout also supports
+file with `--config`. Version 3.2.1 also supports
 `mirror-url --mode download FILE_URL` with shortcut defaults, described under
-[known-URL downloads](#known-url-downloads); published 3.2.0 requires `--url-list`.
+[known-URL downloads](#known-url-downloads).
 Run `mirror-url --help` for the complete, authoritative list of options.
 The most commonly used options:
 
@@ -218,7 +218,7 @@ The most commonly used options:
 </tr>
 <tr>
 <td nowrap><samp>FILE_URL</samp></td>
-<td>One absolute file URL, for download mode. Cannot be combined with <code>--url-list</code>. Added after 3.2.0.</td>
+<td>One absolute file URL, for download mode. Cannot be combined with <code>--url-list</code>. Available from 3.2.1.</td>
 </tr>
 <tr>
 <td nowrap><samp>--url-list FILE</samp></td>
@@ -907,7 +907,7 @@ ETags to verify that all bytes belong to the same remote representation.
 
 ### Concurrent runs and destination ownership
 
-The development checkout acquires cooperative OS locks before starting a
+MirrorURL acquires cooperative OS locks before starting a
 mirror. Overlapping destinations (including parent/child trees), shared cache
 or log files, configured chunk/disk cache directories, metrics files and MOVE
 archives reject a competing run with `DestinationLockError`; the CLI exits
@@ -939,10 +939,9 @@ with a whole-file GET; it performs no discovery, HEAD freshness checks,
 ETag reuse or ranged resume. It never deletes obsolete local files. Use normal
 mirror mode when you need incremental synchronization.
 
-### One file URL (development checkout, unreleased)
+### One file URL
 
-The direct shortcut is added after 3.2.0; install this development checkout to
-use it before the next release:
+The direct shortcut is available from version 3.2.1:
 
 ```bash
 mirror-url --mode download https://example.org/files/a.fits
@@ -1336,7 +1335,7 @@ contents are unchanged. Without usable file ETags, checks fall back to size and
 the server's `Last-Modified` header when available; changes that preserve those
 values can be missed. No remote cryptographic digest comparison is performed.
 
-The development checkout adds `--verify-content` (or `verify_content: true` in
+Version 3.2.0 adds `--verify-content` (or `verify_content: true` in
 YAML) to detect local changes
 even when file sizes and timestamps still match. This mode saves a SHA-256
 receipt of each completed staging file **before** atomic publication, then
