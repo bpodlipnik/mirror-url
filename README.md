@@ -9,9 +9,9 @@ discovers files behind an HTTP(S) directory listing and mirrors them locally
 with adaptive concurrency, resumable/partial downloads, integrity verification,
 and an SSRF-hardened transport layer.
 
-Version 3.2.0 adds `--verify-content`, destination locking, known-URL
-downloads, configurable request ceilings and an optional aiohttp backend.
-See [the 3.2.0 changelog](CHANGELOG.md#320---2026-10-08).
+Version 3.2.1 adds direct file URLs with `mirror-url --mode download FILE_URL`,
+using the same guarded HTTPX or optional aiohttp transfer pipeline as URL lists.
+See [the 3.2.1 changelog](CHANGELOG.md#321---2026-10-08).
 
 ## Features
 
@@ -27,7 +27,7 @@ See [the 3.2.0 changelog](CHANGELOG.md#320---2026-10-08).
 - **Filename preflight** — preserve distinct original names on a confirmed case-sensitive destination; reject case collisions on a case-insensitive destination before downloads. Rewritten, unsafe and Unicode-aliased paths remain blocked; see [download behavior and preserving original names](docs/USER_GUIDE.md#filename-collisions-and-download-behavior).
 - **Operability** — metrics collection, multi-level progress, optional HTTP health-check server.
 - **Caching** — directory listings and file metadata; discovery currently keeps the remote file list in memory.
-- **Known-URL downloads** — `--mode download --url-list urls.txt` streams an exact list without discovery or freshness probes. Both HTTPX and optional aiohttp use the same destination, scope, staging and receipt checks.
+- **Known-URL downloads** — `--mode download FILE_URL` downloads one file, or `--mode download --url-list urls.txt` streams an exact list, without discovery or freshness probes. Both HTTPX and optional aiohttp use the same destination, scope, staging and receipt checks.
 - **Explicit pacing** — `--requests-per-second` and `--request-delay` control the request budget independently of security checks.
 
 ## Installation
@@ -81,8 +81,7 @@ python -m mirror_url --mode download --backend aiohttp \
   --requests-per-second 0 --request-delay 0 --verify-content
 ```
 
-The development checkout also accepts a single file URL directly (this
-shortcut is not included in the published 3.2.0 package):
+Version 3.2.1 also accepts a single file URL directly:
 
 ```bash
 mirror-url --mode download https://example.org/files/a.fits

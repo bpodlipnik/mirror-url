@@ -11,7 +11,7 @@ If you only want to *use* MirrorURL (install, CLI, config, Python API), read
 repeats the essentials so you can work from it alone.
 
 - **Package:** `mirror_url` (src-layout under `src/`)
-- **Version:** 3.2.0
+- **Version:** 3.2.1
 - **Python:** 3.10 or newer; CI tests Python 3.10–3.14
 - **Runtime deps:** `httpx[http2]` (including `h2`), `pydantic` v2, `PyYAML`, `portalocker` 3.x (optional: `stringzilla`,
   `lxml`, `tqdm`, `psutil`, `aiohttp`)
@@ -525,7 +525,7 @@ zero for both explicitly requests unpaced traffic. Neither option changes
 security policy. CLI overrides use the existing explicit-argument precedence
 rules for YAML/JSON too.
 
-The unreleased single-URL shortcut adds `download_url` as an alternative to
+The 3.2.1 single-URL shortcut adds `download_url` as an alternative to
 `url_list`. `--mode download FILE_URL` supplies the parent URL, current working
 directory and a destination-specific system temporary log folder only for
 omitted target fields. Explicit scope/paths win. CLI source selection clears
@@ -1061,7 +1061,7 @@ Preserve these constraints when extending or refactoring the current code.
 
 ---
 
-*This guide describes the architecture as of version 3.2.0. When you change the
+*This guide describes the architecture as of version 3.2.1. When you change the
 structure, update this document in the same PR.*
 
 ## Release 3.1.78 behavior

@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.2.1] - 2026-10-08
 
 ### Added
 
@@ -18,6 +18,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Explicit CLI source selection overrides a configured source; supplying both
   sources together is rejected. Preserve ownership receipts, unrelated files,
   bounded retries, scope/path checks and atomic publication.
+
+### Changed
+
+- Keep documentation table labels on one line in GitHub and HTML guides,
+  including the Download modes flag column. Update the guides and CLI examples
+  for direct file downloads and their target defaults.
 
 ## [3.2.0] - 2026-10-08
 
