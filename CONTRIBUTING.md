@@ -15,7 +15,7 @@ codebase.
 ```bash
 git clone <your-fork-url> mirror-url
 cd mirror-url
-python -m venv .venv && source .venv/bin/activate   # Python 3.9+
+python -m venv .venv && source .venv/bin/activate   # Python 3.10+
 pip install -e ".[all,dev]"
 pre-commit install
 ```
@@ -31,7 +31,7 @@ mypy                  # required type-check (zero errors)
 pytest                # full suite, including live HTTP integration
 ```
 
-`pytest -m "not integration"` runs the fast lane across Python 3.9–3.14 in CI.
+`pytest -m "not integration"` runs the fast lane across Python 3.10–3.14 in CI.
 The separate coverage job runs the full suite on Python 3.12 with all optional
 dependencies, including the local HTTP tests, and gates combined statement and
 branch coverage at 80%:
@@ -64,7 +64,7 @@ strength, not exhaustive mutation testing. Complete coverage measures execution,
 not correctness or a guarantee of production safety.
 
 Native macOS and Windows jobs run the full suite on Python 3.12 both with and
-without optional accelerators. Linux retains the Python 3.9–3.14 fast lane and
+without optional accelerators. Linux retains the Python 3.10–3.14 fast lane and
 the full coverage job with all optional dependencies.
 
 A change is ready to merge when `ruff check` is clean, the formatter reports no
@@ -89,10 +89,9 @@ migration plan. Type-only references use `if TYPE_CHECKING:` to avoid cycles.
 - **Style/format:** Ruff 0.16.8, 100-column lines. Run `ruff format .` before
   committing; pre-commit will catch the rest.
 - **Lint rule set:** `E, F, W, I, B, C4`. `UP` (pyupgrade) and `SIM` are
-  intentionally *off* — the package targets Python 3.9 with classic typing
-  (`Dict`/`Optional`), and we avoid churning audited logic for syntax
-  modernization. If 3.9 support is ever dropped, re-enable `UP` and modernize in
-  one deliberate commit.
+  intentionally *off* — the package supports Python 3.10+ and retains classic
+  typing (`Dict`/`Optional`) in audited logic. Syntax modernization belongs in
+  a separate deliberate change.
 - **Typing / mypy:** required in CI; `mypy` must report zero errors. The existing
   settings remain lenient and do not check untyped function bodies. Update the
   shared contract in `src/mirror_url/_core/_typing.py` when changing mixin state

@@ -156,6 +156,7 @@ def test_both_backends_exact_streams_and_receipts(tmp_path, origin, backend):
     for name, payload in payloads.items():
         local = config.dest_path / name.replace("%2520", "%20").split("?")[0]
         assert local.read_bytes() == payload
+        assert local.stat().st_mtime == pytest.approx(1791331200, abs=0.001)
         receipt = receipts[str(local)]
         assert receipt["sha256"] == hashlib.sha256(payload).hexdigest()
         assert receipt["identity"] == list(_identity(local))
@@ -406,16 +407,31 @@ def test_staging_change_during_timestamp_update_is_preserved(
     local = config.dest_path / "a"
     local.write_bytes(b"original")
     origin.routes["/root/a"] = (200, {"Last-Modified": "Wed, 07 Oct 2026 00:00:00 GMT"}, b"bytes")
-    utime = os.utime
 
-    def replacing(path, *args, **kwargs):
-        if Path(path).name == "staging.streaming":
-            replacement = Path(path).with_name("replacement")
+    original_open = Path.open
+
+    class ReplaceAfterClose:
+        def __init__(self, path, file):
+            self.path = path
+            self.file = file
+
+        def __enter__(self):
+            return self.file.__enter__()
+
+        def __exit__(self, *error):
+            result = self.file.__exit__(*error)
+            replacement = self.path.with_name("replacement")
             replacement.write_bytes(b"other")
-            os.replace(replacement, path)
-        return utime(path, *args, **kwargs)
+            os.replace(replacement, self.path)
+            return result
 
-    monkeypatch.setattr("mirror_url.transfers.os.utime", replacing)
+    def replacing(path, mode="r", *args, **kwargs):
+        file = original_open(path, mode, *args, **kwargs)
+        if path.name == "staging.streaming" and mode == "r+b":
+            return ReplaceAfterClose(path, file)
+        return file
+
+    monkeypatch.setattr(Path, "open", replacing)
     result = download_url_list(config)
     assert not result["success"] and local.read_bytes() == b"original"
     assert_no_scratch(config.dest_path)
@@ -624,7 +640,9 @@ def test_cli_download_json_config_and_override(tmp_path, origin, backend, monkey
     output = json.loads(capsys.readouterr().out)
     assert output["success"] and output["effective_request_interval"] == 0
     logs = list(config.log_path.glob("download_*.log"))
-    assert len(logs) == 1 and "discovery and freshness checks omitted" in logs[0].read_text()
+    assert len(logs) == 1 and "discovery and freshness checks omitted" in logs[0].read_text(
+        encoding="utf-8"
+    )
 
 
 def test_cli_invalid_file_not_silently_ignored(tmp_path, origin, monkeypatch, capsys):
@@ -672,3 +690,60 @@ def test_aiohttp_mirror_still_checks_freshness_and_records_receipts(tmp_path, or
             assert_no_scratch(config.dest_path)
     finally:
         root.handlers[:] = saved
+
+
+def test_last_modified_restoration_never_requires_path_based_utime(
+    tmp_path, origin, backend, monkeypatch
+):
+    config = job(tmp_path, origin, backend)
+    origin.routes["/root/a"] = (
+        200,
+        {"Last-Modified": "Wed, 07 Oct 2026 00:00:00 GMT"},
+        b"timestamped payload",
+    )
+    original_utime = os.utime
+
+    def descriptor_only(descriptor, *args, **kwargs):
+        if not isinstance(descriptor, int) or "follow_symlinks" in kwargs:
+            raise NotImplementedError("path-based no-follow utime unavailable")
+        return original_utime(descriptor, *args, **kwargs)
+
+    monkeypatch.setattr("mirror_url.transfers.os.utime", descriptor_only)
+    result = download_url_list(config)
+    assert result["success"] and result["files_downloaded"] == 1
+    local = config.dest_path / "a"
+    assert local.read_bytes() == b"timestamped payload"
+    assert local.stat().st_mtime == pytest.approx(1791331200, abs=0.001)
+    receipt = json.loads(Path(result["receipts"]).read_text(encoding="utf-8"))["files"][str(local)]
+    assert receipt["identity"] == list(_identity(local))
+    assert receipt["sha256"] == hashlib.sha256(b"timestamped payload").hexdigest()
+    assert_no_scratch(config.dest_path)
+
+
+def test_timestamp_handle_identity_checked_before_mutation(tmp_path, origin, backend, monkeypatch):
+    config = job(tmp_path, origin, backend, overwrite=True)
+    config.dest_path.mkdir()
+    local = config.dest_path / "a"
+    local.write_bytes(b"original")
+    outside = tmp_path / "user-data"
+    outside.write_bytes(b"unrelated content")
+    outside_identity = _identity(outside)
+    origin.routes["/root/a"] = (200, {"Last-Modified": "Wed, 07 Oct 2026 00:00:00 GMT"}, b"bytes")
+    original_open = Path.open
+    timestamp_calls = []
+
+    def substitute_handle(path, mode="r", *args, **kwargs):
+        if path.name == "staging.streaming" and mode == "r+b":
+            return original_open(outside, mode, *args, **kwargs)
+        return original_open(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", substitute_handle)
+    monkeypatch.setattr(
+        "mirror_url.transfers._set_file_timestamp", lambda *args: timestamp_calls.append(args)
+    )
+    result = download_url_list(config)
+    assert not result["success"] and result["files_failed"] == 1
+    assert local.read_bytes() == b"original"
+    assert outside.read_bytes() == b"unrelated content" and _identity(outside) == outside_identity
+    assert not timestamp_calls
+    assert_no_scratch(config.dest_path)

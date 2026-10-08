@@ -7,7 +7,7 @@ them efficiently — with adaptive concurrency, resumable/parallel downloads,
 integrity checks, incremental caching, and an SSRF-hardened transport layer.
 
 - **Version:** 3.1.79
-- **Python:** 3.9 or newer; CI tests Python 3.9–3.14
+- **Python:** 3.10 or newer; CI tests Python 3.10–3.14
 - **License:** MIT
 
 ---
@@ -60,7 +60,7 @@ incremental runs, and strong SSRF/path-traversal protections.
 
 ## Requirements
 
-- **Python 3.9 or newer.**
+- **Python 3.10 or newer.**
 - Runtime dependencies (installed automatically): `httpx` (with the
   `http2` extra, which pulls in `h2` -- HTTP/2 is on by default, see
   `--no-http2`), `pydantic` (v2), `PyYAML`, `portalocker` 3.x (and `pywin32` on Windows).

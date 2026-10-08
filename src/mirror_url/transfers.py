@@ -15,6 +15,7 @@ import os
 import shutil
 import socket
 import stat
+import sys
 import tempfile
 import time
 from contextlib import asynccontextmanager
@@ -155,6 +156,36 @@ def _identity(path: Path) -> Optional[Tuple[int, ...]]:
     ):
         raise ValueError("Download would replace an unsafe or unowned local entry")
     return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+
+
+def _set_file_timestamp(descriptor: int, timestamp: float) -> None:
+    """Set times on the verified open file, without resolving its path again."""
+    if sys.platform != "win32":
+        os.utime(descriptor, (timestamp, timestamp))
+        return
+
+    # Python 3.10-3.12 on Windows has neither fd utime nor no-follow path utime.
+    # SetFileTime operates on the same handle whose identity was just checked.
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes
+
+    ticks = int(timestamp * 10_000_000) + 116444736000000000
+    if not 0 <= ticks <= 0x7FFFFFFFFFFFFFFF:
+        raise ValueError("Last-Modified is outside the Windows FILETIME range")
+    value = wintypes.FILETIME(ticks & 0xFFFFFFFF, ticks >> 32)
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    set_time = kernel.SetFileTime
+    set_time.argtypes = [
+        wintypes.HANDLE,
+        ctypes.POINTER(wintypes.FILETIME),
+        ctypes.POINTER(wintypes.FILETIME),
+        ctypes.POINTER(wintypes.FILETIME),
+    ]
+    set_time.restype = wintypes.BOOL
+    handle = wintypes.HANDLE(msvcrt.get_osfhandle(descriptor))
+    if not set_time(handle, None, ctypes.byref(value), ctypes.byref(value)):
+        raise ctypes.WinError(ctypes.get_last_error())
 
 
 def require_backend(backend: str) -> Any:
@@ -357,7 +388,24 @@ class AsyncTransfers:
                                 except (ValueError, TypeError, OverflowError):
                                     pass
                             if mtime is not None:
-                                os.utime(staging, (mtime, mtime), follow_symlinks=False)
+                                with staging.open("r+b") as file:
+                                    info = os.fstat(file.fileno())
+                                    opened_identity = (
+                                        info.st_dev,
+                                        info.st_ino,
+                                        info.st_size,
+                                        info.st_mtime_ns,
+                                        info.st_ctime_ns,
+                                    )
+                                    if (
+                                        not stat.S_ISREG(info.st_mode)
+                                        or info.st_nlink != 1
+                                        or opened_identity != staged_identity
+                                    ):
+                                        raise ValueError(
+                                            "Owned staging file changed before timestamp update"
+                                        )
+                                    _set_file_timestamp(file.fileno(), mtime)
                             current_staging = _identity(staging)
                             if (
                                 current_staging is None

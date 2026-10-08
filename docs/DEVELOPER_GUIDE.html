@@ -280,7 +280,8 @@ repeats the essentials so you can work from it alone.</p>
 <li><strong>Package:</strong> <code>mirror_url</code> (src-layout under
 <code>src/</code>)</li>
 <li><strong>Version:</strong> 3.1.79</li>
-<li><strong>Python:</strong> 3.9 or newer; CI tests Python 3.9–3.14</li>
+<li><strong>Python:</strong> 3.10 or newer; CI tests Python
+3.10–3.14</li>
 <li><strong>Runtime deps:</strong> <code>httpx[http2]</code> (including
 <code>h2</code>), <code>pydantic</code> v2, <code>PyYAML</code>,
 <code>portalocker</code> 3.x (optional: <code>stringzilla</code>,
@@ -336,12 +337,12 @@ port of working, audited, sometimes idiosyncratic logic (including
 hard-won bug fixes recorded in the changelog). When touching migrated
 code, prefer surgical changes over "cleanups" — the original behavior is
 the contract.</li>
-<li><strong>Python 3.9 baseline.</strong> The package still supports
-3.9, so it uses classic typing (<code>Dict</code>,
-<code>Optional</code>, <code>List</code>) and
-<code>from __future__ import annotations</code> rather than 3.10+
-syntax. Lint rules that would modernize syntax (pyupgrade, most of SIM)
-are intentionally disabled — see <a href="#coding-conventions">Coding
+<li><strong>Python 3.10 baseline.</strong> Python 3.10 is the minimum
+supported runtime. Existing code retains classic typing
+(<code>Dict</code>, <code>Optional</code>, <code>List</code>) and
+<code>from __future__ import annotations</code>. Lint rules that would
+modernize syntax (pyupgrade, most of SIM) remain disabled to keep
+unrelated rewrites separate — see <a href="#coding-conventions">Coding
 conventions</a>.</li>
 </ol>
 <p>The legacy <code>mirror_url.py</code> was retained as a frozen
@@ -1063,15 +1064,14 @@ setup.</p>
 <ul>
 <li><strong><code>from __future__ import annotations</code></strong> at
 the top of every module. Annotations are lazy strings, which lets us
-reference types without import cycles and use modern annotation forms
-while still running on 3.9.</li>
+reference types without import cycles and use modern annotation forms on
+the supported Python 3.10+ runtimes.</li>
 <li><strong>Typing style:</strong> follow the existing
 <code>Dict</code>, <code>List</code>, <code>Optional</code>, and
-<code>Union</code> conventions. Python 3.9 supports
-<code>dict[...]</code>, but <code>X | None</code> must not be evaluated
-at runtime on that version. The lint config omits pyupgrade
-(<code>UP</code>) and most <code>SIM</code> rules; avoid unrelated
-typing rewrites.</li>
+<code>Union</code> conventions in existing modules. Python 3.10 supports
+<code>dict[...]</code> and <code>X | None</code>; the lint config still
+omits pyupgrade (<code>UP</code>) and most <code>SIM</code> rules to
+avoid unrelated typing rewrites.</li>
 <li><strong><code>TYPE_CHECKING</code> guards</strong> for imports
 needed only for annotations, to keep the import graph acyclic.</li>
 <li><strong>Lint rule set:</strong> ruff with
@@ -1086,8 +1086,7 @@ and must report zero errors. The settings remain lenient
 (<code>no_implicit_optional = false</code>, untyped definitions allowed,
 untyped bodies unchecked). This is not a strict-typing guarantee;
 tightening the settings is a dedicated follow-up. Its checking target is
-Python 3.10; this does not change the package's Python 3.9 runtime
-minimum.</li>
+Python 3.10, matching the package's runtime minimum.</li>
 <li><strong>Imports:</strong> keep the runtime graph acyclic. The layer
 diagram is a guide to responsibilities; inspect actual imports rather
 than treating the numbers as a strict dependency rule.</li>
@@ -1105,7 +1104,7 @@ and subsystem-integration tests that exercise real in-process I/O
 round-trips). This lane also includes the unmarked streaming-concurrency
 tests, which bind a local HTTP server. It therefore needs loopback
 sockets, although it does not require a live public archive. CI runs it
-across Python 3.9–3.14.</li>
+across Python 3.10–3.14.</li>
 <li><strong>Integration lane</strong>
 (<code>pytest -m integration</code>) — end-to-end mirrors in
 <code>test_integration.py</code> and
@@ -1194,7 +1193,7 @@ class="sourceCode bash"><code class="sourceCode bash"><span id="cb6-1"><a href="
 <span id="cb6-22"><a href="#cb6-22" aria-hidden="true" tabindex="-1"></a><span class="co"># regenerate both HTML guides after Markdown edits (requires pandoc)</span></span>
 <span id="cb6-23"><a href="#cb6-23" aria-hidden="true" tabindex="-1"></a><span class="fu">bash</span> scripts/render_guides.sh</span></code></pre></div>
 <p>CI (<code>.github/workflows/ci.yml</code>) runs lint/format checks on
-Python 3.12 and the fast test lane across Python 3.9–3.14. A separate
+Python 3.12 and the fast test lane across Python 3.10–3.14. A separate
 Python 3.12 coverage job installs <code>[all,dev]</code>, runs every
 test, including real local HTTP mirroring, and requires at least 80%
 combined statement/branch coverage overall. It additionally requires

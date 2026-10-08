@@ -1,7 +1,7 @@
 # MirrorURL
 
 [![CI](https://github.com/bpodlipnik/mirror-url/actions/workflows/ci.yml/badge.svg)](https://github.com/bpodlipnik/mirror-url/actions/workflows/ci.yml)
-[![Python](https://img.shields.io/badge/python-3.9%2B-blue)](https://www.python.org)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](https://github.com/bpodlipnik/mirror-url/blob/main/LICENSE)
 
 Security-hardened remote directory mirroring tool. MirrorURL recursively
@@ -33,7 +33,7 @@ these changes are not in the published 3.1.79 package yet. See
 
 ## Installation
 
-Python 3.9 or newer is required. Install the published package from PyPI in a
+Python 3.10 or newer is required. Install the published package from PyPI in a
 virtual environment:
 
 ```bash
@@ -131,7 +131,7 @@ pytest -m "not integration"   # fast test lane
 pytest                        # full suite (includes integration)
 ```
 
-Continuous integration runs lint + tests across Python 3.9–3.14 (see
+Continuous integration runs lint + tests across Python 3.10–3.14 (see
 `.github/workflows/ci.yml`).
 
 ## Project layout

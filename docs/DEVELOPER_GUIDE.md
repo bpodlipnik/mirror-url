@@ -12,7 +12,7 @@ repeats the essentials so you can work from it alone.
 
 - **Package:** `mirror_url` (src-layout under `src/`)
 - **Version:** 3.1.79
-- **Python:** 3.9 or newer; CI tests Python 3.9–3.14
+- **Python:** 3.10 or newer; CI tests Python 3.10–3.14
 - **Runtime deps:** `httpx[http2]` (including `h2`), `pydantic` v2, `PyYAML`, `portalocker` 3.x (optional: `stringzilla`,
   `lxml`, `tqdm`, `psutil`)
 
@@ -57,10 +57,11 @@ Two consequences shape how you should work in this codebase:
    audited, sometimes idiosyncratic logic (including hard-won bug fixes recorded
    in the changelog). When touching migrated code, prefer surgical changes over
    "cleanups" — the original behavior is the contract.
-2. **Python 3.9 baseline.** The package still supports 3.9, so it uses classic
-   typing (`Dict`, `Optional`, `List`) and `from __future__ import annotations`
-   rather than 3.10+ syntax. Lint rules that would modernize syntax (pyupgrade,
-   most of SIM) are intentionally disabled — see [Coding conventions](#coding-conventions).
+2. **Python 3.10 baseline.** Python 3.10 is the minimum supported runtime.
+   Existing code retains classic typing (`Dict`, `Optional`, `List`) and
+   `from __future__ import annotations`. Lint rules that would modernize syntax
+   (pyupgrade, most of SIM) remain disabled to keep unrelated rewrites separate
+   — see [Coding conventions](#coding-conventions).
 
 The legacy `mirror_url.py` was retained as a frozen reference, excluded from
 lint and packaging, until the package's test suite passed with real runtime
@@ -653,11 +654,11 @@ Add unit tests at its own layer with no higher-layer setup.
 
 - **`from __future__ import annotations`** at the top of every module. Annotations
   are lazy strings, which lets us reference types without import cycles and use
-  modern annotation forms while still running on 3.9.
+  modern annotation forms on the supported Python 3.10+ runtimes.
 - **Typing style:** follow the existing `Dict`, `List`, `Optional`, and `Union`
-  conventions. Python 3.9 supports `dict[...]`, but `X | None` must not be
-  evaluated at runtime on that version. The lint config omits pyupgrade (`UP`)
-  and most `SIM` rules; avoid unrelated typing rewrites.
+  conventions in existing modules. Python 3.10 supports `dict[...]` and
+  `X | None`; the lint config still omits pyupgrade (`UP`) and most `SIM` rules
+  to avoid unrelated typing rewrites.
 - **`TYPE_CHECKING` guards** for imports needed only for annotations, to keep the
   import graph acyclic.
 - **Lint rule set:** ruff with `E, F, W, I, B, C4`. A few bugbear rules
@@ -667,8 +668,8 @@ Add unit tests at its own layer with no higher-layer setup.
 - **Type-checking:** `mypy` is required in CI and must report zero errors. The
   settings remain lenient (`no_implicit_optional = false`, untyped definitions
   allowed, untyped bodies unchecked). This is not a strict-typing guarantee;
-  tightening the settings is a dedicated follow-up. Its checking target is Python 3.10;
-  this does not change the package's Python 3.9 runtime minimum.
+  tightening the settings is a dedicated follow-up. Its checking target is
+  Python 3.10, matching the package's runtime minimum.
 - **Imports:** keep the runtime graph acyclic. The layer diagram is a guide to
   responsibilities; inspect actual imports rather than treating the numbers as
   a strict dependency rule.
@@ -685,7 +686,7 @@ The suite lives in `tests/` and runs under `pytest`. Test lanes:
   spill-to-disk, pydantic/YAML config round-trips). This lane also includes the
   unmarked streaming-concurrency tests, which bind a local HTTP server. It
   therefore needs loopback sockets, although it does not require a live public
-  archive. CI runs it across Python 3.9–3.14.
+  archive. CI runs it across Python 3.10–3.14.
 - **Integration lane** (`pytest -m integration`) — end-to-end mirrors in
   `test_integration.py` and `test_http_mirror_workflows.py`, using the static
   server fixture or a controllable Range/ETag/failure server.
@@ -772,7 +773,7 @@ bash scripts/render_guides.sh
 ```
 
 CI (`.github/workflows/ci.yml`) runs lint/format checks on Python 3.12 and the
-fast test lane across Python 3.9–3.14.
+fast test lane across Python 3.10–3.14.
 A separate Python 3.12 coverage job installs `[all,dev]`, runs every test,
 including real local HTTP mirroring, and requires at least 80% combined
 statement/branch coverage overall. It additionally requires 100% statement and

@@ -6,6 +6,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- Require Python 3.10 or newer. Remove Python 3.9 from package metadata and the
+  CI matrix; align formatter/linter targets, installation and developer guides.
+
 ### Added
 
 - Add unreleased `--mode download --url-list` for an exact list of scoped URLs,
@@ -54,6 +59,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Restore whole-file transfer timestamps through an identity-checked open
+  file handle, including Windows, without following a mutable staging path.
+  Keep byte receipts and publication guards intact. Make replacement-probe
+  tests work with Windows open-file rules and read CLI logs as UTF-8.
 - Detect case sensitivity in the actual destination directory instead of
   rejecting every case-only remote pair on every filesystem. Preserve both
   original filenames and their separate content receipts on case-sensitive

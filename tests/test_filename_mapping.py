@@ -61,14 +61,28 @@ def test_probe_fails_closed_when_no_ancestor_is_accessible(tmp_path, monkeypatch
 @pytest.mark.parametrize("replacement", ["file", "hardlink", "symlink"])
 def test_probe_never_deletes_replaced_or_shared_entries(tmp_path, monkeypatch, replacement):
     original = tempfile.mkstemp
+    original_close = os.close
+    probe_descriptor = None
     outside = tmp_path / "user-data"
     outside.write_bytes(b"preserve user data")
     created = []
 
     def changed(**kwargs):
+        nonlocal probe_descriptor
         fd, name = original(**kwargs)
-        path = Path(name)
-        created.append(path)
+        probe_descriptor = fd
+        created.append(Path(name))
+        return fd, name
+
+    def replace_closed_probe(descriptor):
+        nonlocal probe_descriptor
+        original_close(descriptor)
+        if descriptor != probe_descriptor:
+            return
+        probe_descriptor = None
+        path = created[0]
+        # Windows forbids unlinking an open file. Replace after the production
+        # probe has captured its original identity and closed its handle.
         if replacement == "hardlink":
             os.link(path, tmp_path / "second-link")
         else:
@@ -77,9 +91,9 @@ def test_probe_never_deletes_replaced_or_shared_entries(tmp_path, monkeypatch, r
                 path.symlink_to(outside)
             else:
                 path.write_bytes(b"replacement must survive")
-        return fd, name
 
     monkeypatch.setattr("mirror_url.filename_mapping.tempfile.mkstemp", changed)
+    monkeypatch.setattr("mirror_url.filename_mapping.os.close", replace_closed_probe)
     with pytest.raises(ValueError, match="preserving unexpected entry"):
         case_sensitive(tmp_path)
     assert created[0].exists()
