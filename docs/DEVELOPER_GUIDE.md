@@ -11,10 +11,10 @@ If you only want to *use* MirrorURL (install, CLI, config, Python API), read
 repeats the essentials so you can work from it alone.
 
 - **Package:** `mirror_url` (src-layout under `src/`)
-- **Version:** 3.1.79
+- **Version:** 3.2.0
 - **Python:** 3.10 or newer; CI tests Python 3.10–3.14
 - **Runtime deps:** `httpx[http2]` (including `h2`), `pydantic` v2, `PyYAML`, `portalocker` 3.x (optional: `stringzilla`,
-  `lxml`, `tqdm`, `psutil`)
+  `lxml`, `tqdm`, `psutil`, `aiohttp`)
 
 ---
 
@@ -92,7 +92,7 @@ changes — most review feedback traces back to one of these.
 
 ```
 mirror-url/
-├── src/mirror_url/          # the package (46 Python files including private helpers)
+├── src/mirror_url/          # the package (48 Python files including private helpers)
 │   ├── __init__.py          # public API re-exports
 │   ├── __main__.py          # `python -m mirror_url`
 │   ├── _version.py          # __version__, __author__  (one of two version sources)
@@ -359,14 +359,14 @@ A full mirror run is driven by `ReportMixin.sync()`. The high-level path:
    directory entries are checked against requested names so an insensitive
    lookup cannot overwrite or skip a differently capitalized local file.
    The random exclusive probe is removed only after confirming its regular
-   file type, single link and original device/inode; unexpected entries are
-   preserved and inspection/probe failures fail closed. A preflight
+   file type, single link and unchanged device, inode, size and timestamps;
+   unexpected entries are preserved and inspection/probe failures fail closed. A preflight
    exception is caught by `sync()`, which logs a fatal error and returns
    `False`: no file in the affected suffix is downloaded, and obsolete-file
    cleanup is not reached. Discovery-only listing modes bypass this check.
    Lossy-name, reserved-state and unsafe-path rejection remain in place.
-   Probe checks also run during dry-run preflight. This unreleased behavior
-   differs from published 3.1.79's unconditional case-fold collision rejection.
+   Probe checks also run during dry-run preflight. The 3.2.0 behavior
+   differs from 3.1.79's unconditional case-fold collision rejection.
    The [User Guide](./USER_GUIDE.md#filename-collisions-and-download-behavior)
    documents the NASA pair and the storage and preflight requirements for
    preserving both original files. Directory exclusion reduces the mirrored
@@ -477,7 +477,7 @@ precedence tests. Keep those observable contracts intact during refactoring.
 
 ## The configuration system
 
-The unreleased transfer configuration adds `mode` (`mirror` or `download`),
+The 3.2.0 transfer configuration adds `mode` (`mirror` or `download`),
 `backend` (`httpx` or `aiohttp`), `url_list`, `overwrite` and
 `requests_per_second`. The default rate remains 20 requests/second with 50 ms
 minimum spacing. `effective_request_interval` is the maximum of both limits;
@@ -796,13 +796,14 @@ and can use a separately mounted case-sensitive APFS test image through
 different contents and separate receipts through all modes and repeat syncs;
 insensitive filesystem tests require failure before any selected file payload.
 Additional tests preserve preexisting aliases and replaced/shared probe entries.
-The mutation check temporarily weakens sixteen guards:
+The mutation check temporarily weakens twenty-one guards:
 mixed DNS rejection, archive collision rejection, incomplete-scan cleanup,
 same-origin scope, address pinning, lossy filename preflight and content receipt
 verification, the long-hash deadline policy, destination locking and retention
 of abandoned-worker ownership, scratch manifest ownership, live work leases and
 late chunk writer cleanup, case-insensitive filename collision rejection,
-probe inode identity and preservation of existing filename aliases. Each selected
+probe inode/metadata identity, timestamp file-handle identity and preservation
+of existing filename aliases. Each selected
 test must first pass against the original source and then fail an assertion
 against the mutation. Collection or environment errors do not count as success.
 These checks improve evidence of correctness; neither 100% coverage nor this
@@ -946,7 +947,7 @@ Preserve these constraints when extending or refactoring the current code.
 
 ---
 
-*This guide describes the architecture as of version 3.1.79. When you change the
+*This guide describes the architecture as of version 3.2.0. When you change the
 structure, update this document in the same PR.*
 
 ## Release 3.1.78 behavior

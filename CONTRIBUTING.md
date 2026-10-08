@@ -57,7 +57,7 @@ The safety gate requires 100% statement and branch coverage separately for
 `scanner.py`, `_core/scan.py`, `_core/urls.py`, `_core/cleanup.py`, `security.py`,
 and `transport.py`, plus the shared `url_within_scope` and `_relative_url_path`
 helpers. It does not assert 100% coverage of the entire package. Hypothesis
-generates encoded path and origin-boundary cases. The mutation check runs six
+generates encoded path and origin-boundary cases. The mutation check runs twenty-one
 deliberately weakened guards in temporary source copies and requires the
 corresponding preservation tests to fail; this is a targeted check of test
 strength, not exhaustive mutation testing. Complete coverage measures execution,
@@ -73,7 +73,7 @@ diffs, and `pytest` passes.
 ## Project layout
 
 ```
-src/mirror_url/        # the package (44 Python files, including private mixins and helpers)
+src/mirror_url/        # the package (48 Python files, including private mixins and helpers)
 tests/                 # pytest suite
 REFACTORING_PLAN.md    # module map, dependency layering, and roadmap
 ```

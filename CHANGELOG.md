@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.2.0] - 2026-10-08
 
 ### Changed
 
@@ -13,7 +13,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- Add unreleased `--mode download --url-list` for an exact list of scoped URLs,
+- Add `--mode download --url-list` for an exact list of scoped URLs,
   without discovery or freshness HEADs. A shared async whole-file pipeline uses
   a bounded worker set, pooled HTTPX or optional aiohttp, explicit redirect
   handling, public-IP DNS pinning, raw identity bytes, owned staging, length
@@ -101,7 +101,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and the full subtree omitted by exclusions. Explain the NASA
   `Deep_Field_v3.pro` / `deep_field_v3.pro` example and how a case-sensitive APFS
   destination preserves both originals without excluding their directory.
-  Distinguish this unreleased change from the published 3.1.79 preflight.
+  Distinguish the 3.2.0 behavior from the earlier 3.1.79 preflight.
 - Explain local content receipts, initial redownloads, hashing costs and cache
   options. This verifies local bytes; it does not authenticate remote content
   against a server-provided cryptographic checksum. Explain cooperative locking

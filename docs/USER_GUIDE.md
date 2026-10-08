@@ -6,7 +6,7 @@ the remote directory tree, decides which files are new or changed, and downloads
 them efficiently — with adaptive concurrency, resumable/parallel downloads,
 integrity checks, incremental caching, and an SSRF-hardened transport layer.
 
-- **Version:** 3.1.79
+- **Version:** 3.2.0
 - **Python:** 3.10 or newer; CI tests Python 3.10–3.14
 - **License:** MIT
 
@@ -21,7 +21,7 @@ integrity checks, incremental caching, and an SSRF-hardened transport layer.
 - [Command-line usage](#command-line-usage)
 - [Configuration files (YAML/JSON)](#configuration-files-yamljson)
 - [Download modes](#download-modes)
-- [Known-URL downloads (unreleased)](#known-url-downloads-unreleased)
+- [Known-URL downloads](#known-url-downloads)
 - [Filtering and scope](#filtering-and-scope)
 - [Filename collisions and download behavior](#filename-collisions-and-download-behavior)
 - [Caching and incremental sync](#caching-and-incremental-sync)
@@ -85,21 +85,21 @@ From a checkout of the repository on a build machine:
 
 ```bash
 pip install build
-python -m build          # produces dist/mirror_url-3.1.79-py3-none-any.whl
+python -m build          # produces dist/mirror_url-3.2.0-py3-none-any.whl
 ```
 
 Copy the wheel to the target server and install it:
 
 ```bash
 python3 -m venv /opt/mirror-url
-/opt/mirror-url/bin/pip install /tmp/mirror_url-3.1.79-py3-none-any.whl
+/opt/mirror-url/bin/pip install /tmp/mirror_url-3.2.0-py3-none-any.whl
 /opt/mirror-url/bin/mirror-url --help
 ```
 
 To include the optional speed extras:
 
 ```bash
-/opt/mirror-url/bin/pip install "/tmp/mirror_url-3.1.79-py3-none-any.whl[fast]"
+/opt/mirror-url/bin/pip install "/tmp/mirror_url-3.2.0-py3-none-any.whl[fast]"
 ```
 
 Available extras: `fast` (stringzilla + lxml), `progress` (tqdm),
@@ -108,24 +108,24 @@ Available extras: `fast` (stringzilla + lxml), `progress` (tqdm),
 ### From a Git repository
 
 ```bash
-pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.79"
+pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.2.0"
 # private repo over SSH:
-pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.1.79"
+pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.2.0"
 ```
 
 ### As an isolated CLI with pipx
 
 ```bash
-pipx install /tmp/mirror_url-3.1.79-py3-none-any.whl
-# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.79"
+pipx install /tmp/mirror_url-3.2.0-py3-none-any.whl
+# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.2.0"
 ```
 
 ### With Docker
 
 ```dockerfile
 FROM python:3.12-slim
-COPY dist/mirror_url-3.1.79-py3-none-any.whl /tmp/
-RUN pip install --no-cache-dir "/tmp/mirror_url-3.1.79-py3-none-any.whl[fast]"
+COPY dist/mirror_url-3.2.0-py3-none-any.whl /tmp/
+RUN pip install --no-cache-dir "/tmp/mirror_url-3.2.0-py3-none-any.whl[fast]"
 ENTRYPOINT ["mirror-url"]
 ```
 
@@ -188,9 +188,9 @@ list of options. The most commonly used options:
 | `--dest-path DIR` | Local destination directory. |
 | `--log-path DIR` | Directory for logs and the cache file. |
 | `--config FILE` | YAML or JSON configuration file (see below). |
-| `--mode mirror\|download` | Unreleased: normal mirroring (default) or the exact list in `--url-list`. |
-| `--url-list FILE` | Unreleased: one absolute file URL per line, for download mode. Blank lines and lines beginning with `#` are ignored. |
-| `--overwrite` | Unreleased: allow replacing regular, owned local files without a matching URL-list receipt; download mode only. |
+| `--mode mirror\|download` | Normal mirroring (default) or the exact list in `--url-list`. |
+| `--url-list FILE` | One absolute file URL per line, for download mode. Blank lines and lines beginning with `#` are ignored. |
+| `--overwrite` | Allow replacing regular, owned local files without a matching URL-list receipt; download mode only. |
 | `--dir-suffix S [S ...]` | Mirror one or more subpaths under the base URL (e.g. `L1/v1 L2/v2`). |
 
 ### Download method
@@ -202,8 +202,8 @@ list of options. The most commonly used options:
 | `--parallel-downloads` | Parallel chunks via temp files, verified before assembly. |
 | `--streaming-parallel` | Parallel chunks written into a staging file, then atomically published. |
 | `--max-concurrent-downloads N` | Max files downloaded at once (default 10). |
-| `--concurrency N` | Unreleased alias for `--max-concurrent-downloads`; range 1–50. |
-| `--backend httpx\|aiohttp` | Unreleased: HTTPX is the default. aiohttp requires the optional extra and uses HTTP/1.1 whole-file streaming. Normal mirroring keeps discovery and freshness checks with either backend. |
+| `--concurrency N` | Alias for `--max-concurrent-downloads`; range 1–50. |
+| `--backend httpx\|aiohttp` | HTTPX is the default. aiohttp requires the optional extra and uses HTTP/1.1 whole-file streaming. Normal mirroring keeps discovery and freshness checks with either backend. |
 | `--max-chunks N` | Max chunks per file (default 8). |
 | `--min-chunk-size MB` | Minimum chunk size in MB (default 10). |
 | `--auto-concurrency` | Tune parallel concurrency from measured throughput. |
@@ -222,8 +222,8 @@ list of options. The most commonly used options:
 | `--timeout SECS` | Base request timeout (default 30; range 3–300). Some request paths use fixed limits or multiples of this value, so this is not a whole-run deadline. |
 | `--max-retries N` | Connection-request retry budget (default 3). Chunk retries also have their own fixed budget. |
 | `--retry-delay SECS` | Base delay for retry backoff (default 2). |
-| `--requests-per-second N` | Unreleased request ceiling (default 20; zero removes this ceiling). |
-| `--request-delay SECS` | Minimum request spacing (default 0.05; unreleased range 0–1.0). Effective spacing is the larger of this value and `1 / requests_per_second`. Set both controls to zero for unpaced transfers. |
+| `--requests-per-second N` | Request ceiling (default 20; zero removes this ceiling). |
+| `--request-delay SECS` | Minimum request spacing (default 0.05; range 0–1.0). Effective spacing is the larger of this value and `1 / requests_per_second`. Set both controls to zero for unpaced transfers. |
 | `--trusted-server` | Relax chunk concurrency and rate-scaling limits; `--request-delay` still controls pacing (default 50 ms). |
 | `--no-http2` | Disable HTTP/2. |
 | `--no-http2-pipelining` | *Currently has no effect* (accepted for backward compatibility); the HTTP/2 client does not read this setting. |
@@ -568,15 +568,15 @@ call `cleanup()` explicitly. Cleanup rejects new work; a writer still running
 after a shutdown timeout retains ownership until it stops.
 
 This protects cooperating new-version processes using the same account, home
-directory and local filesystem. Published 3.1.79 and older versions and other
+directory and local filesystem. Version 3.1.79 and older versions and other
 applications do not participate. Network filesystems, multiple hosts, mount
 aliases and external writers need separate coordination.
 
 ---
 
-## Known-URL downloads (unreleased)
+## Known-URL downloads
 
-This mode is available in the development checkout. It downloads every URL in
+This mode is available from version 3.2.0. It downloads every URL in
 the list with a whole-file GET; it performs no discovery, HEAD freshness checks,
 ETag reuse or ranged resume. It never deletes obsolete local files. Use normal
 mirror mode when you need incremental synchronization.
@@ -829,14 +829,14 @@ store both names as separate files. A case-sensitive Linux filesystem or
 case-sensitive APFS volume can store both; an existing Linux mirror can
 therefore contain both originals.
 
-**Unreleased filesystem-aware behavior:** this checkout checks the destination
+**Filesystem-aware behavior in 3.2.0:** MirrorURL checks the destination
 when selected names differ only by case. On a confirmed case-sensitive
 destination, it downloads both files with their original capitalization and
 keeps their content receipts separate. On a case-insensitive destination, the
 pair fails preflight before any file payload in that suffix is downloaded.
 There is no option to choose whichever file arrives first or overwrite one
-with the other. The published 3.1.79 preflight still rejects selected case-only
-pairs on every filesystem; this change requires the updated implementation.
+with the other. The 3.1.79 preflight rejects selected case-only pairs on every
+filesystem; upgrade to 3.2.0 for filesystem-aware handling.
 
 The check also covers directory names such as `DAILY/one.pro` and
 `daily/two.pro`. If a requested filename already resolves to a differently
