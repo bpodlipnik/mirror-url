@@ -305,15 +305,55 @@ MirrorURL` is unchanged for callers.
 
 **Responsibilities and key methods per mixin:**
 
-| Mixin (`_core/…`) | Responsibility | Representative methods |
-|---|---|---|
-| `_MirrorBase` (`_base.py`) | Construction, shared state, lifecycle, logging, connection bring-up, the on-disk caches, disk-space checks | `__init__`, `__enter__`/`__exit__`, `cleanup`, `setup_logging`, `test_connection`, `_warm_up_connections`, `check_disk_space`, `install_signal_handlers` |
-| `UrlMixin` (`urls.py`) | URL scheme/scope validation, path extraction | `_validate_url_scheme`, `_is_url_within_scope`, `_is_within_target_scope`, `_is_dir_excluded`, `_get_target_base_url`, `_parse_url_cached`, `_get_filename_fast` |
-| `ScanMixin` (`scan.py`) | Remote discovery, filtering, symlink tracking | `get_remote_files`, `_discover_directories_bfs`, `matches_filter`, `get_directory_signature`, `is_symlink`/`record_symlink`, `_get_local_path_from_url` |
-| `CompareMixin` (`compare.py`) | "Is the local copy up to date?" — local identity plus remote size/timestamp/ETag, sync and async | `file_exists_and_up_to_date`, `_check_files_sync`, `_check_files_async`, `_comparison_metadata`, `_response_is_current`, `get_remote_timestamp`, `get_directory_size` |
-| `DownloadMixin` (`downloads.py`) | Per-file download orchestration (delegates to the `download.py` engines) | `download_file_with_resume`, `_download_file_single` |
-| `CleanupMixin` (`cleanup.py`) | Removing/moving local files no longer present remotely | `clean_obsolete`, `_scan_local_tree`, `_cleanup_path_selected` |
-| `ReportMixin` (`report.py`) | The top-level `sync()` driver, summaries, benchmarking | `sync`, `_print_early_exit_summary`, `benchmark` |
+<!-- HTML tables keep the first column on one line in GitHub.
+     Use samp for first-column code: GitHub wraps code inside nowrap cells. -->
+
+<table>
+<thead>
+<tr>
+<th scope="col" nowrap>Mixin (<samp>_core/…</samp>)</th>
+<th scope="col">Responsibility</th>
+<th scope="col">Representative methods</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td nowrap><samp>_MirrorBase</samp> (<samp>_base.py</samp>)</td>
+<td>Construction, shared state, lifecycle, logging, connection bring-up, the on-disk caches, disk-space checks</td>
+<td><code>__init__</code>, <code>__enter__</code>/<code>__exit__</code>, <code>cleanup</code>, <code>setup_logging</code>, <code>test_connection</code>, <code>_warm_up_connections</code>, <code>check_disk_space</code>, <code>install_signal_handlers</code></td>
+</tr>
+<tr>
+<td nowrap><samp>UrlMixin</samp> (<samp>urls.py</samp>)</td>
+<td>URL scheme/scope validation, path extraction</td>
+<td><code>_validate_url_scheme</code>, <code>_is_url_within_scope</code>, <code>_is_within_target_scope</code>, <code>_is_dir_excluded</code>, <code>_get_target_base_url</code>, <code>_parse_url_cached</code>, <code>_get_filename_fast</code></td>
+</tr>
+<tr>
+<td nowrap><samp>ScanMixin</samp> (<samp>scan.py</samp>)</td>
+<td>Remote discovery, filtering, symlink tracking</td>
+<td><code>get_remote_files</code>, <code>_discover_directories_bfs</code>, <code>matches_filter</code>, <code>get_directory_signature</code>, <code>is_symlink</code>/<code>record_symlink</code>, <code>_get_local_path_from_url</code></td>
+</tr>
+<tr>
+<td nowrap><samp>CompareMixin</samp> (<samp>compare.py</samp>)</td>
+<td>"Is the local copy up to date?" — local identity plus remote size/timestamp/ETag, sync and async</td>
+<td><code>file_exists_and_up_to_date</code>, <code>_check_files_sync</code>, <code>_check_files_async</code>, <code>_comparison_metadata</code>, <code>_response_is_current</code>, <code>get_remote_timestamp</code>, <code>get_directory_size</code></td>
+</tr>
+<tr>
+<td nowrap><samp>DownloadMixin</samp> (<samp>downloads.py</samp>)</td>
+<td>Per-file download orchestration (delegates to the <code>download.py</code> engines)</td>
+<td><code>download_file_with_resume</code>, <code>_download_file_single</code></td>
+</tr>
+<tr>
+<td nowrap><samp>CleanupMixin</samp> (<samp>cleanup.py</samp>)</td>
+<td>Removing/moving local files no longer present remotely</td>
+<td><code>clean_obsolete</code>, <code>_scan_local_tree</code>, <code>_cleanup_path_selected</code></td>
+</tr>
+<tr>
+<td nowrap><samp>ReportMixin</samp> (<samp>report.py</samp>)</td>
+<td>The top-level <code>sync()</code> driver, summaries, benchmarking</td>
+<td><code>sync</code>, <code>_print_early_exit_summary</code>, <code>benchmark</code></td>
+</tr>
+</tbody>
+</table>
 
 **Working rule:** when you add a method to `MirrorURL`, put it in the mixin whose
 responsibility it matches, and keep shared attributes initialized in
@@ -923,27 +963,92 @@ Preserve these constraints when extending or refactoring the current code.
 
 ## Quick "where do I find…" map
 
-| I want to change… | Go to |
-|---|---|
-| A tuning default or limit | `constants.py` |
-| An error type | `exceptions.py` (+ `__init__.py` if public) |
-| A run-mode / state enum | `enums.py` |
-| A config field | `config.py` (`MirrorConfig`; `ConfigSchema` is its alias) + `cli.py` |
-| URL scope/validation logic | `_core/urls.py` |
-| How the remote tree is discovered | `_core/scan.py` (+ `parsing.py`) |
-| "Is the file up to date?" logic | `_core/compare.py` |
-| How a file is actually downloaded | `_core/downloads.py` → `download.py` |
-| Range validation / resume metadata | `download_integrity.py` |
-| Loop binding / live async admission | `async_primitives.py` |
-| Persistent throttled-domain knowledge | `domain_health.py` |
-| Obsolete-file cleanup behavior | `_core/cleanup.py` |
-| The top-level run / summary | `_core/report.py` (`sync()`) |
-| Construction / shared state / logging | `_core/_base.py` |
-| The on-disk cache format/lifecycle | `cache.py` (filename in `_core/_base.py`) |
-| SSRF / network security boundary | `transport.py`, `security.py` |
-| Throttling / retries / breakers | `rate_limiter.py`, `connection.py`, `circuit_breaker.py` |
-| CLI flags / entry point | `cli.py`, `__main__.py` |
-| The version number | `_version.py` **and** `pyproject.toml` |
+<table>
+<thead>
+<tr>
+<th scope="col" nowrap>I want to change…</th>
+<th scope="col">Go to</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td nowrap>A tuning default or limit</td>
+<td><code>constants.py</code></td>
+</tr>
+<tr>
+<td nowrap>An error type</td>
+<td><code>exceptions.py</code> (+ <code>__init__.py</code> if public)</td>
+</tr>
+<tr>
+<td nowrap>A run-mode / state enum</td>
+<td><code>enums.py</code></td>
+</tr>
+<tr>
+<td nowrap>A config field</td>
+<td><code>config.py</code> (<code>MirrorConfig</code>; <code>ConfigSchema</code> is its alias) + <code>cli.py</code></td>
+</tr>
+<tr>
+<td nowrap>URL scope/validation logic</td>
+<td><code>_core/urls.py</code></td>
+</tr>
+<tr>
+<td nowrap>How the remote tree is discovered</td>
+<td><code>_core/scan.py</code> (+ <code>parsing.py</code>)</td>
+</tr>
+<tr>
+<td nowrap>"Is the file up to date?" logic</td>
+<td><code>_core/compare.py</code></td>
+</tr>
+<tr>
+<td nowrap>How a file is actually downloaded</td>
+<td><code>_core/downloads.py</code> → <code>download.py</code></td>
+</tr>
+<tr>
+<td nowrap>Range validation / resume metadata</td>
+<td><code>download_integrity.py</code></td>
+</tr>
+<tr>
+<td nowrap>Loop binding / live async admission</td>
+<td><code>async_primitives.py</code></td>
+</tr>
+<tr>
+<td nowrap>Persistent throttled-domain knowledge</td>
+<td><code>domain_health.py</code></td>
+</tr>
+<tr>
+<td nowrap>Obsolete-file cleanup behavior</td>
+<td><code>_core/cleanup.py</code></td>
+</tr>
+<tr>
+<td nowrap>The top-level run / summary</td>
+<td><code>_core/report.py</code> (<code>sync()</code>)</td>
+</tr>
+<tr>
+<td nowrap>Construction / shared state / logging</td>
+<td><code>_core/_base.py</code></td>
+</tr>
+<tr>
+<td nowrap>The on-disk cache format/lifecycle</td>
+<td><code>cache.py</code> (filename in <code>_core/_base.py</code>)</td>
+</tr>
+<tr>
+<td nowrap>SSRF / network security boundary</td>
+<td><code>transport.py</code>, <code>security.py</code></td>
+</tr>
+<tr>
+<td nowrap>Throttling / retries / breakers</td>
+<td><code>rate_limiter.py</code>, <code>connection.py</code>, <code>circuit_breaker.py</code></td>
+</tr>
+<tr>
+<td nowrap>CLI flags / entry point</td>
+<td><code>cli.py</code>, <code>__main__.py</code></td>
+</tr>
+<tr>
+<td nowrap>The version number</td>
+<td><code>_version.py</code> <strong>and</strong> <code>pyproject.toml</code></td>
+</tr>
+</tbody>
+</table>
 
 ---
 

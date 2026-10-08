@@ -248,13 +248,16 @@
       h3 { font-size: 1.15rem; }
       a { color: var(--accent); text-decoration: none; }
       a:hover { text-decoration: underline; }
-      code { background: var(--code-bg); padding: .15em .35em; border-radius: 6px;
+      code, samp { background: var(--code-bg); padding: .15em .35em; border-radius: 6px;
              font-size: .88em; font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; }
       pre { background: var(--code-bg); padding: 1rem; border-radius: 8px; overflow-x: auto;
             border: 1px solid var(--border); }
       pre code { background: none; padding: 0; font-size: .85em; }
       table { border-collapse: collapse; width: 100%; margin: 1rem 0; display: block; overflow-x: auto; }
       th, td { border: 1px solid var(--border); padding: .5rem .7rem; text-align: left; vertical-align: top; }
+      /* Keep labels and option syntax together; let descriptions wrap. */
+      th:first-child, td:first-child,
+      th:first-child code, td:first-child code { white-space: nowrap; }
       th { background: var(--code-bg); }
       tr:nth-child(even) td { background: var(--table-alt); }
       blockquote { border-left: 4px solid var(--accent); margin: 1rem 0; padding: .25rem 1rem;
@@ -626,72 +629,56 @@ state it sets up. Behavior is identical to the pre-split class —
 <code>from mirror_url.core import MirrorURL</code> is unchanged for
 callers.</p>
 <p><strong>Responsibilities and key methods per mixin:</strong></p>
+<!-- HTML tables keep the first column on one line in GitHub.
+     Use samp for first-column code: GitHub wraps code inside nowrap cells. -->
+
 <table>
 <thead>
 <tr>
-<th>Mixin (<code>_core/…</code>)</th>
-<th>Responsibility</th>
-<th>Representative methods</th>
+<th scope="col" nowrap>Mixin (<samp>_core/…</samp>)</th>
+<th scope="col">Responsibility</th>
+<th scope="col">Representative methods</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>_MirrorBase</code> (<code>_base.py</code>)</td>
-<td>Construction, shared state, lifecycle, logging, connection bring-up,
-the on-disk caches, disk-space checks</td>
-<td><code>__init__</code>, <code>__enter__</code>/<code>__exit__</code>,
-<code>cleanup</code>, <code>setup_logging</code>,
-<code>test_connection</code>, <code>_warm_up_connections</code>,
-<code>check_disk_space</code>, <code>install_signal_handlers</code></td>
+<td nowrap><samp>_MirrorBase</samp> (<samp>_base.py</samp>)</td>
+<td>Construction, shared state, lifecycle, logging, connection bring-up, the on-disk caches, disk-space checks</td>
+<td><code>__init__</code>, <code>__enter__</code>/<code>__exit__</code>, <code>cleanup</code>, <code>setup_logging</code>, <code>test_connection</code>, <code>_warm_up_connections</code>, <code>check_disk_space</code>, <code>install_signal_handlers</code></td>
 </tr>
 <tr>
-<td><code>UrlMixin</code> (<code>urls.py</code>)</td>
+<td nowrap><samp>UrlMixin</samp> (<samp>urls.py</samp>)</td>
 <td>URL scheme/scope validation, path extraction</td>
-<td><code>_validate_url_scheme</code>,
-<code>_is_url_within_scope</code>, <code>_is_within_target_scope</code>,
-<code>_is_dir_excluded</code>, <code>_get_target_base_url</code>,
-<code>_parse_url_cached</code>, <code>_get_filename_fast</code></td>
+<td><code>_validate_url_scheme</code>, <code>_is_url_within_scope</code>, <code>_is_within_target_scope</code>, <code>_is_dir_excluded</code>, <code>_get_target_base_url</code>, <code>_parse_url_cached</code>, <code>_get_filename_fast</code></td>
 </tr>
 <tr>
-<td><code>ScanMixin</code> (<code>scan.py</code>)</td>
+<td nowrap><samp>ScanMixin</samp> (<samp>scan.py</samp>)</td>
 <td>Remote discovery, filtering, symlink tracking</td>
-<td><code>get_remote_files</code>,
-<code>_discover_directories_bfs</code>, <code>matches_filter</code>,
-<code>get_directory_signature</code>,
-<code>is_symlink</code>/<code>record_symlink</code>,
-<code>_get_local_path_from_url</code></td>
+<td><code>get_remote_files</code>, <code>_discover_directories_bfs</code>, <code>matches_filter</code>, <code>get_directory_signature</code>, <code>is_symlink</code>/<code>record_symlink</code>, <code>_get_local_path_from_url</code></td>
 </tr>
 <tr>
-<td><code>CompareMixin</code> (<code>compare.py</code>)</td>
-<td>"Is the local copy up to date?" — local identity plus remote
-size/timestamp/ETag, sync and async</td>
-<td><code>file_exists_and_up_to_date</code>,
-<code>_check_files_sync</code>, <code>_check_files_async</code>,
-<code>_comparison_metadata</code>, <code>_response_is_current</code>,
-<code>get_remote_timestamp</code>, <code>get_directory_size</code></td>
+<td nowrap><samp>CompareMixin</samp> (<samp>compare.py</samp>)</td>
+<td>"Is the local copy up to date?" — local identity plus remote size/timestamp/ETag, sync and async</td>
+<td><code>file_exists_and_up_to_date</code>, <code>_check_files_sync</code>, <code>_check_files_async</code>, <code>_comparison_metadata</code>, <code>_response_is_current</code>, <code>get_remote_timestamp</code>, <code>get_directory_size</code></td>
 </tr>
 <tr>
-<td><code>DownloadMixin</code> (<code>downloads.py</code>)</td>
-<td>Per-file download orchestration (delegates to the
-<code>download.py</code> engines)</td>
-<td><code>download_file_with_resume</code>,
-<code>_download_file_single</code></td>
+<td nowrap><samp>DownloadMixin</samp> (<samp>downloads.py</samp>)</td>
+<td>Per-file download orchestration (delegates to the <code>download.py</code> engines)</td>
+<td><code>download_file_with_resume</code>, <code>_download_file_single</code></td>
 </tr>
 <tr>
-<td><code>CleanupMixin</code> (<code>cleanup.py</code>)</td>
+<td nowrap><samp>CleanupMixin</samp> (<samp>cleanup.py</samp>)</td>
 <td>Removing/moving local files no longer present remotely</td>
-<td><code>clean_obsolete</code>, <code>_scan_local_tree</code>,
-<code>_cleanup_path_selected</code></td>
+<td><code>clean_obsolete</code>, <code>_scan_local_tree</code>, <code>_cleanup_path_selected</code></td>
 </tr>
 <tr>
-<td><code>ReportMixin</code> (<code>report.py</code>)</td>
-<td>The top-level <code>sync()</code> driver, summaries,
-benchmarking</td>
-<td><code>sync</code>, <code>_print_early_exit_summary</code>,
-<code>benchmark</code></td>
+<td nowrap><samp>ReportMixin</samp> (<samp>report.py</samp>)</td>
+<td>The top-level <code>sync()</code> driver, summaries, benchmarking</td>
+<td><code>sync</code>, <code>_print_early_exit_summary</code>, <code>benchmark</code></td>
 </tr>
 </tbody>
 </table>
+
 <p><strong>Working rule:</strong> when you add a method to
 <code>MirrorURL</code>, put it in the mixin whose responsibility it
 matches, and keep shared attributes initialized in
@@ -1362,93 +1349,90 @@ refactoring nearby code.</li>
 <table>
 <thead>
 <tr>
-<th>I want to change…</th>
-<th>Go to</th>
+<th scope="col" nowrap>I want to change…</th>
+<th scope="col">Go to</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>A tuning default or limit</td>
+<td nowrap>A tuning default or limit</td>
 <td><code>constants.py</code></td>
 </tr>
 <tr>
-<td>An error type</td>
-<td><code>exceptions.py</code> (+ <code>__init__.py</code> if
-public)</td>
+<td nowrap>An error type</td>
+<td><code>exceptions.py</code> (+ <code>__init__.py</code> if public)</td>
 </tr>
 <tr>
-<td>A run-mode / state enum</td>
+<td nowrap>A run-mode / state enum</td>
 <td><code>enums.py</code></td>
 </tr>
 <tr>
-<td>A config field</td>
-<td><code>config.py</code> (<code>MirrorConfig</code>;
-<code>ConfigSchema</code> is its alias) + <code>cli.py</code></td>
+<td nowrap>A config field</td>
+<td><code>config.py</code> (<code>MirrorConfig</code>; <code>ConfigSchema</code> is its alias) + <code>cli.py</code></td>
 </tr>
 <tr>
-<td>URL scope/validation logic</td>
+<td nowrap>URL scope/validation logic</td>
 <td><code>_core/urls.py</code></td>
 </tr>
 <tr>
-<td>How the remote tree is discovered</td>
+<td nowrap>How the remote tree is discovered</td>
 <td><code>_core/scan.py</code> (+ <code>parsing.py</code>)</td>
 </tr>
 <tr>
-<td>"Is the file up to date?" logic</td>
+<td nowrap>"Is the file up to date?" logic</td>
 <td><code>_core/compare.py</code></td>
 </tr>
 <tr>
-<td>How a file is actually downloaded</td>
+<td nowrap>How a file is actually downloaded</td>
 <td><code>_core/downloads.py</code> → <code>download.py</code></td>
 </tr>
 <tr>
-<td>Range validation / resume metadata</td>
+<td nowrap>Range validation / resume metadata</td>
 <td><code>download_integrity.py</code></td>
 </tr>
 <tr>
-<td>Loop binding / live async admission</td>
+<td nowrap>Loop binding / live async admission</td>
 <td><code>async_primitives.py</code></td>
 </tr>
 <tr>
-<td>Persistent throttled-domain knowledge</td>
+<td nowrap>Persistent throttled-domain knowledge</td>
 <td><code>domain_health.py</code></td>
 </tr>
 <tr>
-<td>Obsolete-file cleanup behavior</td>
+<td nowrap>Obsolete-file cleanup behavior</td>
 <td><code>_core/cleanup.py</code></td>
 </tr>
 <tr>
-<td>The top-level run / summary</td>
+<td nowrap>The top-level run / summary</td>
 <td><code>_core/report.py</code> (<code>sync()</code>)</td>
 </tr>
 <tr>
-<td>Construction / shared state / logging</td>
+<td nowrap>Construction / shared state / logging</td>
 <td><code>_core/_base.py</code></td>
 </tr>
 <tr>
-<td>The on-disk cache format/lifecycle</td>
+<td nowrap>The on-disk cache format/lifecycle</td>
 <td><code>cache.py</code> (filename in <code>_core/_base.py</code>)</td>
 </tr>
 <tr>
-<td>SSRF / network security boundary</td>
+<td nowrap>SSRF / network security boundary</td>
 <td><code>transport.py</code>, <code>security.py</code></td>
 </tr>
 <tr>
-<td>Throttling / retries / breakers</td>
-<td><code>rate_limiter.py</code>, <code>connection.py</code>,
-<code>circuit_breaker.py</code></td>
+<td nowrap>Throttling / retries / breakers</td>
+<td><code>rate_limiter.py</code>, <code>connection.py</code>, <code>circuit_breaker.py</code></td>
 </tr>
 <tr>
-<td>CLI flags / entry point</td>
+<td nowrap>CLI flags / entry point</td>
 <td><code>cli.py</code>, <code>__main__.py</code></td>
 </tr>
 <tr>
-<td>The version number</td>
-<td><code>_version.py</code> <strong>and</strong>
-<code>pyproject.toml</code></td>
+<td nowrap>The version number</td>
+<td><code>_version.py</code> <strong>and</strong> <code>pyproject.toml</code></td>
 </tr>
 </tbody>
 </table>
+
 <hr />
 <p><em>This guide describes the architecture as of version 3.2.0. When
 you change the structure, update this document in the same PR.</em></p>
