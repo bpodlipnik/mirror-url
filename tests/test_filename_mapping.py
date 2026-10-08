@@ -6,12 +6,13 @@ import hashlib
 import os
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from mirror_url import MirrorURL
 from mirror_url.exceptions import PathTraversalError
-from mirror_url.filename_mapping import FilenameMap, case_sensitive
+from mirror_url.filename_mapping import FilenameMap, _stat_identity, case_sensitive
 from test_http_mirror_workflows import config as config
 from test_http_mirror_workflows import remote as remote
 
@@ -58,7 +59,7 @@ def test_probe_fails_closed_when_no_ancestor_is_accessible(tmp_path, monkeypatch
         case_sensitive(tmp_path / "missing")
 
 
-@pytest.mark.parametrize("replacement", ["file", "hardlink", "symlink"])
+@pytest.mark.parametrize("replacement", ["file", "hardlink", "symlink", "same_inode", "metadata"])
 def test_probe_never_deletes_replaced_or_shared_entries(tmp_path, monkeypatch, replacement):
     original = tempfile.mkstemp
     original_close = os.close
@@ -85,12 +86,20 @@ def test_probe_never_deletes_replaced_or_shared_entries(tmp_path, monkeypatch, r
         # probe has captured its original identity and closed its handle.
         if replacement == "hardlink":
             os.link(path, tmp_path / "second-link")
-        else:
+        elif replacement == "same_inode":
+            path.write_bytes(b"replacement must survive")
+        elif replacement == "metadata":
+            info = path.stat()
+            os.utime(path, ns=(info.st_atime_ns, info.st_mtime_ns - 1_000_000_000))
+        elif replacement == "symlink":
             path.unlink()
-            if replacement == "symlink":
-                path.symlink_to(outside)
-            else:
-                path.write_bytes(b"replacement must survive")
+            path.symlink_to(outside)
+        else:
+            # Allocate the replacement while the original inode still exists.
+            new_file = tmp_path / "replacement"
+            new_file.write_bytes(b"replacement must survive")
+            assert new_file.stat().st_ino != path.stat().st_ino
+            os.replace(new_file, path)
 
     monkeypatch.setattr("mirror_url.filename_mapping.tempfile.mkstemp", changed)
     monkeypatch.setattr("mirror_url.filename_mapping.os.close", replace_closed_probe)
@@ -98,7 +107,7 @@ def test_probe_never_deletes_replaced_or_shared_entries(tmp_path, monkeypatch, r
         case_sensitive(tmp_path)
     assert created[0].exists()
     assert outside.read_bytes() == b"preserve user data"
-    if replacement == "file":
+    if replacement in {"file", "same_inode"}:
         assert created[0].read_bytes() == b"replacement must survive"
     if replacement == "symlink":
         assert created[0].is_symlink()
@@ -370,3 +379,28 @@ def test_existing_local_case_alias_never_overwritten_or_skipped(remote, config, 
         assert not any(
             method == "GET" and path in remote.files for method, path, _ in remote.requests
         )
+
+
+@pytest.mark.parametrize(
+    "platform,with_birthtime",
+    [("linux", False), ("linux", True), ("win32", False), ("win32", True)],
+)
+def test_stat_identity_respects_windows_path_and_handle_time_semantics(
+    monkeypatch, platform, with_birthtime
+):
+    # Python 3.12's Windows path stat keeps ctime=creation time; handle stat
+    # reports ctime=change time. This pair describes one unchanged owned file.
+    common = {"st_dev": 1, "st_ino": 2, "st_size": 3, "st_mtime_ns": 4, "st_ctime_ns": 5}
+    path = SimpleNamespace(**common)
+    handle = SimpleNamespace(**common)
+    if with_birthtime:
+        path.st_birthtime_ns = handle.st_birthtime_ns = 5
+        handle.st_ctime_ns = 6
+    monkeypatch.setattr("mirror_url.filename_mapping.sys", SimpleNamespace(platform=platform))
+    equal = _stat_identity(path) == _stat_identity(handle)
+    assert equal == (platform == "win32" or not with_birthtime)
+    # Normalizing the timestamp namespace cannot clear a changed file identity.
+    for field in ("st_dev", "st_ino", "st_size", "st_mtime_ns"):
+        changed = SimpleNamespace(**vars(path))
+        setattr(changed, field, getattr(changed, field) + 1)
+        assert _stat_identity(path) != _stat_identity(changed)

@@ -32,7 +32,7 @@ from .destination_lock import DestinationLock, current_run_lock
 from .download import PartialDownloadManager
 from .download_integrity import content_length, file_sha256, strong_etag
 from .exceptions import ConfigError, SecurityError, URLScopeError
-from .filename_mapping import FilenameMap
+from .filename_mapping import FilenameMap, _stat_identity
 from .scratch import OwnedScratch
 from .security import PathSafety, SecurityValidator
 from .transport import SecureAsyncTransport
@@ -155,7 +155,7 @@ def _identity(path: Path) -> Optional[Tuple[int, ...]]:
         or (hasattr(os, "getuid") and info.st_uid != os.getuid())
     ):
         raise ValueError("Download would replace an unsafe or unowned local entry")
-    return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+    return _stat_identity(info)
 
 
 def _set_file_timestamp(descriptor: int, timestamp: float) -> None:
@@ -390,13 +390,7 @@ class AsyncTransfers:
                             if mtime is not None:
                                 with staging.open("r+b") as file:
                                     info = os.fstat(file.fileno())
-                                    opened_identity = (
-                                        info.st_dev,
-                                        info.st_ino,
-                                        info.st_size,
-                                        info.st_mtime_ns,
-                                        info.st_ctime_ns,
-                                    )
+                                    opened_identity = _stat_identity(info)
                                     if (
                                         not stat.S_ISREG(info.st_mode)
                                         or info.st_nlink != 1

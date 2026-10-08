@@ -15,6 +15,13 @@ from pathlib import Path
 
 MUTATIONS = (
     (
+        "whole-file timestamp handle identity",
+        "transfers.py",
+        "or opened_identity != staged_identity",
+        "or False",
+        "tests/test_transfer_backends.py::test_timestamp_handle_identity_checked_before_mutation[httpx]",
+    ),
+    (
         "whole-file staging hash identity",
         "transfers.py",
         "if _identity(staging) != staged_identity:",
@@ -92,9 +99,9 @@ MUTATIONS = (
         "tests/test_filename_mapping.py::test_case_insensitive_preflight_rejects_file_and_directory_aliases",
     ),
     (
-        "case probe replaced inode",
+        "case probe file identity",
         "filename_mapping.py",
-        "or (current.st_dev, current.st_ino) != (owned.st_dev, owned.st_ino)",
+        "or _stat_identity(current) != _stat_identity(owned)",
         "or False",
         "tests/test_filename_mapping.py::test_probe_never_deletes_replaced_or_shared_entries",
     ),

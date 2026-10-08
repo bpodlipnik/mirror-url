@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import stat
+import sys
 import tempfile
 import unicodedata
 from pathlib import Path
@@ -14,11 +15,24 @@ from .security import PathSafety
 COLLISION = "Distinct remote URLs map to the same local filename"
 
 
+def _stat_identity(info: os.stat_result) -> Tuple[int, ...]:
+    """Use one timestamp namespace for path and handle identities.
+
+    Windows Python 3.12+ fstat returns change time in st_ctime, while lstat
+    retains creation time there. Both expose st_birthtime_ns. Preserve that
+    established Windows receipt field; POSIX continues to use change time.
+    """
+    ctime = info.st_ctime_ns
+    if sys.platform == "win32":
+        ctime = getattr(info, "st_birthtime_ns", ctime)
+    return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, ctime)
+
+
 def case_sensitive(directory: Path) -> bool:
     """Probe the actual parent, including per-directory and mounted filesystems.
 
     Use an exclusively created random file, never a fixed user filename. Remove
-    only that same regular, singly linked inode; preserve an unexpected entry.
+    only that unchanged regular, singly linked file; preserve an unexpected entry.
     """
     directory = PathSafety._resolve_destination_root(directory)
     while not directory.exists():
@@ -47,7 +61,7 @@ def case_sensitive(directory: Path) -> bool:
             if (
                 not stat.S_ISREG(current.st_mode)
                 or current.st_nlink != 1
-                or (current.st_dev, current.st_ino) != (owned.st_dev, owned.st_ino)
+                or _stat_identity(current) != _stat_identity(owned)
             ):
                 raise ValueError(f"Case probe changed; preserving unexpected entry: {probe}")
             probe.unlink()

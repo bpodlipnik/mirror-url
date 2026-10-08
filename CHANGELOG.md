@@ -59,6 +59,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Preserve a modified filename probe even when its inode number is unchanged
+  or reused. Check its size and modification/change timestamps before deletion;
+  cover both same-inode writes and metadata changes on native filesystems.
 - Restore whole-file transfer timestamps through an identity-checked open
   file handle, including Windows, without following a mutable staging path.
   Keep byte receipts and publication guards intact. Make replacement-probe
