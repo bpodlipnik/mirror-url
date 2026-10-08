@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Accept one positional file URL with `mirror-url --mode download FILE_URL`.
+  Infer its parent URL when `--url` is omitted, download into the current
+  directory when `--dest-path` is omitted, and store logs in a destination-specific
+  system temporary directory when `--log-path` is omitted. Explicit scope and
+  paths override these defaults. The shortcut uses the existing guarded HTTPX
+  or optional aiohttp pipeline, without discovery or freshness HEADs.
+- Add `download_url` as an alternative to `url_list` in download configuration.
+  Explicit CLI source selection overrides a configured source; supplying both
+  sources together is rejected. Preserve ownership receipts, unrelated files,
+  bounded retries, scope/path checks and atomic publication.
+
 ## [3.2.0] - 2026-10-08
 
 ### Changed

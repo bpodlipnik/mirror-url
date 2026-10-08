@@ -81,6 +81,21 @@ python -m mirror_url --mode download --backend aiohttp \
   --requests-per-second 0 --request-delay 0 --verify-content
 ```
 
+The development checkout also accepts a single file URL directly (this
+shortcut is not included in the published 3.2.0 package):
+
+```bash
+mirror-url --mode download https://example.org/files/a.fits
+# Optional destination and log paths:
+mirror-url --mode download https://example.org/files/a.fits \
+  --dest-path ./downloads --log-path ./logs
+```
+
+The shortcut defaults to the current directory, with logs in a destination-specific
+system temporary folder. It infers the file URL's parent as the allowed remote
+scope; an explicit `--url` overrides that scope. Choose either a positional file
+URL or `--url-list`, and keep `--mode download` for both.
+
 `urls.txt` contains one absolute URL per line below the selected base URL.
 The two zero pacing values explicitly remove the default 20 requests/second
 ceiling and 50 ms spacing. TLS verification, public-IP DNS validation, redirect
