@@ -19,8 +19,10 @@ from ..async_connection import AdaptiveAsyncManager, AsyncConnectionManager, Asy
 from ..compat import TQDM_AVAILABLE
 from ..constants import ADAPTIVE_START_CONCURRENCY, AUTO_CONCURRENCY_SAMPLES
 from ..decorators import log_performance
+from ..destination_lock import destination_operation
 from ..enums import CleanupPolicy, DownloadMethod
 from ..progress import ProgressTracker
+from ..transfers import AsyncTransfers, TransferResult
 from ..utils import format_bytes, format_duration, sanitize_url_for_log
 
 if TYPE_CHECKING:
@@ -34,6 +36,7 @@ class ReportMixin(MirrorHost):
     async_connection_manager: Optional[AsyncConnectionManager]
     async_task_manager: Optional[AsyncTaskManager]
 
+    @destination_operation
     def sync(self) -> bool:
         """Main sync method - v3.0.2 with true parallel file downloads."""
         prefix = self._get_prefix()
@@ -431,7 +434,8 @@ class ReportMixin(MirrorHost):
                 # ========== FIX 2: AUTO-SELECT DOWNLOAD METHOD (FULL IMPLEMENTATION) ==========
                 # Only auto-select if user didn't explicitly enable a download mode
                 if (
-                    not self.config.parallel_downloads
+                    self.config.backend == "httpx"
+                    and not self.config.parallel_downloads
                     and not self.config.streaming_parallel
                     and not self.config.sequential_downloads
                 ):
@@ -483,7 +487,42 @@ class ReportMixin(MirrorHost):
                 )
 
                 # ========== DOWNLOAD EXECUTION ==========
-                if self.config.sequential_downloads:
+                if self.config.backend == "aiohttp":
+                    if (
+                        self.target_dir is None
+                        or self.scratch_manager is None
+                        or self.target_base_url is None
+                    ):
+                        raise ValueError(
+                            "Async transfers require owned destination and staging state"
+                        )
+                    transfers = AsyncTransfers(
+                        self.config, self.target_dir, self.target_base_url, self.scratch_manager
+                    )
+
+                    def published(result: TransferResult) -> None:
+                        mtime = (
+                            result.path.stat().st_mtime if result.mtime is None else result.mtime
+                        )
+                        self.cache_manager.save_file_metadata(
+                            result.path, result.etag, mtime, result.size, sha256=result.sha256
+                        )
+                        self.files_processed.increment(1)
+                        self.total_downloaded_size.add(result.size)
+                        self.multi_progress.update("downloads")
+
+                    logging.info(
+                        "Using aiohttp whole-file streaming; existing partials are preserved"
+                    )
+                    results = asyncio.run(transfers.run(to_download, published))
+                    self.files_failed.increment(sum(not result.success for result in results))
+                    logging.info(
+                        "aiohttp transfer stages: pacing %.3fs, fsync %.3fs, hash %.3fs",
+                        transfers.pacer.wait_seconds,
+                        transfers.stage_seconds["fsync"],
+                        transfers.stage_seconds["hash"],
+                    )
+                elif self.config.sequential_downloads:
                     # Sequential mode: simple loop
                     for url, path in to_download:
                         # FIX: Pass pre-fetched size to avoid redundant HEAD request
@@ -743,12 +782,16 @@ class ReportMixin(MirrorHost):
             # but ``files_failed`` is an AtomicCounter (object) — comparing the
             # object itself to 0 is always False, so ``sync()`` ALWAYS reported
             # failure even on a clean run. Use ``.value()`` to read the int.
-            if (
-                self.files_failed.value() > 0
-                or self.scan_incomplete
-                or self.metrics.get_summary().get("cleanup_failed_operations", 0) > 0
-            ):
-                logging.warning(f"{prefix}Sync completed with {self.files_failed.value()} failures")
+            cleanup_failures = self.metrics.get_summary().get("cleanup_failed_operations", 0)
+            reasons = []
+            if self.files_failed.value() > 0:
+                reasons.append(f"{self.files_failed.value()} download failures")
+            if self.scan_incomplete:
+                reasons.append("incomplete remote scan")
+            if cleanup_failures > 0:
+                reasons.append(f"{cleanup_failures} cleanup failures")
+            if reasons:
+                logging.warning("%sSync failed: %s", prefix, "; ".join(reasons))
                 return False
 
             logging.info(f"{prefix}Sync completed successfully")

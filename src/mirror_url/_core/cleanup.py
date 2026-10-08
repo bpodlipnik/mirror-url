@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, List, Optional, Set, Tuple
 from urllib.parse import quote, urlsplit
 
 from ..decorators import log_performance
+from ..destination_lock import destination_operation
 from ..enums import CleanupPolicy
 from ..security import PathSafety
 from ..utils import url_within_scope
@@ -191,6 +192,7 @@ class CleanupMixin(MirrorHost):
             return False
 
     @log_performance("clean_obsolete")
+    @destination_operation
     def clean_obsolete(self, remote_files: Set[str]) -> None:
         if self.config.cleanup_policy == CleanupPolicy.SAFE_NO_DELETE:
             logging.debug("Cleanup skipped: SAFE_NO_DELETE mode")
@@ -325,6 +327,9 @@ class CleanupMixin(MirrorHost):
         obsolete_dir: Optional[Path] = None
         if self.config.cleanup_policy == CleanupPolicy.MOVE:
             obsolete_dir = self.target_dir.parent / f"{self.target_dir.name}_obsolete"
+            guard = getattr(self, "_destination_lock", None)
+            if guard is not None:
+                guard.add_paths([obsolete_dir])
             try:
                 if obsolete_dir.is_symlink():
                     raise OSError("Archive directory is a symlink")

@@ -6,8 +6,8 @@ the remote directory tree, decides which files are new or changed, and downloads
 them efficiently — with adaptive concurrency, resumable/parallel downloads,
 integrity checks, incremental caching, and an SSRF-hardened transport layer.
 
-- **Version:** 3.1.79
-- **Python:** 3.9 or newer; CI tests Python 3.9–3.14
+- **Version:** 3.2.0
+- **Python:** 3.10 or newer; CI tests Python 3.10–3.14
 - **License:** MIT
 
 ---
@@ -21,7 +21,9 @@ integrity checks, incremental caching, and an SSRF-hardened transport layer.
 - [Command-line usage](#command-line-usage)
 - [Configuration files (YAML/JSON)](#configuration-files-yamljson)
 - [Download modes](#download-modes)
+- [Known-URL downloads](#known-url-downloads)
 - [Filtering and scope](#filtering-and-scope)
+- [Filename collisions and download behavior](#filename-collisions-and-download-behavior)
 - [Caching and incremental sync](#caching-and-incremental-sync)
 - [Cleaning up obsolete files](#cleaning-up-obsolete-files)
 - [Security](#security)
@@ -41,11 +43,13 @@ Given a base URL that serves an HTML directory index (e.g. an Apache/nginx
 
 1. **Discovers** the remote tree by recursively parsing directory listings
    (breadth-first, with depth and exclusion limits, cycle-safe).
-2. **Compares** each remote file against the local copy using size, timestamp,
+2. **Validates local names** before file transfers. Distinct selected remote
+   URLs must map to safe, unchanged, non-conflicting local paths.
+3. **Compares** each remote file against the local copy using size, timestamp,
    and ETag. Directory listing validators never stand in for file checks.
-3. **Downloads** the missing/changed files, optionally in parallel (multiple
+4. **Downloads** the missing/changed files, optionally in parallel (multiple
    files and/or multiple chunks per file) with resume support.
-4. **Optionally cleans up** local files that no longer exist remotely
+5. **Optionally cleans up** local files that no longer exist remotely
    (preview / move / delete policies).
 
 Highlights: adaptive async metadata checks, per-domain circuit breakers,
@@ -56,10 +60,10 @@ incremental runs, and strong SSRF/path-traversal protections.
 
 ## Requirements
 
-- **Python 3.9 or newer.**
+- **Python 3.10 or newer.**
 - Runtime dependencies (installed automatically): `httpx` (with the
   `http2` extra, which pulls in `h2` -- HTTP/2 is on by default, see
-  `--no-http2`), `pydantic` (v2), `PyYAML`.
+  `--no-http2`), `pydantic` (v2), `PyYAML`, `portalocker` 3.x (and `pywin32` on Windows).
 - Optional accelerators (install via extras, see below): `stringzilla` + `lxml`
   (faster parsing), `tqdm` (progress bars), `psutil` (memory/disk monitoring).
 
@@ -81,21 +85,21 @@ From a checkout of the repository on a build machine:
 
 ```bash
 pip install build
-python -m build          # produces dist/mirror_url-3.1.79-py3-none-any.whl
+python -m build          # produces dist/mirror_url-3.2.0-py3-none-any.whl
 ```
 
 Copy the wheel to the target server and install it:
 
 ```bash
 python3 -m venv /opt/mirror-url
-/opt/mirror-url/bin/pip install /tmp/mirror_url-3.1.79-py3-none-any.whl
+/opt/mirror-url/bin/pip install /tmp/mirror_url-3.2.0-py3-none-any.whl
 /opt/mirror-url/bin/mirror-url --help
 ```
 
 To include the optional speed extras:
 
 ```bash
-/opt/mirror-url/bin/pip install "/tmp/mirror_url-3.1.79-py3-none-any.whl[fast]"
+/opt/mirror-url/bin/pip install "/tmp/mirror_url-3.2.0-py3-none-any.whl[fast]"
 ```
 
 Available extras: `fast` (stringzilla + lxml), `progress` (tqdm),
@@ -104,24 +108,24 @@ Available extras: `fast` (stringzilla + lxml), `progress` (tqdm),
 ### From a Git repository
 
 ```bash
-pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.79"
+pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.2.0"
 # private repo over SSH:
-pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.1.79"
+pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.2.0"
 ```
 
 ### As an isolated CLI with pipx
 
 ```bash
-pipx install /tmp/mirror_url-3.1.79-py3-none-any.whl
-# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.1.79"
+pipx install /tmp/mirror_url-3.2.0-py3-none-any.whl
+# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.2.0"
 ```
 
 ### With Docker
 
 ```dockerfile
 FROM python:3.12-slim
-COPY dist/mirror_url-3.1.79-py3-none-any.whl /tmp/
-RUN pip install --no-cache-dir "/tmp/mirror_url-3.1.79-py3-none-any.whl[fast]"
+COPY dist/mirror_url-3.2.0-py3-none-any.whl /tmp/
+RUN pip install --no-cache-dir "/tmp/mirror_url-3.2.0-py3-none-any.whl[fast]"
 ENTRYPOINT ["mirror-url"]
 ```
 
@@ -184,6 +188,9 @@ list of options. The most commonly used options:
 | `--dest-path DIR` | Local destination directory. |
 | `--log-path DIR` | Directory for logs and the cache file. |
 | `--config FILE` | YAML or JSON configuration file (see below). |
+| `--mode mirror\|download` | Normal mirroring (default) or the exact list in `--url-list`. |
+| `--url-list FILE` | One absolute file URL per line, for download mode. Blank lines and lines beginning with `#` are ignored. |
+| `--overwrite` | Allow replacing regular, owned local files without a matching URL-list receipt; download mode only. |
 | `--dir-suffix S [S ...]` | Mirror one or more subpaths under the base URL (e.g. `L1/v1 L2/v2`). |
 
 ### Download method
@@ -195,12 +202,14 @@ list of options. The most commonly used options:
 | `--parallel-downloads` | Parallel chunks via temp files, verified before assembly. |
 | `--streaming-parallel` | Parallel chunks written into a staging file, then atomically published. |
 | `--max-concurrent-downloads N` | Max files downloaded at once (default 10). |
+| `--concurrency N` | Alias for `--max-concurrent-downloads`; range 1–50. |
+| `--backend httpx\|aiohttp` | HTTPX is the default. aiohttp requires the optional extra and uses HTTP/1.1 whole-file streaming. Normal mirroring keeps discovery and freshness checks with either backend. |
 | `--max-chunks N` | Max chunks per file (default 8). |
 | `--min-chunk-size MB` | Minimum chunk size in MB (default 10). |
 | `--auto-concurrency` | Tune parallel concurrency from measured throughput. |
 | `--bandwidth-limit MB/S` | Cap total download bandwidth. |
 | `--max-parallel-chunks N` | Max chunks in flight across *all* files at once (default 50; `--max-chunks` above caps chunks *per file*). |
-| `--chunk-assembly-dir DIR` | Directory for temporary chunk files (defaults to a unique directory under the system temporary directory). Final assembly and streaming staging remain beside the destination file for atomic replacement. |
+| `--chunk-assembly-dir DIR` | Parent for an owned, destination-specific chunk workspace (defaults to `.mirror-url-state/chunks/` in the target). Assembly and streaming staging use reserved target state on the destination filesystem. |
 | `--chunk-timeout-multiplier MULT` | *Currently has no effect* (accepted for backward compatibility). Chunk requests use fixed multiples of `--timeout`. |
 
 ### Performance and networking
@@ -213,7 +222,8 @@ list of options. The most commonly used options:
 | `--timeout SECS` | Base request timeout (default 30; range 3–300). Some request paths use fixed limits or multiples of this value, so this is not a whole-run deadline. |
 | `--max-retries N` | Connection-request retry budget (default 3). Chunk retries also have their own fixed budget. |
 | `--retry-delay SECS` | Base delay for retry backoff (default 2). |
-| `--request-delay SECS` | Request pacing delay (default 0.05; range 0.001–1.0). Increase it for throttled servers. |
+| `--requests-per-second N` | Request ceiling (default 20; zero removes this ceiling). |
+| `--request-delay SECS` | Minimum request spacing (default 0.05; range 0–1.0). Effective spacing is the larger of this value and `1 / requests_per_second`. Set both controls to zero for unpaced transfers. |
 | `--trusted-server` | Relax chunk concurrency and rate-scaling limits; `--request-delay` still controls pacing (default 50 ms). |
 | `--no-http2` | Disable HTTP/2. |
 | `--no-http2-pipelining` | *Currently has no effect* (accepted for backward compatibility); the HTTP/2 client does not read this setting. |
@@ -232,6 +242,8 @@ list of options. The most commonly used options:
 | `--refresh-cache` | Force a full cache refresh this run. |
 | `--cache-max-age DAYS` | Max cache age before auto-refresh (default 7). |
 | `--no-etag` | Disable ETag-based change detection. |
+| `--verify-content` | Verify existing local files against saved SHA-256 receipts before checking remote freshness. Hash completed downloads before publication. Default: disabled; incompatible with `--missing-files`. |
+| `--no-verify-content` | Disable content verification, including when enabled in a config file. |
 | `--missing-files` | Skip per-file freshness checks for files that already exist locally — only download what's absent. Much faster on large, largely-static datasets, but won't detect a file that changed in place on the server under the same name. Pair with occasional full runs (without this flag) to still catch in-place changes. |
 | `--quick` | Quick mode: refresh the cache timestamp only. |
 | `--no-cache-html` | Disable caching of parsed HTML directory listings (HTML caching is on by default). |
@@ -486,9 +498,10 @@ Existing destination files stay intact until verification and atomic
 replacement succeed. These checks do not compare against a server-provided
 cryptographic content digest; `--hash-algorithm` does not add such a comparison.
 
-Traditional chunk files default to a unique directory under the system
-temporary directory, or to `--chunk-assembly-dir`. Final assembly and streaming
-staging use the destination's filesystem. Traditional mode can need roughly
+Traditional chunk files default to owned `.mirror-url-state/chunks/` state,
+or a destination-specific owned child of `--chunk-assembly-dir`. Final assembly
+and streaming staging use `.mirror-url-state/parallel/` on the destination's
+filesystem. Traditional mode can need roughly
 two additional file-sized copies across the temporary and destination storage;
 streaming needs roughly one additional file-sized staging allocation. Existing
 destination copies also continue to occupy space until replacement. Assembly
@@ -510,19 +523,115 @@ never certifies the partial as complete.
 The `.mirror-url-state` name is reserved case-insensitively. A conflicting
 remote path fails the sync before downloading. An existing directory without
 MirrorURL's valid ownership marker is preserved and rejected when partial
-state is needed; obsolete-file cleanup never enters this directory.
+state is initialized; obsolete-file cleanup never enters this directory.
 
 Legacy adjacent `*.mirror-partial` files are not resumed. Review or archive
 them before enabling obsolete-file cleanup, which may remove them if they are
 absent from the selected remote listing.
 
 Traditional and streaming chunk state is not resumed across runs; failed chunks
-can retry within a run. An interruption may leave a hidden `.streaming` staging
-file, but never publishes that unfinished file under the destination filename.
+can retry within a run. The next owner reclaims recorded abandoned work after
+acquiring destination/state locks. Per-work OS leases protect writers still
+finishing after bounded cleanup, including within a multi-suffix CLI run.
+Manifests are written before transfer bytes; unknown entries, malformed markers,
+symlinks and hardlinks are preserved for review. Incomplete manifests may leave
+small unrecognized workspaces requiring manual review. Legacy unmarked chunk
+directories and adjacent `.assembling`/`.streaming` files are not automatically
+reclaimed; requested obsolete-file cleanup can still archive adjacent legacy
+files. Legitimate MOVE archive bytes are preserved. Nested mount points must
+share the reserved staging state's filesystem for atomic publication.
+
+Failed-sync summaries identify download failures, incomplete remote scans and
+cleanup failures separately. A zero failed-download count does not certify a
+complete scan or successful cleanup.
 `--no-etag` disables freshness comparisons, while range transfers still require
 ETags to verify that all bytes belong to the same remote representation.
 
+### Concurrent runs and destination ownership
+
+The development checkout acquires cooperative OS locks before starting a
+mirror. Overlapping destinations (including parent/child trees), shared cache
+or log files, configured chunk/disk cache directories, metrics files and MOVE
+archives reject a competing run with `DestinationLockError`; the CLI exits
+with status 1. Separate trees and state paths can run concurrently. Dry runs
+also acquire ownership because cache loading can repair existing cache state.
+CLI runs reserve their log directory and all selected suffixes before shared
+logging starts, and retain them until the whole run finishes. Destination keys
+are conservatively case-folded and Unicode-normalized, so equivalent names
+conflict even on a case-sensitive filesystem.
+
+Lock files live in `~/.mirror-url/locks-v1/`, outside the destination. They
+remain after cleanup; **do not delete them while any mirror is running**.
+Process termination releases the OS locks automatically, including after a
+hard kill. No stale PID file needs removal. Use `with MirrorURL(config)` or
+call `cleanup()` explicitly. Cleanup rejects new work; a writer still running
+after a shutdown timeout retains ownership until it stops.
+
+This protects cooperating new-version processes using the same account, home
+directory and local filesystem. Version 3.1.79 and older versions and other
+applications do not participate. Network filesystems, multiple hosts, mount
+aliases and external writers need separate coordination.
+
 ---
+
+## Known-URL downloads
+
+This mode is available from version 3.2.0. It downloads every URL in
+the list with a whole-file GET; it performs no discovery, HEAD freshness checks,
+ETag reuse or ranged resume. It never deletes obsolete local files. Use normal
+mirror mode when you need incremental synchronization.
+
+```text
+# urls.txt
+https://example.org/files/a.bin
+https://example.org/files/nested/b.bin
+```
+
+```bash
+python -m mirror_url --mode download --backend httpx \
+  --url https://example.org/files/ --url-list urls.txt \
+  --dest-path ./downloads --log-path ./logs --concurrency 20 \
+  --requests-per-second 0 --request-delay 0 --verify-content
+```
+
+To use aiohttp, install `python -m pip install -e ".[aiohttp]"` from the checkout
+in your development environment, then change `--backend httpx` to
+`--backend aiohttp`. Both clients use the same publication and receipt policy.
+Do not expect bare-client benchmark timings: filesystem checks, durable staging
+and optional SHA-256 hashing are included here.
+
+All URLs and redirect hops must stay below the selected base URL, on its exact
+origin. One optional `--dir-suffix` narrows that scope and appends the suffix
+to the destination. Nested file paths are retained. The full list is checked
+for filename collisions before any GET. Direct IP URLs, private DNS answers,
+unsafe paths, symlinks, hard links and reserved-state collisions are rejected.
+TLS certificates remain verified, and proxy environment variables are ignored.
+`--trusted-server` and the legacy security toggle do not remove these checks.
+
+An existing file is redownloaded only when its identity matches the receipt
+from this mode, or `--overwrite` explicitly permits replacement. With
+`--verify-content`, its saved SHA-256 must match too. Failed transfers leave
+the original bytes intact. Connection and payload interruptions have bounded
+whole-file retries; HTTP failures are reported without status retries. Only a
+complete HTTP 200 response with a matching declared length is published. When
+the server omits the length, the backend must report a clean stream end;
+SHA-256 records local bytes, not proof of a remote reference digest.
+
+Owned temporary work is removed after success, failure or cooperative
+cancellation. Unknown state and pre-existing partial downloads are preserved.
+Receipts for published files are saved at the end of the run, including during
+cooperative cancellation. An abrupt process kill between publication and this
+save may leave a file without a receipt: the next run refuses to replace it
+without `--overwrite`. This mode does not offer resumable partial transfers.
+
+The CLI writes a run log and prints a JSON summary with downloaded/failed file
+counts, bytes, elapsed time, pacing waits, fsync/hash time and any failures. A
+failed file makes the command exit nonzero. `--dry-run` validates the list
+without network access or download state creation. Discovery/listing/filter
+flags, chunk modes, auto-concurrency, missing-only mode and cleanup policies
+other than `safe` are rejected in download mode. For normal mirroring,
+`--backend aiohttp` supports whole-file transfers; chunk modes and
+auto-concurrency require HTTPX, and existing partials are preserved.
 
 ## Filtering and scope
 
@@ -699,6 +808,102 @@ ETags to verify that all bytes belong to the same remote representation.
 
 ---
 
+## Filename collisions and download behavior
+
+**A filename collision fails the entire affected suffix before file downloads.**
+MirrorURL does not choose one of the conflicting files, rename either file,
+or download the other files in that suffix while silently skipping the pair.
+Existing mirrored file contents are preserved, and obsolete-file cleanup is
+not reached. Directory listings, connection/metadata requests and log/cache
+bookkeeping can still occur before the failure.
+
+For example, NASA SolarSoft has these two different files under `stereo`:
+
+```text
+secchi/idl/daily/Deep_Field_v3.pro
+secchi/idl/daily/deep_field_v3.pro
+```
+
+They have different contents. Common case-insensitive macOS volumes cannot
+store both names as separate files. A case-sensitive Linux filesystem or
+case-sensitive APFS volume can store both; an existing Linux mirror can
+therefore contain both originals.
+
+**Filesystem-aware behavior in 3.2.0:** MirrorURL checks the destination
+when selected names differ only by case. On a confirmed case-sensitive
+destination, it downloads both files with their original capitalization and
+keeps their content receipts separate. On a case-insensitive destination, the
+pair fails preflight before any file payload in that suffix is downloaded.
+There is no option to choose whichever file arrives first or overwrite one
+with the other. The 3.1.79 preflight rejects selected case-only pairs on every
+filesystem; upgrade to 3.2.0 for filesystem-aware handling.
+
+The check also covers directory names such as `DAILY/one.pro` and
+`daily/two.pro`. If a requested filename already resolves to a differently
+capitalized local entry, preflight fails and preserves that entry, even when
+only one remote file is selected or `--missing-files` is used. Otherwise a
+missing-only run could mistake different local data for the requested file.
+
+For an ambiguous pair, MirrorURL creates an exclusively owned, randomly named
+empty probe in its actual parent directory, or the nearest existing ancestor
+when the parent does not exist yet. It checks the differently capitalized
+probe name and removes only its own unchanged regular file. This check also
+runs during a dry run. If the directory cannot be inspected or probed safely,
+the suffix fails instead of guessing its filesystem behavior. Ordinary unique
+names do not require a case probe.
+
+**Preserving the complete selected tree:** use a destination that can store
+both original filenames, and the updated filesystem-aware MirrorURL
+implementation. On macOS, an APFS (Case-sensitive) disk image
+or volume provides the required storage behavior. Apple's
+[disk-image instructions](https://support.apple.com/guide/disk-utility/create-a-disk-image-dskutl11888/mac)
+describe creating a blank image with that format; a sparse image grows as files
+are added. This avoids reformatting the existing startup volume. Choose a new
+destination inside the mounted image for the complete mirror; an ordinary
+case-insensitive destination cannot hold both originals. Size the image for
+the selected payload and temporary transfer space. With the updated code,
+retain the same URL and suffix and include `daily` instead of excluding it.
+Moving an existing mirror or changing the destination of a running job is a
+separate operation; do not change its filesystem while it is writing.
+
+Excluding `daily` does **not** solve complete mirroring: it discards an entire
+remote subtree from the selected scope. Automatically renaming one file would
+also change the archive's original names and may break references between
+files. Neither behavior is a substitute for preserving both originals.
+
+| Selected scope | What is downloaded? | Result |
+|---|---|---|
+| Both case-distinct files are included on a confirmed case-sensitive destination, with the updated code | Both original files, plus other eligible files in the suffix | Separate filenames and receipts are preserved |
+| Both case-distinct files are included on a case-insensitive destination | No mirrored file payload from that suffix, including unrelated files | The suffix fails; neither conflicting file is chosen |
+| `stereo/secchi/idl/daily` is explicitly excluded | Only eligible missing/changed files outside that entire subtree | Sync can proceed if all remaining paths and checks pass |
+| A filter excludes both `.pro` files, for example `--filter .fits` | Only matching files in the remaining selection | Sync can proceed if no other mapping conflicts or failures occur |
+
+If a deliberately reduced scope is acceptable, directory exclusions are
+relative to `--url`: with the SolarSoft root URL, excluding
+`stereo/secchi/idl/daily` omits **every file and subdirectory under `daily`**,
+not just the two conflicting names. Files already present under an excluded
+subtree are preserved by cleanup. Use this only when that omission is intended.
+
+Other mapping problems also fail preflight: Unicode-normalized name aliases,
+names that would be truncated or rewritten by sanitization, unsafe local paths,
+and collisions with reserved `.mirror-url-state` storage. A repeated identical
+remote URL is deduplicated; distinct URLs that collide are not deduplicated by
+content, even if their bytes happen to match. Case-insensitive `--filter`
+matching cannot select just one of the two example filenames by capitalization.
+
+For a multi-suffix CLI invocation, failure of one suffix does not roll back
+earlier successful suffixes. Other suffixes may still run, and the overall CLI
+exits `1` when a suffix fails. The Python `sync()` call returns `False`; inspect
+the log for `Distinct remote URLs map to the same local filename`,
+`Remote filename would be changed by local path sanitization`, or
+`Remote file has an unsafe or reserved local path`.
+
+This describes normal synchronization and its dry run. `--list-files` is
+discovery-only and can list both remote URLs; it does not prove that the selected
+files can be mirrored. `--quick` also skips remote-file validation and transfers.
+
+---
+
 ## Caching and incremental sync
 
 MirrorURL stores file identity metadata and directory signatures in a JSON
@@ -706,7 +911,7 @@ cache under `--log-path`. Keep this path stable between runs. The file name
 contains the directory suffix and a hash of the base URL, so different remote
 roots do not share one cache accidentally.
 
-Normal runs still discover the remote tree and check existing files. A cached
+Normal runs still discover the remote tree and check existing files. By default, a cached
 file ETag is trusted only when the recorded local size, modification time, and
 filesystem change/creation timestamp match the current file. Otherwise the
 file is checked again. Same-size local edits that leave these timestamps
@@ -717,6 +922,31 @@ contents are unchanged. Without usable file ETags, checks fall back to size and
 the server's `Last-Modified` header when available; changes that preserve those
 values can be missed. No remote cryptographic digest comparison is performed.
 
+The development checkout adds `--verify-content` (or `verify_content: true` in
+YAML) to detect local changes
+even when file sizes and timestamps still match. This mode saves a SHA-256
+receipt of each completed staging file **before** atomic publication, then
+hashes existing local files before trusting freshness metadata. A missing,
+expired, malformed or mismatched receipt requires a new download. Enabling it
+for an existing mirror therefore redownloads files whose cache has no receipt.
+Keep `--log-path` stable so those receipts persist between runs.
+
+Hashing reads every verified file in 1 MiB chunks, adding disk IO proportional
+to the selected data size on every full run. Async metadata checks perform
+hashing on worker threads. `--hash-algorithm` does not change these SHA-256
+receipts, and the compatibility flag `--no-content-hash` does not disable them;
+use `--no-verify-content` for that.
+Network request timeouts still apply; local hashing is allowed to finish without
+the metadata-only async check/batch deadlines. Slow storage can lengthen a run.
+
+Content verification proves agreement with the saved local receipt. Remote
+freshness still depends on the server's HTTP validators, size and modification
+time; a remote change that preserves those values can be missed. This mode does
+not compare against a server-provided cryptographic checksum. Give each
+destination to one mirror process at a time and avoid external edits during a
+run: there is no interprocess destination lock, and arbitrary concurrent writes
+are outside the guarantee.
+
 Parsed HTML listings also have bounded **in-memory** caches. They are not
 restored from disk on a new process launch. `--html-cache-max-age` controls their
 lifetime within the process; it does not mean a fresh CLI invocation will skip
@@ -724,18 +954,28 @@ fetching the remote listing.
 
 - `--cache-max-age DAYS`: discard expired JSON metadata (default 7 days).
 - `--refresh-cache`: ignore saved metadata and cached listing results for this run.
-- `--no-cache`: bypass those caches; existing files are still checked, not
-  unconditionally downloaded.
+- `--no-cache`: bypass those caches; existing files are still checked. With
+  `--verify-content`, unavailable receipts require downloading existing files.
 - `--no-etag`: use size/time rather than file ETags for freshness checks.
 - `--missing-files`: download only absent files. Existing files are not checked
   for freshness, so in-place remote changes will be missed. Use occasional
   normal runs when those changes matter.
+  It cannot be combined with `--verify-content`.
 - `--quick`: refresh an existing JSON cache's expiry timestamp, without scanning
   or downloading. It does not verify that local or remote files are current and
   does not create a missing cache. Connection setup can still contact the server.
 
 The cache can be written after a complete scan and updated again after the
 normal download/cleanup path. It is separate from resumable file state in `.mirror-url-state/`.
+
+Process-interruption tests cover all three download modes. Killing a process
+before publication preserves the previous complete destination; killing it
+after publication leaves the complete replacement. A restart checks receipts
+again, resumes validated sequential partials where possible, and can redownload
+files published before their receipt was persisted. Interrupted cache writes
+leave the previous complete JSON authoritative. MOVE cleanup can be restarted
+with obsolete bytes preserved in their source or archive. These tests cover
+process termination, not power loss or failure of the storage device.
 
 `--use-disk-backed-sets`, `--memory-cache-size`, and `--download-queue-size` do
 not bound the current workflow's remote file list: discovery collects that list
@@ -935,7 +1175,7 @@ except (ConfigError, ValidationError) as e:
 
 Useful exported names: `MirrorURL`, `MirrorConfig`, `load_config_from_args`,
 `main`, and the exception types (`MirrorError`, `ConfigError`,
-`MirrorConnectionError`, `SecurityError`, `DownloadError`,
+`MirrorConnectionError`, `SecurityError`, `DownloadError`, `DestinationLockError`,
 `PathTraversalError`, `URLScopeError`).
 
 For a configuration dictionary, use `MirrorConfig.model_validate(data)` to
@@ -984,6 +1224,14 @@ The remote may be throttling you. Omit `--trusted-server` (or set
 Confirm `--url` actually serves an HTML directory listing (not a single file or
 a JS-rendered page). Check your `--filter` isn't excluding everything, and try
 `--debug` to see the parsed links and scope decisions.
+
+**"Distinct remote URLs map to the same local filename" / case-only names.**
+The selected suffix stopped before file downloads. Neither conflicting file
+is chosen; other files in that suffix are also not transferred. See
+[Filename collisions and download behavior](#filename-collisions-and-download-behavior)
+for the NASA example, the filesystem-aware behavior, and how a case-sensitive
+destination preserves both original files. A probe/inspection failure also
+requires resolving destination access before retrying.
 
 **Parallel mode isn't kicking in.**
 Chunking needs a known file size of at least `--min-chunk-size`, byte Range

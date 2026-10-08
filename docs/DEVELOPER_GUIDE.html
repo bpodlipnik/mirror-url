@@ -279,12 +279,14 @@ repeats the essentials so you can work from it alone.</p>
 <ul>
 <li><strong>Package:</strong> <code>mirror_url</code> (src-layout under
 <code>src/</code>)</li>
-<li><strong>Version:</strong> 3.1.79</li>
-<li><strong>Python:</strong> 3.9 or newer; CI tests Python 3.9–3.14</li>
+<li><strong>Version:</strong> 3.2.0</li>
+<li><strong>Python:</strong> 3.10 or newer; CI tests Python
+3.10–3.14</li>
 <li><strong>Runtime deps:</strong> <code>httpx[http2]</code> (including
-<code>h2</code>), <code>pydantic</code> v2, <code>PyYAML</code>
-(optional: <code>stringzilla</code>, <code>lxml</code>,
-<code>tqdm</code>, <code>psutil</code>)</li>
+<code>h2</code>), <code>pydantic</code> v2, <code>PyYAML</code>,
+<code>portalocker</code> 3.x (optional: <code>stringzilla</code>,
+<code>lxml</code>, <code>tqdm</code>, <code>psutil</code>,
+<code>aiohttp</code>)</li>
 </ul>
 <hr />
 <h2 id="table-of-contents">Table of contents</h2>
@@ -323,7 +325,7 @@ map</a></li>
 monolith and the refactor</h2>
 <p>MirrorURL began as a single <code>mirror_url.py</code> of ~15,000
 lines containing ~70 classes and ~25 module-level functions. It was
-split into the modular <code>src/mirror_url/</code> package (44 Python
+split into the modular <code>src/mirror_url/</code> package (46 Python
 files, organized by responsibilities) by a
 <strong>behavior-preserving</strong> migration: code was relocated
 verbatim and class/function method sets were verified identical to the
@@ -336,12 +338,12 @@ port of working, audited, sometimes idiosyncratic logic (including
 hard-won bug fixes recorded in the changelog). When touching migrated
 code, prefer surgical changes over "cleanups" — the original behavior is
 the contract.</li>
-<li><strong>Python 3.9 baseline.</strong> The package still supports
-3.9, so it uses classic typing (<code>Dict</code>,
-<code>Optional</code>, <code>List</code>) and
-<code>from __future__ import annotations</code> rather than 3.10+
-syntax. Lint rules that would modernize syntax (pyupgrade, most of SIM)
-are intentionally disabled — see <a href="#coding-conventions">Coding
+<li><strong>Python 3.10 baseline.</strong> Python 3.10 is the minimum
+supported runtime. Existing code retains classic typing
+(<code>Dict</code>, <code>Optional</code>, <code>List</code>) and
+<code>from __future__ import annotations</code>. Lint rules that would
+modernize syntax (pyupgrade, most of SIM) remain disabled to keep
+unrelated rewrites separate — see <a href="#coding-conventions">Coding
 conventions</a>.</li>
 </ol>
 <p>The legacy <code>mirror_url.py</code> was retained as a frozen
@@ -371,7 +373,7 @@ green after every change.</li>
 <hr />
 <h2 id="repository-layout">Repository layout</h2>
 <pre><code>mirror-url/
-├── src/mirror_url/          # the package (44 Python files including private helpers)
+├── src/mirror_url/          # the package (48 Python files including private helpers)
 │   ├── __init__.py          # public API re-exports
 │   ├── __main__.py          # `python -m mirror_url`
 │   ├── _version.py          # __version__, __author__  (one of two version sources)
@@ -400,7 +402,7 @@ architecture</h2>
 cross those groupings. The important invariant is an acyclic runtime
 import graph.</p>
 <pre><code>Foundations: _version · compat · constants · exceptions · enums · utils
-Data and primitives: models · async_primitives · primitives · parsing · security
+Data and primitives: models · async_primitives · primitives · parsing · security · destination_lock
 Managers: transport · storage · circuit_breaker · rate_limiter · queue · cache
 Runtime support: metrics · progress · monitoring · connection · async_connection · concurrency
 Engines: download · download_integrity · scanner · health · domain_health · config · tuner
@@ -496,9 +498,33 @@ filename defenses).</li>
 <code>SecureAsyncTransport</code>: httpx transports that block
 loopback/private IPs (SSRF hardening). Both honor a
 <code>test_mode</code> flag used to relax the guard in tests.</li>
+<li><code>destination_lock.py</code> — per-user shared ancestor locks
+and exclusive resource locks. <code>_MirrorBase</code> acquires
+ownership before managers start; cache and log paths are added before
+access. Operation leases retain the handles until cleanup and active
+writers finish, including after a bounded shutdown timeout.
+<code>DestinationLockError</code> rejects overlap and use after cleanup.
+Lock files remain in <code>~/.mirror-url/locks-v1/</code>; never unlink
+them during a run. Portalocker 3.x provides native Windows/POSIX locks.
+This is cooperative local-filesystem protection with a common home
+directory, not multi-host coordination. The CLI's
+<code>run_ownership</code> context reserves all selected roots and the
+log tree before shared logging; <code>ContextVar</code> supplies an
+explicit parent to each suffix instance. Child cleanup ends its
+lifecycle without closing the run's handles. Child writer and cleanup
+leases also retain parent ownership.</li>
 <li><code>storage.py</code> — <code>FileSystemCache</code>,
 <code>DiskBackedSet</code> (tracking with disk spills, memory-only
 duplicate suppression and pruning; no persistent membership index).</li>
+<li><code>scratch.py</code> — flat private parallel workspaces with
+exact manifests and per-work OS leases. A chunk wait timeout retains its
+lease until every submitted future finishes, and late cleanup preserves
+a newer transfer's active tracking entry. Recovery holds
+destination/state ownership, rejects live leases and validates every
+entry before deletion. It never age-deletes arbitrary directories.
+Current work can retire its own lease after IO ends during bounded
+shutdown. Root ownership, malformed records, links and unknown children
+fail closed; unmarked legacy artifacts require manual review.</li>
 <li><code>circuit_breaker.py</code> — <code>CircuitBreaker</code>,
 <code>AsyncCircuitBreaker</code>, <code>ChunkCircuitBreaker</code>,
 <code>CircuitBreakerManager</code> (per-domain). Keep each base and its
@@ -704,7 +730,33 @@ Breadth-first discovery of the remote tree, honoring
 and a visited set (cycle-safe). Directory listings are parsed by
 <code>parsing.py</code>. Results feed in-memory parsed-listing caches.
 The resulting remote file list is deduplicated and preflighted for
-unsafe, reserved, or colliding local paths.</li>
+unsafe, reserved, or colliding local paths.
+<code>ReportMixin.sync()</code> calls
+<code>_validate_remote_paths()</code> before per-file comparison and
+downloads. <code>filename_mapping.FilenameMap</code> checks every file
+and directory prefix. Unicode-normalized aliases and exact
+file/directory conflicts remain rejected. Case-folded candidate pairs
+trigger an actual filesystem probe in their parent (or nearest existing
+ancestor). A confirmed case-sensitive parent permits distinct original
+spellings; an insensitive parent fails. Parent caches use
+spelling-preserving tuples because Windows <code>Path</code> equality
+folds case even for case-sensitive directories. Existing directory
+entries are checked against requested names so an insensitive lookup
+cannot overwrite or skip a differently capitalized local file. The
+random exclusive probe is removed only after confirming its regular file
+type, single link and unchanged device, inode, size and timestamps;
+unexpected entries are preserved and inspection/probe failures fail
+closed. A preflight exception is caught by <code>sync()</code>, which
+logs a fatal error and returns <code>False</code>: no file in the
+affected suffix is downloaded, and obsolete-file cleanup is not reached.
+Discovery-only listing modes bypass this check. Lossy-name,
+reserved-state and unsafe-path rejection remain in place. Probe checks
+also run during dry-run preflight. The 3.2.0 behavior differs from
+3.1.79's unconditional case-fold collision rejection. The <a
+href="./USER_GUIDE.html#filename-collisions-and-download-behavior">User
+Guide</a> documents the NASA pair and the storage and preflight
+requirements for preserving both original files. Directory exclusion
+reduces the mirrored scope and does not resolve complete mirroring.</li>
 <li><strong>Compare (<code>CompareMixin</code>).</strong> For each
 remote file, decide whether the local copy is current using a shared
 sync/async size, timestamp, and ETag policy. Cached ETags require
@@ -799,8 +851,27 @@ when explicitly changed: see <code>_UNUSED_CONFIG_FIELDS</code> and
 <code>CompareMixin._comparison_metadata</code>. These stat fields do not
 prove content identity: same-size local edits with unchanged timestamps
 can be missed. Metadata-change regressions must explicitly advance the
-file timestamp rather than rely on native clock resolution; content
-hashes are not checked here.</p>
+file timestamp rather than rely on native clock resolution. With
+<code>verify_content=True</code>, the size and SHA-256 receipt instead
+validate local identity; timestamp-only changes do not invalidate an
+otherwise matching receipt. Missing or invalid receipts fail closed even
+when a HEAD response reports matching size/time. Async checks run the
+hashing step in <code>_meta_check_executor</code> to avoid blocking the
+event loop. Content-verification runs disable the enclosing 30-second
+check and 120-second batch deadlines while retaining the 15-second HEAD
+timeout. Otherwise a hash can outlive its cancelled task and be repeated
+by fallback workers, causing unnecessary downloads of large unchanged
+files.</p>
+<p><code>download_integrity.file_sha256</code> reads regular files in 1
+MiB chunks and rejects observable stat changes during hashing. The
+single, assembled and streaming download paths hash the completed
+staging file before <code>os.replace</code>, then pass the digest to
+<code>CacheManager.save_file_metadata(..., sha256=digest)</code>. Cache
+entries can contain a receipt without an ETag. Cache saves use
+<code>os.replace</code> so existing JSON can be replaced on Windows.
+Legacy receipts are not invented from an unverified destination: missing
+receipts require downloading the file again. This mode adds local
+verification; remote freshness retains the HTTP policy.</p>
 <p>The regression contracts live in
 <code>test_release_audit_regressions.py</code>, the download
 failure/integrity/storage-fault tests, HTTP workflow tests, and config
@@ -808,6 +879,38 @@ precedence tests. Keep those observable contracts intact during
 refactoring.</p>
 <hr />
 <h2 id="the-configuration-system">The configuration system</h2>
+<p>The 3.2.0 transfer configuration adds <code>mode</code>
+(<code>mirror</code> or <code>download</code>), <code>backend</code>
+(<code>httpx</code> or <code>aiohttp</code>), <code>url_list</code>,
+<code>overwrite</code> and <code>requests_per_second</code>. The default
+rate remains 20 requests/second with 50 ms minimum spacing.
+<code>effective_request_interval</code> is the maximum of both limits;
+zero for both explicitly requests unpaced traffic. Neither option
+changes security policy. CLI overrides use the existing
+explicit-argument precedence rules for YAML/JSON too.</p>
+<p><code>transfers.py</code> owns the shared async whole-file pipeline.
+Its backend adapters provide raw bytes and response headers; the
+controller owns redirects, a monotonic request budget, aggregate
+bandwidth, fixed workers, full filename preflight, disk headroom, retry
+bounds, scratch leases and atomic publication. The HTTPX adapter uses
+<code>SecureAsyncTransport</code>; the optional aiohttp resolver returns
+the validated public address directly to its connector, preserving the
+original hostname for Host and TLS. aiohttp requests retain encoded URL
+paths, use HTTP/1.1 and disable implicit redirects, decompression,
+cookies and proxies.</p>
+<p><code>download_url_list(MirrorConfig(mode="download", ...))</code>
+takes destination/log ownership before creating state. Receipts are
+namespaced by the scoped base URL under <code>.mirror-url-state</code>,
+and existing payloads require a matching receipt or explicit overwrite.
+It never calls the scanner or metadata freshness layer.
+<code>ReportMixin.sync()</code> uses the same pipeline for
+<code>backend="aiohttp"</code> after its normal discovery and checks,
+then saves results through <code>CacheManager</code>. HTTPX remains the
+default mirror implementation, including ranged resume and chunks. The
+whole-file pipeline preserves those existing partials.</p>
+<p>The new candidate needs its own CI and full qualification runs.
+Frozen validation of an older source snapshot does not cover this
+implementation.</p>
 <p><code>MirrorConfig</code> is the validated pydantic runtime model,
 including Paths, enums, flags and numeric bounds.
 <code>ConfigSchema</code> is a compatibility alias for this same model,
@@ -962,15 +1065,14 @@ setup.</p>
 <ul>
 <li><strong><code>from __future__ import annotations</code></strong> at
 the top of every module. Annotations are lazy strings, which lets us
-reference types without import cycles and use modern annotation forms
-while still running on 3.9.</li>
+reference types without import cycles and use modern annotation forms on
+the supported Python 3.10+ runtimes.</li>
 <li><strong>Typing style:</strong> follow the existing
 <code>Dict</code>, <code>List</code>, <code>Optional</code>, and
-<code>Union</code> conventions. Python 3.9 supports
-<code>dict[...]</code>, but <code>X | None</code> must not be evaluated
-at runtime on that version. The lint config omits pyupgrade
-(<code>UP</code>) and most <code>SIM</code> rules; avoid unrelated
-typing rewrites.</li>
+<code>Union</code> conventions in existing modules. Python 3.10 supports
+<code>dict[...]</code> and <code>X | None</code>; the lint config still
+omits pyupgrade (<code>UP</code>) and most <code>SIM</code> rules to
+avoid unrelated typing rewrites.</li>
 <li><strong><code>TYPE_CHECKING</code> guards</strong> for imports
 needed only for annotations, to keep the import graph acyclic.</li>
 <li><strong>Lint rule set:</strong> ruff with
@@ -985,8 +1087,7 @@ and must report zero errors. The settings remain lenient
 (<code>no_implicit_optional = false</code>, untyped definitions allowed,
 untyped bodies unchecked). This is not a strict-typing guarantee;
 tightening the settings is a dedicated follow-up. Its checking target is
-Python 3.10; this does not change the package's Python 3.9 runtime
-minimum.</li>
+Python 3.10, matching the package's runtime minimum.</li>
 <li><strong>Imports:</strong> keep the runtime graph acyclic. The layer
 diagram is a guide to responsibilities; inspect actual imports rather
 than treating the numbers as a strict dependency rule.</li>
@@ -1004,17 +1105,17 @@ and subsystem-integration tests that exercise real in-process I/O
 round-trips). This lane also includes the unmarked streaming-concurrency
 tests, which bind a local HTTP server. It therefore needs loopback
 sockets, although it does not require a live public archive. CI runs it
-across Python 3.9–3.14.</li>
+across Python 3.10–3.14.</li>
 <li><strong>Integration lane</strong>
 (<code>pytest -m integration</code>) — end-to-end mirrors in
 <code>test_integration.py</code> and
 <code>test_http_mirror_workflows.py</code>, using the static server
 fixture or a controllable Range/ETag/failure server.</li>
 <li><strong>Full coverage lane</strong> — both lanes together, plus 100%
-statement/branch gates for the two download modules, six safety modules
-and shared URL scope helpers (see below). It requires all optional
-dependencies and local socket binding. A sandbox socket denial is an
-environment error, not a successful full-suite run.</li>
+statement/branch gates for the two download modules, eight safety
+modules and shared URL scope helpers (see below). It requires all
+optional dependencies and local socket binding. A sandbox socket denial
+is an environment error, not a successful full-suite run.</li>
 </ul>
 <p><strong>End-to-end tests:</strong>
 <code>tests/test_integration.py</code> runs a real local HTTP mirror
@@ -1093,7 +1194,7 @@ class="sourceCode bash"><code class="sourceCode bash"><span id="cb6-1"><a href="
 <span id="cb6-22"><a href="#cb6-22" aria-hidden="true" tabindex="-1"></a><span class="co"># regenerate both HTML guides after Markdown edits (requires pandoc)</span></span>
 <span id="cb6-23"><a href="#cb6-23" aria-hidden="true" tabindex="-1"></a><span class="fu">bash</span> scripts/render_guides.sh</span></code></pre></div>
 <p>CI (<code>.github/workflows/ci.yml</code>) runs lint/format checks on
-Python 3.12 and the fast test lane across Python 3.9–3.14. A separate
+Python 3.12 and the fast test lane across Python 3.10–3.14. A separate
 Python 3.12 coverage job installs <code>[all,dev]</code>, runs every
 test, including real local HTTP mirroring, and requires at least 80%
 combined statement/branch coverage overall. It additionally requires
@@ -1103,8 +1204,9 @@ the exact missing counts in the JSON report. It uploads HTML, JSON, and
 XML reports. The safety gate separately requires 100% statements and
 branches for <code>scanner.py</code>, <code>_core/scan.py</code>,
 <code>_core/urls.py</code>, <code>_core/cleanup.py</code>,
-<code>security.py</code> and <code>transport.py</code>, plus
-<code>utils.url_within_scope</code> and
+<code>security.py</code>, <code>filename_mapping.py</code>,
+<code>transport.py</code>, <code>destination_lock.py</code> and
+<code>scratch.py</code>, plus <code>utils.url_within_scope</code> and
 <code>utils._relative_url_path</code>. It uses exact missing counts and
 checks helper exclusions; unrelated uncovered utility functions do not
 get hidden or counted as covered.</p>
@@ -1112,14 +1214,64 @@ get hidden or counted as covered.</p>
 and nested traversal encodings. Filesystem tests inject permission,
 resolution, listing and move failures, and assert preserved source and
 archive bytes. Local HTTP tests assert that malformed listings and lossy
-filenames fail before destructive cleanup or publication. The mutation
-check temporarily weakens six guards: mixed DNS rejection, archive
+filenames fail before destructive cleanup or publication.
+<code>test_filename_mapping.py</code> checks the native filesystem and
+can use a separately mounted case-sensitive APFS test image through
+<code>MIRROR_URL_CASE_TEST_VOLUME</code>. Real HTTP tests preserve both
+NASA-style names, different contents and separate receipts through all
+modes and repeat syncs; insensitive filesystem tests require failure
+before any selected file payload. Additional tests preserve preexisting
+aliases and replaced/shared probe entries. The mutation check
+temporarily weakens twenty-one guards: mixed DNS rejection, archive
 collision rejection, incomplete-scan cleanup, same-origin scope, address
-pinning and lossy filename preflight. Each selected test must first pass
-against the original source and then fail an assertion against the
-mutation. Collection or environment errors do not count as success.
-These checks improve evidence of correctness; neither 100% coverage nor
-this small mutation set guarantees that all bugs have been found.</p>
+pinning, lossy filename preflight and content receipt verification, the
+long-hash deadline policy, destination locking and retention of
+abandoned-worker ownership, scratch manifest ownership, live work leases
+and late chunk writer cleanup, case-insensitive filename collision
+rejection, probe inode/metadata identity, timestamp file-handle identity
+and preservation of existing filename aliases. Each selected test must
+first pass against the original source and then fail an assertion
+against the mutation. Collection or environment errors do not count as
+success. These checks improve evidence of correctness; neither 100%
+coverage nor this small mutation set guarantees that all bugs have been
+found.</p>
+<p><code>test_process_recovery.py</code> starts real subprocesses
+against the local HTTP fixture, kills them at deterministic IO
+checkpoints, then restarts the same destination. Checkpoints cover
+partial/chunk writes, both sides of publication, partial cache JSON
+serialization and a completed MOVE before cleanup finishes. All three
+download modes assert complete destination bytes, preserved obsolete
+bytes, persisted receipts and a subsequent sync without another file
+download. <code>process_recovery_worker.py</code> supplies test-only
+checkpoints; production has no crash hooks or loopback security bypass.
+Process kill tests do not simulate power loss or arbitrary external
+writers. A competing process must fail at every checkpoint before the
+owner is killed. <code>test_process_destination_lock.py</code> also
+checks simultaneous starts, parent/child overlap, independent trees,
+shared state, normal release, hard-kill recovery and cleanup while an
+HTTP writer is blocked. Native CI runs these tests on Windows and macOS
+too.</p>
+<p>For a 24-hour synthetic soak, use the dev environment and a new
+output directory:</p>
+<div class="sourceCode" id="cb7"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="va">PYTHONPATH</span><span class="op">=</span>src <span class="ex">python</span> scripts/run_local_soak.py <span class="dt">\</span></span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--output</span> /path/to/new-soak-directory <span class="at">--duration-hours</span> 24 <span class="at">--interval</span> 60</span></code></pre></div>
+<p>The harness cycles through all download modes, repairs same-size
+corruption, preserves files on failed listings, checks MOVE collisions
+and recovers dropped connections and process kills. It writes atomic
+<code>status.json</code>, source hashes, resource samples and bounded
+logs. Freeze <code>src/</code>, <code>tests/</code> and
+<code>scripts/</code> for a long run: source changes invalidate the
+result. With optional psutil, resource checks include RSS and
+descriptors/handles; thread counts are always checked. Each completed
+cycle also asserts zero remaining owned temporary workspaces and bytes,
+and checks MOVE archive payload against the fixture's known legitimate
+files. Filesystem free space is sampled separately because other
+applications can change it. Crash worker output is appended with
+cycle/checkpoint markers and bounded rotation, allowing a full review of
+retained worker and main logs. An elapsed short smoke run is not
+long-duration evidence. Local synthetic tests also do not replace a
+representative archive/destination soak.</p>
 <p>Native macOS and Windows CI jobs also run the full suite on Python
 3.12 with core dependencies and with all optional dependencies. The
 coverage gate runs on Linux with optional dependencies; its results do
@@ -1160,11 +1312,11 @@ the source metadata, changelog, and guides; push the release branch and
 merge its reviewed pull request.</li>
 <li><strong>Tag the merged release on <code>main</code> and push the
 tag:</strong>
-<div class="sourceCode" id="cb7"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> switch main</span>
-<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> pull <span class="at">--ff-only</span> origin main</span>
-<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> tag <span class="at">-a</span> vX.Y.Z <span class="at">-m</span> <span class="st">&quot;mirror-url X.Y.Z&quot;</span></span>
-<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> push origin vX.Y.Z</span></code></pre></div></li>
+<div class="sourceCode" id="cb8"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> switch main</span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> pull <span class="at">--ff-only</span> origin main</span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> tag <span class="at">-a</span> vX.Y.Z <span class="at">-m</span> <span class="st">&quot;mirror-url X.Y.Z&quot;</span></span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> push origin vX.Y.Z</span></code></pre></div></li>
 <li>The tag triggers <code>.github/workflows/release.yml</code>, which
 builds the wheel/sdist, creates a GitHub Release, and (when configured)
 publishes to PyPI via <strong>Trusted Publishing</strong> (OIDC — no API
@@ -1298,7 +1450,7 @@ public)</td>
 </tbody>
 </table>
 <hr />
-<p><em>This guide describes the architecture as of version 3.1.79. When
+<p><em>This guide describes the architecture as of version 3.2.0. When
 you change the structure, update this document in the same PR.</em></p>
 <h2 id="release-3178-behavior">Release 3.1.78 behavior</h2>
 <p>Discovery, mapping, exclusions and cleanup share

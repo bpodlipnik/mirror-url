@@ -327,13 +327,15 @@ def test_complete_empty_scan_runs_requested_cleanup(mirror):
     assert not path.exists()
 
 
-def test_incomplete_scan_reports_failure(mirror):
+def test_incomplete_scan_reports_failure(mirror, caplog):
     prepare_empty_sync(mirror)
     mirror.scan_incomplete = True
     assert not mirror.sync()
+    assert "Sync failed: incomplete remote scan" in caplog.text
+    assert "Sync completed with 0 failures" not in caplog.text
 
 
-def test_cleanup_failure_reports_failure(mirror):
+def test_cleanup_failure_reports_failure(mirror, caplog):
     prepare_empty_sync(mirror)
     mirror.get_remote_files.return_value = [BASE + "keep"]
     mirror.multi_progress = Mock()
@@ -343,6 +345,8 @@ def test_cleanup_failure_reports_failure(mirror):
     archive.write_bytes(b"blocks archive directory creation")
     assert not mirror.sync()
     assert mirror.metrics.metrics["cleanup_failed_operations"] > 0
+    assert "cleanup failures" in caplog.text
+    assert "Sync completed with 0 failures" not in caplog.text
 
 
 def test_parse_samples_appear_in_summary(monkeypatch):
@@ -490,7 +494,7 @@ def test_async_head_retries_503_then_succeeds(mirror, monkeypatch, mode):
 
     asyncio.run(run())
     assert len(calls) == 2
-    assert sleep.await_args.args[0] >= 7
+    assert any(call.args[0] >= 7 for call in sleep.await_args_list)
 
 
 def test_fixed_async_available_before_initialization_and_honors_workers(mirror):

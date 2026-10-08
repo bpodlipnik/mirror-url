@@ -17,6 +17,7 @@ import re
 import sys
 import tempfile
 import time
+from contextlib import ExitStack
 from pathlib import Path
 from typing import List, Optional
 
@@ -36,6 +37,7 @@ from .constants import (
     DEFAULT_ASYNC_WORKERS,
     DEFAULT_CACHE_MAX_AGE_DAYS,
     DEFAULT_MAX_RETRIES,
+    DEFAULT_RATE_LIMIT,
     DEFAULT_RETRY_DELAY,
     DEFAULT_RGET_LIST_MAX_AGE,
     DEFAULT_TIMEOUT,
@@ -58,8 +60,16 @@ from .constants import (
     TARGET_BATCH_TIME_SECONDS,
 )
 from .core import MirrorURL
+from .destination_lock import MirrorFileHandler, run_ownership
 from .enums import CleanupPolicy, ScanMode
-from .exceptions import ConfigError, PathTraversalError, URLScopeError
+from .exceptions import (
+    ConfigError,
+    DestinationLockError,
+    MirrorError,
+    PathTraversalError,
+    URLScopeError,
+)
+from .security import PathSafety
 from .utils import _log_files, sanitize_command_line
 
 
@@ -100,7 +110,7 @@ def setup_shared_logging(
                 pass
 
     # Create file handler (always)
-    file_handler = logging.FileHandler(str(log_path), mode="a", encoding="utf-8")
+    file_handler = MirrorFileHandler(str(log_path), mode="a", encoding="utf-8")
     file_handler.setLevel(logging.DEBUG if args.debug else logging.INFO)
     file_handler.setFormatter(
         logging.Formatter("[%(asctime)s] [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
@@ -189,8 +199,11 @@ def setup_shared_logging(
     if eff.content_hash_small_files:
         logging.debug("Content-hash compatibility setting does not change file freshness checks")
 
-    delay_ms = eff.request_delay * 1000
-    logging.info(f"⚡ Rate limit: {delay_ms:.1f}ms{' (trusted)' if eff.trusted_server else ''}")
+    rate = getattr(eff, "requests_per_second", DEFAULT_RATE_LIMIT)
+    delay_ms = max(1 / rate if rate else 0, eff.request_delay) * 1000
+    logging.info(
+        f"⚡ Rate limit: {delay_ms:.1f}ms effective spacing{' (trusted)' if eff.trusted_server else ''}"
+    )
 
     if eff.cache_html:
         logging.info(f"📦 HTML cache: {eff.html_cache_max_age}h")
@@ -339,6 +352,25 @@ def _cli_overrides(args: argparse.Namespace, explicit: set) -> dict:
 
 
 def main() -> None:
+    """Own the complete CLI run, including logging before mirror construction."""
+    previous = set(_log_files)
+    with ExitStack() as ownership:
+        try:
+            _main(ownership)
+        finally:
+            _close_run_handlers([handler for handler in _log_files if handler not in previous])
+
+
+def _close_run_handlers(handlers) -> None:
+    for handler in handlers:
+        logging.root.removeHandler(handler)
+        if handler in _log_files:
+            _log_files.remove(handler)
+        handler.flush()
+        handler.close()
+
+
+def _main(ownership: ExitStack) -> None:
     """Main entry point with true parallel file downloads"""
     parser = argparse.ArgumentParser(
         description=f"MirrorURL v{__version__} - HTTP(S) directory-listing mirroring",
@@ -404,6 +436,29 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
         help="YAML/JSON config; explicit CLI flags override file values, even when equal to defaults",
     )
 
+    basic.add_argument(
+        "--mode",
+        choices=["mirror", "download"],
+        default="mirror",
+        help="Mirror a listing, or GET an exact URL list without discovery/freshness checks",
+    )
+    basic.add_argument(
+        "--backend",
+        choices=["httpx", "aiohttp"],
+        default="httpx",
+        help="Transfer backend (aiohttp extra required; aiohttp uses whole-file HTTP/1.1 streaming)",
+    )
+    basic.add_argument(
+        "--url-list",
+        type=Path,
+        help="UTF-8 file of absolute URLs, one per line; requires --mode download",
+    )
+    basic.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Permit replacing existing regular files in URL-list mode; links remain forbidden",
+    )
+
     # Create mutually exclusive group for download modes
     download_mode_group = parser.add_argument_group("Download Modes (omit for auto-selection)")
     mode_group = download_mode_group.add_mutually_exclusive_group()
@@ -448,6 +503,7 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
     )
     parallel_grp.add_argument(
         "--max-concurrent-downloads",
+        "--concurrency",
         type=int,
         default=10,
         metavar="N",
@@ -462,7 +518,7 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
         "--chunk-assembly-dir",
         type=Path,
         metavar="DIR",
-        help="Temporary chunk directory (default: unique system-temp directory); final assembly/staging stay beside the destination",
+        help="Parent for owned chunk workspaces (default: reserved destination state); staging uses the destination filesystem",
     )
     parallel_grp.add_argument(
         "--chunk-timeout-multiplier",
@@ -563,7 +619,14 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
         type=float,
         default=REQUEST_DELAY,
         metavar="SECS",
-        help=f"Request pacing delay (default: {REQUEST_DELAY}s; range: 0.001-1.0)",
+        help=f"Minimum request spacing (default: {REQUEST_DELAY}s; range: 0-1.0). Use 0 with --requests-per-second 0 for no pacing",
+    )
+    performance.add_argument(
+        "--requests-per-second",
+        type=float,
+        default=DEFAULT_RATE_LIMIT,
+        metavar="N",
+        help="Request rate ceiling (default: 20; 0 removes this ceiling, subject to --request-delay)",
     )
     performance.add_argument(
         "--bandwidth-limit", type=float, metavar="MB/S", help="Limit download bandwidth (MB/s)"
@@ -979,6 +1042,20 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
         default=True,
         help="Compatibility setting; has no effect on file freshness checks",
     )
+    verification = advanced.add_mutually_exclusive_group()
+    verification.add_argument(
+        "--verify-content",
+        action="store_true",
+        default=False,
+        help="Verify local files against saved SHA-256 receipts before freshness checks",
+    )
+    verification.add_argument(
+        "--no-verify-content",
+        action="store_false",
+        dest="verify_content",
+        default=False,
+        help="Disable content verification (overrides a config file)",
+    )
 
     # NEW v3.0.0 parallel download arguments
 
@@ -1096,19 +1173,88 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
     except ValueError:
         args.cleanup_policy = CleanupPolicy.SAFE_NO_DELETE
 
+    effective, base_config = None, None
+    if args.config:
+        try:
+            base_config = MirrorConfig.from_yaml(Path(args.config), silent=True)
+            effective = _effective_args(args, explicit_dests, base_config)
+        except Exception:
+            pass  # The existing per-suffix config path reports invalid configuration.
+
+    selected_mode = (
+        args.mode
+        if "mode" in explicit_dests or not args.config
+        else config_dict.get("mode", "mirror")
+    )
+    if selected_mode == "download":
+        from .config import load_config_from_args
+        from .transfers import download_url_list, require_backend
+
+        try:
+            if len(args.dir_suffix) > 1:
+                raise ConfigError("URL-list mode supports one selected suffix per run")
+            if args.config:
+                values = {
+                    **config_dict,
+                    "base_url": args.url,
+                    "dest_path": args.dest_path,
+                    "log_path": args.log_path,
+                    **_cli_overrides(args, explicit_dests),
+                    "dir_suffix": args.dir_suffix[0] if args.dir_suffix else "",
+                }
+                download_config = MirrorConfig.from_dict(values, silent=True)
+            else:
+                download_config = load_config_from_args(args, silent=True)
+            download_config.dir_suffix = args.dir_suffix[0].strip("/") if args.dir_suffix else ""
+            require_backend(download_config.backend)
+            target = download_config.dest_path
+            for part in filter(None, download_config.dir_suffix.split("/")):
+                target /= PathSafety._safe_filename(part, max_len=download_config.max_filename_len)
+            target = PathSafety._resolve_destination_root(target)
+            ownership.enter_context(run_ownership([target, download_config.log_path]))
+            args.log_file = args.log_file or "download"
+            setup_shared_logging(args, _effective_args(args, explicit_dests, download_config))
+            ownership.callback(_close_run_handlers, list(logging.root.handlers))
+            logging.info(
+                "URL-list download: backend=%s, discovery and freshness checks omitted",
+                download_config.backend,
+            )
+            summary = download_url_list(download_config)
+            logging.info("Download result: %s", json.dumps(summary, sort_keys=True))
+        except (MirrorError, ValueError, OSError) as error:
+            print(f"Download error: {error}", file=sys.stderr)
+            sys.exit(1)
+        print(json.dumps(summary, sort_keys=True))
+        if not summary["success"]:
+            sys.exit(1)
+        return
+
+    # Reserve selected roots and all shared output before even the logging
+    # header writes. Per-suffix MirrorURL instances borrow this run's ownership.
+    settings = effective if effective is not None else args
+    resources = [Path(args.log_path)]
+    try:
+        for suffix in args.dir_suffix or [""]:
+            target = Path(args.dest_path)
+            for part in (part for part in suffix.split("/") if part):
+                target /= PathSafety._safe_filename(part, max_len=settings.max_filename_len)
+            target = PathSafety._resolve_destination_root(target)
+            resources.append(target)
+            if settings.cleanup_policy == CleanupPolicy.MOVE:
+                resources.append(target.parent / (target.name + "_obsolete"))
+        for field in ("chunk_assembly_dir", "disk_cache_dir", "metrics_json"):
+            value = getattr(settings, field, getattr(base_config, field, None))
+            if value is not None:
+                resources.append(Path(value))
+        ownership.enter_context(run_ownership(resources))
+    except (DestinationLockError, PathTraversalError) as error:
+        print(f"Destination ownership error: {error}", file=sys.stderr)
+        sys.exit(1)
+
     # Setup shared logging if requested
     if args.log_file:
-        effective = None
-        if args.config:
-            try:
-                effective = _effective_args(
-                    args,
-                    explicit_dests,
-                    MirrorConfig.from_yaml(Path(args.config), silent=True),
-                )
-            except Exception:
-                effective = None  # header falls back to describing the CLI values
         setup_shared_logging(args, effective)
+        ownership.callback(_close_run_handlers, list(logging.root.handlers))
         use_shared = True
     else:
         use_shared = False
@@ -1206,6 +1352,7 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
             cache_max_age=args.cache_max_age,
             no_etag=getattr(args, "no_etag", False),
             missing_files=getattr(args, "missing_files", False),
+            verify_content=getattr(args, "verify_content", False),
             use_shared_log=use_shared,
             scan_mode=ScanMode(args.scan_mode) if args.scan_mode else ScanMode.ADAPTIVE,
             parallel_threshold=args.parallel_threshold,
@@ -1225,6 +1372,11 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
             content_hash_small_files=getattr(args, "content_hash_small_files", True),
             trusted_server=getattr(args, "trusted_server", False),
             request_delay=getattr(args, "request_delay", REQUEST_DELAY),
+            requests_per_second=getattr(args, "requests_per_second", DEFAULT_RATE_LIMIT),
+            mode=getattr(args, "mode", "mirror"),
+            backend=getattr(args, "backend", "httpx"),
+            url_list=getattr(args, "url_list", None),
+            overwrite=getattr(args, "overwrite", False),
             cache_html=getattr(args, "cache_html", True),
             html_cache_max_age=getattr(args, "html_cache_max_age", HTML_CACHE_MAX_AGE_HOURS),
             adaptive_async=getattr(args, "adaptive_async", ADAPTIVE_ASYNC_ENABLED),
@@ -1380,6 +1532,7 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
                     cache_max_age=args.cache_max_age,
                     no_etag=getattr(args, "no_etag", False),
                     missing_files=getattr(args, "missing_files", False),
+                    verify_content=getattr(args, "verify_content", False),
                     list_dirs=getattr(args, "list_dirs", None) is not None,
                     list_dirs_n=getattr(args, "list_dirs", None) or 0,
                     list_files=getattr(args, "list_files", None) is not None,
@@ -1401,6 +1554,11 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
                     content_hash_small_files=getattr(args, "content_hash_small_files", True),
                     trusted_server=getattr(args, "trusted_server", False),
                     request_delay=getattr(args, "request_delay", REQUEST_DELAY),
+                    requests_per_second=getattr(args, "requests_per_second", DEFAULT_RATE_LIMIT),
+                    mode=getattr(args, "mode", "mirror"),
+                    backend=getattr(args, "backend", "httpx"),
+                    url_list=getattr(args, "url_list", None),
+                    overwrite=getattr(args, "overwrite", False),
                     cache_html=getattr(args, "cache_html", True),
                     html_cache_max_age=getattr(
                         args, "html_cache_max_age", HTML_CACHE_MAX_AGE_HOURS
@@ -1517,6 +1675,9 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
             failed.append(suf or "ROOT")
         except URLScopeError as e:
             logging.critical(f"URL scope error for {suf or 'ROOT'}: {e}")
+            failed.append(suf or "ROOT")
+        except DestinationLockError as e:
+            logging.critical(f"Destination ownership error for {suf or 'ROOT'}: {e}")
             failed.append(suf or "ROOT")
         except Exception as e:
             logging.critical(f"Error with {suf or 'ROOT'}: {e}", exc_info=True)

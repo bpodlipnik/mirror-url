@@ -4,6 +4,110 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.0] - 2026-10-08
+
+### Changed
+
+- Require Python 3.10 or newer. Remove Python 3.9 from package metadata and the
+  CI matrix; align formatter/linter targets, installation and developer guides.
+
+### Added
+
+- Add `--mode download --url-list` for an exact list of scoped URLs,
+  without discovery or freshness HEADs. A shared async whole-file pipeline uses
+  a bounded worker set, pooled HTTPX or optional aiohttp, explicit redirect
+  handling, public-IP DNS pinning, raw identity bytes, owned staging, length
+  checks, optional SHA-256 receipts and atomic publication. Existing files need
+  a matching receipt or explicit `--overwrite`; unrelated state is preserved.
+- Add optional `aiohttp` extra and `--backend aiohttp` whole-file transfers in
+  normal mirroring, keeping its discovery, freshness and receipt checks. Chunk
+  modes, ranged resume and auto-concurrency remain on the HTTPX backend.
+- Add `--requests-per-second` (default 20), allow `--request-delay 0`, and add
+  `--concurrency` as an alias for `--max-concurrent-downloads`. Both pacing
+  values must be zero to request unpaced transfers. Metadata and sync transport
+  limiters honor the configured rate and minimum spacing. Known-URL adapters
+  share one monotonic request budget and one aggregate bandwidth budget.
+- Add local HTTP tests covering both backends, byte receipts, truncation and
+  retries, redirects, preserved destination/state, cancellation, pooled
+  connections, optional dependency errors and configuration precedence.
+
+- Opt-in `--verify-content` / `verify_content` checks local files against saved
+  SHA-256 receipts before trusting remote freshness metadata. Downloads hash
+  completed staging files before publication in all three download modes.
+  Missing, expired or invalid receipts require a download; `--no-cache` therefore
+  redownloads existing files. `--no-verify-content` overrides YAML settings.
+- Keep async content hashing on metadata worker threads. Reject the conflicting
+  combination of content verification and missing-only downloads.
+  Retain HTTP request timeouts without imposing metadata-only deadlines on
+  full-file disk reads.
+- Test real process termination during downloads, before and after atomic
+  publication, during cache serialization and during MOVE cleanup, then restart
+  the same destination and verify original, replacement and archived bytes.
+- Add mutation checks that weaken the content receipt guard and impose
+  metadata-only deadlines on hashing.
+- Acquire cooperative per-user destination locks before starting managers.
+  Reject overlapping trees, MOVE archives and shared cache, log, chunk, disk
+  cache or metrics paths. Keep ownership while abandoned writers finish; kernel
+  locks release automatically after process termination. Use portalocker 3.x
+  for native shared/exclusive locks on Linux, macOS and Windows.
+- Add process contention, simultaneous-start and lock recovery tests, a 100%
+  statement/branch gate for the lock module, and mutations that remove locks or
+  prematurely release abandoned-worker ownership.
+- Add an isolated local soak harness with repeated downloads in all modes,
+  content repair, failed scans, MOVE collisions, dropped connections, process
+  kills and resource-growth checks. A short smoke run is not a 24-hour result.
+
+### Fixed
+
+- Preserve a modified filename probe even when its inode number is unchanged
+  or reused. Check its size and modification/change timestamps before deletion;
+  cover both same-inode writes and metadata changes on native filesystems.
+- Restore whole-file transfer timestamps through an identity-checked open
+  file handle, including Windows, without following a mutable staging path.
+  Keep byte receipts and publication guards intact. Make replacement-probe
+  tests work with Windows open-file rules and read CLI logs as UTF-8.
+- Detect case sensitivity in the actual destination directory instead of
+  rejecting every case-only remote pair on every filesystem. Preserve both
+  original filenames and their separate content receipts on case-sensitive
+  destinations, including case-sensitive APFS on macOS. Fail before payload
+  downloads on case-insensitive destinations; preserve existing differently
+  capitalized files, directory aliases and all other filename safety guards.
+  Test all three transfer modes on both macOS filesystem formats, plus probe
+  failure/replacement cases and filename preservation guard mutations.
+- A chunk wait timeout or executor submission failure now keeps transfer scratch
+  leased until all submitted writers exit. Late cleanup preserves a newer
+  transfer's tracking entry and never publishes timed-out chunks.
+- Identify download, incomplete-scan and cleanup failures separately in failed
+  sync summaries instead of logging a misleading zero-failure completion.
+- Store parallel chunks and staging in manifest-owned private workspaces;
+  reclaim abandoned recorded bytes after exclusive ownership is acquired.
+  Per-work leases preserve live suffix writers, and legacy/unrecognized files
+  and legitimate MOVE archives are preserved. Stop age-based removal of
+  arbitrary assembly subdirectories. Gate scratch statements/branches and test
+  repeated process kills with bounded temporary disk usage.
+- Extend soak evidence with post-cycle temporary-byte/archive assertions and
+  retained, bounded crash-worker history for full log review.
+- Publish cache JSON with `os.replace()` so updates replace an existing cache
+  on Windows while retaining the previous complete file on failure.
+- Reserve CLI destinations and the log tree before shared logging starts;
+  keep the run's ownership across suffix cleanup. Normalize Unicode destination
+  aliases, restore signals on a later main-thread cleanup, and detach closed
+  instance handlers so logging cannot reopen a file after ownership is released.
+
+### Documentation
+
+- Document case-only and other filename collisions, filesystem-aware preflight,
+  zero downloads for a failing suffix, preserved existing files, failure status
+  and the full subtree omitted by exclusions. Explain the NASA
+  `Deep_Field_v3.pro` / `deep_field_v3.pro` example and how a case-sensitive APFS
+  destination preserves both originals without excluding their directory.
+  Distinguish the 3.2.0 behavior from the earlier 3.1.79 preflight.
+- Explain local content receipts, initial redownloads, hashing costs and cache
+  options. This verifies local bytes; it does not authenticate remote content
+  against a server-provided cryptographic checksum. Explain cooperative locking
+  and its limits: old versions, external writers and network filesystems require
+  separate coordination.
+
 ## [3.1.79] - 2026-10-03
 
 ### Fixed

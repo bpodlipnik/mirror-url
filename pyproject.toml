@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mirror-url"
-version = "3.1.79"
+version = "3.2.0"
 description = "Security-hardened remote directory mirroring tool with adaptive concurrency, integrity checks, and SSRF-hardened transport."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "BP" }]
@@ -19,7 +19,6 @@ classifiers = [
     "Intended Audience :: System Administrators",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -39,6 +38,8 @@ dependencies = [
     "httpx[http2]>=0.24",
     "pydantic>=2.0",
     "PyYAML>=6.0",
+    # 3.x provides shared Windows locks (via pywin32).
+    "portalocker>=3.2,<4",
 ]
 
 [project.optional-dependencies]
@@ -46,7 +47,8 @@ dependencies = [
 fast = ["stringzilla>=3.0", "lxml>=4.9"]
 progress = ["tqdm>=4.65"]
 monitor = ["psutil>=5.9"]
-all = ["stringzilla>=3.0", "lxml>=4.9", "tqdm>=4.65", "psutil>=5.9"]
+aiohttp = ["aiohttp>=3.10,<4"]
+all = ["stringzilla>=3.0", "lxml>=4.9", "tqdm>=4.65", "psutil>=5.9", "aiohttp>=3.10,<4"]
 
 # Development / CI toolchain.
 dev = [
@@ -84,7 +86,7 @@ where = ["src"]
 # ---------------------------------------------------------------------------
 [tool.black]
 line-length = 100
-target-version = ["py39", "py310", "py311", "py312"]
+target-version = ["py310", "py311", "py312"]
 # The canonical formatter is `ruff format` (see CI). Black is kept available for
 # contributors who prefer it; exclude the frozen monolith so `black .` never
 # rewrites it (mirrors the ruff `extend-exclude` below).
@@ -92,15 +94,14 @@ force-exclude = "mirror_url\\.py"
 
 [tool.ruff]
 line-length = 100
-target-version = "py39"
+target-version = "py310"
 src = ["src", "tests"]
 
 [tool.ruff.lint]
 # Correctness-focused rule set. UP (pyupgrade) and SIM are intentionally
-# omitted: this package is a verbatim port of working code that supports
-# Python 3.9 with classic typing (Dict/Optional), and we don't want to churn
-# ~350 lines of audited logic to modernize syntax or rewrite control flow.
-# Bump requires-python to >=3.10 and re-enable UP if/when 3.9 is dropped.
+# omitted: the package retains classic typing (Dict/Optional) from its audited
+# implementation. Python 3.10 is the runtime minimum; syntax modernization and
+# control-flow rewrites remain separate changes from compatibility fixes.
 select = ["E", "F", "W", "I", "B", "C4"]
 ignore = [
     "E501",  # line length is handled by the formatter
@@ -130,13 +131,7 @@ ignore = [
 # Tightening (disallow_untyped_defs, check_untyped_defs, strict) is a good
 # incremental follow-up.
 #
-# python_version is the oldest interpreter mypy CHECKS against here, not the
-# oldest one the package RUNS on (that's still requires-python = ">=3.9" in
-# [project] above). mypy dropped the ability to check against a 3.9 target
-# in the 2.x line (it now hard-errors with "Python 3.9 is not supported
-# (must be 3.10 or higher)" instead of just warning), and mypy>=1.8 below has
-# no upper bound, so any environment that installs a current mypy hits this.
-# Bump this again if/when requires-python is bumped past 3.10.
+# Check against the minimum supported runtime, matching requires-python.
 python_version = "3.10"
 files = ["src/mirror_url"]
 ignore_missing_imports = true   # optional deps (stringzilla, lxml, tqdm, psutil) have no stubs

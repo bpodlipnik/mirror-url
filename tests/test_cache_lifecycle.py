@@ -59,6 +59,17 @@ def test_save_load_roundtrip_keeps_file_identity_and_redacts_credentials(cache, 
     assert not cache.cache_file.with_suffix(".json.tmp").exists()
 
 
+def test_cache_save_replaces_existing_file_without_path_rename(cache, monkeypatch):
+    assert cache.save({BASE: "old"}, 1)
+
+    def windows_rename(self, destination):
+        raise FileExistsError("Windows rename cannot overwrite an existing file")
+
+    monkeypatch.setattr(Path, "rename", windows_rename)
+    assert cache.save({BASE: "new"}, 2)
+    assert json.loads(cache.cache_file.read_text())[BASE] == "new"
+
+
 @pytest.mark.parametrize("option", ["no_cache", "refresh_cache"])
 def test_disabled_or_forced_refresh_rejects_existing_cache(cache, option):
     write_cache(cache.cache_file)
@@ -166,7 +177,7 @@ def test_restore_failure_preserves_valid_backup(cache, monkeypatch):
     assert valid.read_bytes() == original
 
 
-@pytest.mark.parametrize("stage", ["serialize", "fsync", "rename"])
+@pytest.mark.parametrize("stage", ["serialize", "fsync", "replace"])
 def test_failed_save_preserves_previous_cache_and_removes_temporary(cache, monkeypatch, stage):
     write_cache(cache.cache_file)
     original = cache.cache_file.read_bytes()
@@ -177,7 +188,7 @@ def test_failed_save_preserves_previous_cache_and_removes_temporary(cache, monke
     target = {
         "serialize": "mirror_url.cache.json.dump",
         "fsync": "mirror_url.cache.os.fsync",
-        "rename": "pathlib.Path.rename",
+        "replace": "mirror_url.cache.os.replace",
     }[stage]
     monkeypatch.setattr(target, fail)
     assert cache.save({BASE: "new"}, 2) is False

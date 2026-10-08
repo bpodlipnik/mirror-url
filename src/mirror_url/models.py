@@ -9,6 +9,7 @@ import statistics
 import threading
 import time
 from collections import deque
+from concurrent.futures import Future
 from dataclasses import dataclass, field
 from pathlib import Path
 from threading import RLock
@@ -179,6 +180,8 @@ class ParallelFileDownload:
     chunks: List[ChunkInfo] = field(default_factory=list)
     temp_dir: Optional[Path] = None
     staging_path: Optional[Path] = None
+    futures: List[Future] = field(default_factory=list)
+    cleanup_deferred: bool = False
     start_time: float = field(default_factory=time.time)
     completed_chunks: int = 0
     failed_chunks: int = 0

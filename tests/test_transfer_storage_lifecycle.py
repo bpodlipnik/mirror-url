@@ -104,8 +104,8 @@ def test_stale_chunk_cleanup_keeps_recent_directories_and_unrelated_files(parall
     fresh.mkdir()
     unrelated = parallel.assembly_dir / "unrelated"
     unrelated.write_bytes(b"keep")
-    assert parallel.cleanup_stale_chunks() == 1
-    assert not old.exists() and fresh.is_dir()
+    assert parallel.cleanup_stale_chunks() == 0
+    assert (old / "chunk").read_bytes() == b"old" and fresh.is_dir()
     assert unrelated.read_bytes() == b"keep"
 
 

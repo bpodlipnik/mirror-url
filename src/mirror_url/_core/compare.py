@@ -32,6 +32,7 @@ from ..constants import (
     TIMESTAMP_TOLERANCE_SECONDS,
 )
 from ..decorators import log_performance
+from ..download_integrity import local_content_matches
 from ..utils import normalize_etag, sanitize_url_for_log
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, avoids an import cycle
@@ -55,11 +56,16 @@ class CompareMixin(MirrorHost):
             stored = self.cache_manager.get_file_metadata(local_path)
             if stored:
                 stored = dict(stored)
-                stored["_local_verified"] = (
-                    stored.get("size") == stat.st_size
-                    and stored.get("local_mtime_ns") == stat.st_mtime_ns
-                    and stored.get("local_ctime_ns") == stat.st_ctime_ns
-                )
+                if getattr(self.config, "verify_content", False):
+                    stored["_local_verified"] = stored.get("size") == stat.st_size and (
+                        local_content_matches(local_path, stored.get("sha256"))
+                    )
+                else:
+                    stored["_local_verified"] = (
+                        stored.get("size") == stat.st_size
+                        and stored.get("local_mtime_ns") == stat.st_mtime_ns
+                        and stored.get("local_ctime_ns") == stat.st_ctime_ns
+                    )
         return stat, stored
 
     def _freshness_headers(self, stored):
@@ -76,6 +82,10 @@ class CompareMixin(MirrorHost):
     def _response_is_current(self, response, stat, stored) -> bool:
         """Shared sync/async policy; listing validators never validate children."""
         if response.status_code not in (200, 304):
+            return False
+        if getattr(self.config, "verify_content", False) and not (
+            stored and stored.get("_local_verified")
+        ):
             return False
 
         raw_size = response.headers.get("Content-Length")
@@ -357,6 +367,11 @@ class CompareMixin(MirrorHost):
         min_speed_threshold = (
             ASYNC_TEST_MIN_SPEED_THROTTLED * 2 if is_throttled else ASYNC_TEST_MIN_SPEED
         )
+        # Full-file disk reads can legitimately exceed metadata-only deadlines.
+        # Keep the HEAD timeout below, without abandoning a hash still running
+        # in a worker and repeating it through the synchronous fallback.
+        check_timeout = None if getattr(self.config, "verify_content", False) else 30.0
+        batch_timeout = None if getattr(self.config, "verify_content", False) else 120.0
 
         async def sync_fallback(local_path: Path, remote_url: str) -> bool:
             return await asyncio.get_running_loop().run_in_executor(
@@ -369,7 +384,9 @@ class CompareMixin(MirrorHost):
 
         async def check_one_with_timeout(local_path: Path, remote_url: str, mgr) -> bool:
             try:
-                return await asyncio.wait_for(check_one(local_path, remote_url, mgr), timeout=30.0)
+                return await asyncio.wait_for(
+                    check_one(local_path, remote_url, mgr), timeout=check_timeout
+                )
             except asyncio.TimeoutError:
                 logging.warning(f"Check timeout for {remote_url}")
                 return await sync_fallback(local_path, remote_url)
@@ -381,7 +398,12 @@ class CompareMixin(MirrorHost):
                 self.metrics.increment("missing_files_skipped_check")
                 return True
             try:
-                stat, stored = self._comparison_metadata(local_path)
+                if getattr(self.config, "verify_content", False):
+                    stat, stored = await asyncio.get_running_loop().run_in_executor(
+                        self._meta_check_executor, self._comparison_metadata, local_path
+                    )
+                else:
+                    stat, stored = self._comparison_metadata(local_path)
                 response = await asyncio.wait_for(
                     mgr.head(remote_url, self._freshness_headers(stored)), timeout=15.0
                 )
@@ -429,7 +451,9 @@ class CompareMixin(MirrorHost):
                 tasks = []
                 for local, url in batch:
                     task = await self.async_task_manager.create_task(
-                        asyncio.wait_for(check_one_with_timeout(local, url, manager), timeout=30.0)
+                        asyncio.wait_for(
+                            check_one_with_timeout(local, url, manager), timeout=check_timeout
+                        )
                     )
                     tasks.append((task, local, url))
 
@@ -437,7 +461,7 @@ class CompareMixin(MirrorHost):
                 try:
                     results = await asyncio.wait_for(
                         asyncio.gather(*[t for t, _, _ in tasks], return_exceptions=True),
-                        timeout=120.0,
+                        timeout=batch_timeout,
                     )
                 except asyncio.TimeoutError:
                     logging.warning(f"Batch {start_idx} timed out after 120s, falling back to sync")
@@ -450,7 +474,7 @@ class CompareMixin(MirrorHost):
 
                 # Process results
                 batch_needs_download = []
-                for (_task, local, url), result in zip(tasks, results):
+                for (_task, local, url), result in zip(tasks, results, strict=False):
                     if isinstance(result, BaseException):
                         logging.warning(f"Async check failed for {url}: {result}")
                         batch_needs_download.append((url, local))
@@ -539,7 +563,7 @@ class CompareMixin(MirrorHost):
                     if use_adaptive and hasattr(manager, "apply_pending_concurrency_change"):
                         await manager.apply_pending_concurrency_change()
 
-                    for (_task, local, url), result in zip(tasks, results):
+                    for (_task, local, url), result in zip(tasks, results, strict=False):
                         if isinstance(result, BaseException) or not result:
                             to_download.append((url, local))
 

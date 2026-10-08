@@ -54,11 +54,27 @@ def run_main(tmp_path, monkeypatch):
 
     monkeypatch.setattr(cli, "MirrorURL", _StubMirror)
 
+    def stub_download(config):
+        captured.append(config)
+        raise _Stop()
+
+    monkeypatch.setattr("mirror_url.transfers.download_url_list", stub_download)
+
     root = logging.getLogger()
     saved_handlers, saved_level = list(root.handlers), root.level
 
     def run(argv, yaml=None):
         captured.clear()
+        argv = list(argv)
+        if (
+            "--overwrite" in argv
+            or "--url-list" in argv
+            or ("--mode" in argv and argv[argv.index("--mode") + 1] == "download")
+        ):
+            if "--mode" not in argv:
+                argv.extend(["--mode", "download"])
+            if "--url-list" not in argv:
+                argv.extend(["--url-list", str(tmp_path / "urls.txt")])
         if yaml is not None:
             cfg = tmp_path / "c.yaml"
             cfg.write_text(
@@ -119,6 +135,7 @@ def _plain(value):
         ("scan_mode: sequential\n", "scan_mode", "sequential"),
         ("symlink_mode: follow\n", "symlink_mode", "follow"),
         ("stats: true\n", "stats", True),
+        ("verify_content: true\n", "verify_content", True),
     ],
 )
 def test_yaml_value_survives_when_flag_absent(run_main, yaml, field, expected):
@@ -245,6 +262,8 @@ def test_explicit_max_concurrent_downloads_equal_to_default_overrides_yaml(run_m
         (["--scan-mode", "async"], "scan_mode: sequential\n", "scan_mode", "async"),
         (["--cache-html"], "cache_html: false\n", "cache_html", True),
         (["--no-cache-html"], "cache_html: true\n", "cache_html", False),
+        (["--verify-content"], "verify_content: false\n", "verify_content", True),
+        (["--no-verify-content"], "verify_content: true\n", "verify_content", False),
     ],
 )
 def test_cli_flag_overrides_yaml(run_main, tmp_path, argv, yaml, field, expected):
@@ -357,10 +376,15 @@ def test_missing_files_and_no_etag_from_cli_and_yaml(run_main, flag, field):
 
 # (option, cli value, MirrorConfig field, expected value)
 TYPED = [
+    ("--mode", "download", "mode", "download"),
+    ("--backend", "aiohttp", "backend", "aiohttp"),
+    ("--url-list", "urls.txt", "url_list", Path("urls.txt")),
+    ("--requests-per-second", "0", "requests_per_second", 0.0),
     ("--max-chunks", "3", "max_chunks_per_file", 3),
     ("--min-chunk-size", "5", "min_chunk_size_mb", 5),
     ("--max-parallel-chunks", "12", "max_parallel_chunks_total", 12),
     ("--max-concurrent-downloads", "4", "max_concurrent_downloads", 4),
+    ("--concurrency", "4", "max_concurrent_downloads", 4),
     ("--chunk-assembly-dir", "asm", "chunk_assembly_dir", Path("asm")),
     ("--chunk-timeout-multiplier", "2.5", "chunk_timeout_multiplier", 2.5),
     ("--workers", "5", "workers", 5),

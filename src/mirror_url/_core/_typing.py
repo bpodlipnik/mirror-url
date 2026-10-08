@@ -25,6 +25,7 @@ if TYPE_CHECKING:  # pragma: no cover - declarations have no runtime implementat
     from ..concurrency import UnifiedConcurrencyManager
     from ..config import MirrorConfig
     from ..connection import ConnectionManager
+    from ..destination_lock import DestinationLock
     from ..download import ParallelDownloadManager, PartialDownloadManager
     from ..health import HealthChecker, HealthCheckServer
     from ..metrics import MetricsCollector
@@ -34,6 +35,7 @@ if TYPE_CHECKING:  # pragma: no cover - declarations have no runtime implementat
     from ..queue import DownloadQueue
     from ..rate_limiter import BandwidthLimiter, PerIPRateLimiter
     from ..scanner import DirectoryScanner
+    from ..scratch import OwnedScratch
     from ..security import SymlinkTracker
     from ..storage import DiskBackedSet, FileSystemCache
     from ..tuner import AutoConcurrencyTuner
@@ -42,6 +44,8 @@ if TYPE_CHECKING:  # pragma: no cover - declarations have no runtime implementat
         """State and cross-mixin methods provided by MirrorURL's composition."""
 
         config: MirrorConfig
+        _destination_lock: Optional[DestinationLock]
+        _closed: bool
         suffix_index: int
         total_suffixes: int
         is_dry_run: bool
@@ -81,6 +85,7 @@ if TYPE_CHECKING:  # pragma: no cover - declarations have no runtime implementat
         disk_manager: Optional[DiskSpaceManager]
         performance_monitor: PerformanceMonitor
         partial_manager: Optional[PartialDownloadManager]
+        scratch_manager: Optional[OwnedScratch]
         health_checker: HealthChecker
         multi_progress: MultiLevelProgress
         per_ip_limiter: PerIPRateLimiter

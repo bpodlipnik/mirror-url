@@ -86,7 +86,9 @@ class ConnectionPool:
         self._misses = 0
         self._evictions = 0
         self._creation_count = 0
-        self.rate_limiter = PerIPRateLimiter() if config and config.security_validation else None
+        self.rate_limiter = (
+            PerIPRateLimiter(config.requests_per_second, config.request_delay) if config else None
+        )
 
         # FIX: Track connection usage per pool
         self.pool_usage: Dict[str, int] = {}
@@ -463,7 +465,9 @@ class ConnectionManager:
 
         self.connection_pool = ConnectionPool(config=config)
         self.rate_limiter = RateLimiter(
-            delay=config.request_delay, per_ip=config.security_validation
+            requests_per_second=config.requests_per_second,
+            delay=config.request_delay,
+            per_ip=config.security_validation,
         )
         self.request_semaphore = Semaphore(20)
         self.consecutive_failures = 0
@@ -583,7 +587,8 @@ class ConnectionManager:
                 ip = "unknown"
             if ip != "unknown":
                 self.rate_limiter.wait(ip)
-            time.sleep(random.uniform(0, 0.02))
+            if self.rate_limiter.min_interval > 0:
+                time.sleep(random.uniform(0, 0.02))
 
             # FIX: Preserve custom timeout if provided
             custom_timeout = kwargs.pop("timeout", None)
