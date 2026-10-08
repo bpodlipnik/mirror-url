@@ -172,6 +172,7 @@ class MirrorConfig(BaseModel):
     mode: Literal["mirror", "download"] = "mirror"
     backend: Literal["httpx", "aiohttp"] = "httpx"
     url_list: Optional[Path] = None
+    download_url: Optional[str] = None
     overwrite: bool = False
     workers: int = Field(default=DEFAULT_WORKERS, ge=1, le=MAX_WORKERS_HARD_LIMIT)
     timeout: int = Field(default=DEFAULT_TIMEOUT, ge=MIN_TIMEOUT, le=MAX_TIMEOUT)
@@ -339,6 +340,15 @@ class MirrorConfig(BaseModel):
             return trim_url(v).rstrip("/")
         return v
 
+    @field_validator("download_url", mode="before")
+    @classmethod
+    def trim_download_url(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            v = v.strip()
+            if not v:
+                raise ConfigError("download_url cannot be empty")
+        return v
+
     @field_validator("dir_suffix", mode="before")
     @classmethod
     def normalize_dir_suffix(cls, v: Any) -> Any:
@@ -418,14 +428,18 @@ class MirrorConfig(BaseModel):
         object.__setattr__(self, "base_url", url)
 
         if self.mode == "download":
-            if self.url_list is None:
-                raise ConfigError("download mode requires --url-list")
+            if self.url_list is None and self.download_url is None:
+                raise ConfigError("download mode requires --url-list or a direct URL")
+            if self.url_list is not None and self.download_url is not None:
+                raise ConfigError("a direct URL and --url-list are mutually exclusive")
             if self.list_dirs or self.list_files or self.benchmark or self.quick:
                 raise ConfigError(
                     "download mode cannot list, benchmark discovery, or use quick mode"
                 )
             if self.cleanup_policy != CleanupPolicy.SAFE_NO_DELETE:
-                raise ConfigError("URL-list downloads never clean obsolete files; use cleanup=safe")
+                raise ConfigError(
+                    "Known-URL downloads never clean obsolete files; use cleanup=safe"
+                )
             if (
                 self.exclude_dirs
                 or self.file_filters
@@ -434,11 +448,9 @@ class MirrorConfig(BaseModel):
                 or self.auto_concurrency
                 or self.missing_files
             ):
-                raise ConfigError(
-                    "URL-list mode uses the exact input list and whole-file streaming"
-                )
-        elif self.url_list is not None or self.overwrite:
-            raise ConfigError("--url-list and --overwrite require --mode download")
+                raise ConfigError("download mode uses exact URLs and whole-file streaming")
+        elif self.url_list is not None or self.download_url is not None or self.overwrite:
+            raise ConfigError("a direct URL, --url-list and --overwrite require --mode download")
         if self.backend == "aiohttp" and (
             self.parallel_downloads or self.streaming_parallel or self.auto_concurrency
         ):
@@ -809,6 +821,7 @@ def load_config_from_args(args: argparse.Namespace, silent: bool = False) -> Mir
         "mode": getattr(args, "mode", "mirror"),
         "backend": getattr(args, "backend", "httpx"),
         "url_list": getattr(args, "url_list", None),
+        "download_url": getattr(args, "download_url", None),
         "overwrite": getattr(args, "overwrite", False),
         "cache_html": getattr(args, "cache_html", True),
         "html_cache_max_age": getattr(args, "html_cache_max_age", HTML_CACHE_MAX_AGE_HOURS),

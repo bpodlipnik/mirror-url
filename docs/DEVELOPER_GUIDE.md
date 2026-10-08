@@ -525,6 +525,13 @@ zero for both explicitly requests unpaced traffic. Neither option changes
 security policy. CLI overrides use the existing explicit-argument precedence
 rules for YAML/JSON too.
 
+The unreleased single-URL shortcut adds `download_url` as an alternative to
+`url_list`. `--mode download FILE_URL` supplies the parent URL, current working
+directory and a destination-specific system temporary log folder only for
+omitted target fields. Explicit scope/paths win. CLI source selection clears
+the other configured source; the model and transfer entry point reject two
+sources or no source. Standalone models still require all three target fields.
+
 `transfers.py` owns the shared async whole-file pipeline. Its backend adapters
 provide raw bytes and response headers; the controller owns redirects, a
 monotonic request budget, aggregate bandwidth, fixed workers, full filename
@@ -535,7 +542,9 @@ original hostname for Host and TLS. aiohttp requests retain encoded URL paths,
 use HTTP/1.1 and disable implicit redirects, decompression, cookies and proxies.
 
 `download_url_list(MirrorConfig(mode="download", ...))` takes destination/log
-ownership before creating state. Receipts are namespaced by the scoped base URL
+ownership before creating state. It consumes either `url_list` or one
+`download_url` through the same plan, backend, scratch and publication path.
+Receipts are namespaced by the scoped base URL
 under `.mirror-url-state`, and existing payloads require a matching receipt or
 explicit overwrite. It never calls the scanner or metadata freshness layer.
 `ReportMixin.sync()` uses the same pipeline for `backend="aiohttp"` after its

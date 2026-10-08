@@ -20,6 +20,7 @@ import time
 from contextlib import ExitStack
 from pathlib import Path
 from typing import List, Optional
+from urllib.parse import urlsplit, urlunsplit
 
 import yaml
 
@@ -327,6 +328,9 @@ def _cli_overrides(args: argparse.Namespace, explicit: set) -> dict:
             out.update({mode: mode == dest for mode in ("list_dirs", "list_files")})
             out[dest] = True
             out[dest + "_n"] = value or 0
+        elif dest in ("download_url", "url_list"):
+            out[dest] = value
+            out["url_list" if dest == "download_url" else "download_url"] = None
         elif dest in _DOWNLOAD_MODE_DESTS:
             # The three modes are mutually exclusive: choosing one on the
             # command line must also switch off the others set in the file.
@@ -349,6 +353,41 @@ def _cli_overrides(args: argparse.Namespace, explicit: set) -> dict:
                 value = Path(value)
             out[key] = value
     return out
+
+
+def _direct_download_defaults(
+    args: argparse.Namespace, values: dict, selected_mode: str, parser: argparse.ArgumentParser
+) -> None:
+    """Supply targets for a single URL without changing explicit scope or paths."""
+    direct_url = values.get("download_url")
+    if direct_url is None:
+        return
+    if selected_mode != "download":
+        parser.error("a direct URL requires --mode download")
+    if values.get("url_list") is not None:
+        parser.error("a direct URL and --url-list are mutually exclusive")
+    try:
+        if not isinstance(direct_url, str) or not direct_url.strip():
+            raise ValueError("the direct URL must be a nonempty string")
+        direct_url = direct_url.strip()
+        parsed = urlsplit(direct_url)
+        if parsed.scheme not in ("http", "https") or not parsed.hostname:
+            raise ValueError("the direct URL must be an absolute HTTP(S) file URL")
+        if not parsed.path or parsed.path.endswith("/"):
+            raise ValueError("the direct URL must name a file")
+        if not args.url:
+            parent = parsed.path.rsplit("/", 1)[0] + "/"
+            args.url = urlunsplit((parsed.scheme, parsed.netloc, parent, "", ""))
+        if not args.dest_path:
+            args.dest_path = Path.cwd()
+        if not args.log_path:
+            destination_key = hashlib.sha256(str(args.dest_path.resolve()).encode()).hexdigest()[
+                :16
+            ]
+            args.log_path = Path(tempfile.gettempdir()) / f"mirror-url-download-{destination_key}"
+        args.download_url = direct_url
+    except ValueError as error:
+        parser.error(str(error))
 
 
 def main() -> None:
@@ -378,8 +417,11 @@ def _main(ownership: ExitStack) -> None:
         epilog=r"""
 ARGUMENT SOURCES:
   Supply --config FILE, or --url URL --dest-path DIR --log-path DIR.
-  CLI-only --list-dirs/--list-files need only --url. Config-file runs still
-  require URL, destination and log fields (from the file or explicit flags).
+  --mode download FILE_URL infers the parent URL, downloads into the current
+  directory and logs to a destination-specific folder in the system temp dir.
+  Explicit --url, --dest-path and --log-path override these shortcut defaults.
+  CLI-only --list-dirs/--list-files need only --url. Other runs require URL,
+  destination and log fields from the config, explicit flags or direct-URL defaults.
   Explicit CLI flags override file values; omitted flags preserve them.
 
 DOWNLOAD AND INTEGRITY:
@@ -397,6 +439,9 @@ FILTERS:
   Use --dir-suffix/--exclude-dir to select directory paths.
 
 EXAMPLES (replace the example URL with your archive's directory listing):
+  # Download one known file into the current directory
+  %(prog)s --mode download https://example.com/data/file.fits
+
   # Discover immediate child directories
   %(prog)s --url https://example.com/data/ --list-dirs
 
@@ -420,16 +465,22 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
     )
 
     basic = parser.add_argument_group("Target Options")
-    basic.add_argument("--url", help="Base directory-listing URL (required without --config)")
+    basic.add_argument(
+        "download_url",
+        nargs="?",
+        metavar="FILE_URL",
+        help="One absolute file URL; requires --mode download and cannot be combined with --url-list",
+    )
+    basic.add_argument("--url", help="Base URL; defaults to the direct file URL's parent directory")
     basic.add_argument(
         "--dest-path",
         type=Path,
-        help="Destination directory (required without --config except for --list-dirs/--list-files)",
+        help="Destination directory (direct file URL defaults to the current directory)",
     )
     basic.add_argument(
         "--log-path",
         type=Path,
-        help="Logs and JSON cache directory (required without --config except for --list-dirs/--list-files; keep outside destination)",
+        help="Logs/cache directory (direct file URL defaults to system temp; keep outside destination)",
     )
     basic.add_argument(
         "--config",
@@ -440,7 +491,7 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
         "--mode",
         choices=["mirror", "download"],
         default="mirror",
-        help="Mirror a listing, or GET an exact URL list without discovery/freshness checks",
+        help="Mirror a listing, or GET one direct URL/an exact URL list without discovery/freshness checks",
     )
     basic.add_argument(
         "--backend",
@@ -456,7 +507,7 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
     basic.add_argument(
         "--overwrite",
         action="store_true",
-        help="Permit replacing existing regular files in URL-list mode; links remain forbidden",
+        help="Permit replacing existing regular files in download mode; links remain forbidden",
     )
 
     # Create mutually exclusive group for download modes
@@ -1094,7 +1145,11 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
     ):
         parser.error("--list-dirs and --list-files are mutually exclusive")
 
+    if "download_url" in explicit_dests and "url_list" in explicit_dests:
+        parser.error("a direct URL and --url-list are mutually exclusive")
+
     # Handle config file
+    config_dict = {}
     if args.config:
         try:
             with open(args.config) as f:
@@ -1107,17 +1162,6 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
                 if not isinstance(config_dict, dict):
                     raise ValueError("Configuration must be an object")
 
-            missing = []
-            if "base_url" not in config_dict and not args.url:
-                missing.append("base_url in config file or --url on command line")
-            if "dest_path" not in config_dict and not args.dest_path:
-                missing.append("dest_path in config file or --dest-path on command line")
-            if "log_path" not in config_dict and not args.log_path:
-                missing.append("log_path in config file or --log-path on command line")
-
-            if missing:
-                parser.error(f"Missing required configuration: {', '.join(missing)}")
-
             if not args.url and "base_url" in config_dict:
                 args.url = config_dict["base_url"]
             if not args.dest_path and "dest_path" in config_dict:
@@ -1128,6 +1172,26 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
                 args.dir_suffix = [config_dict["dir_suffix"]]
         except Exception as e:
             parser.error(f"Error reading config file: {e}")
+
+    selected_mode = (
+        args.mode
+        if "mode" in explicit_dests or not args.config
+        else config_dict.get("mode", "mirror")
+    )
+    input_values = {**config_dict, **_cli_overrides(args, explicit_dests)}
+    _direct_download_defaults(args, input_values, selected_mode, parser)
+    if args.config:
+        missing = [
+            f"{key} in config file or {flag} on command line"
+            for key, flag, value in (
+                ("base_url", "--url", args.url),
+                ("dest_path", "--dest-path", args.dest_path),
+                ("log_path", "--log-path", args.log_path),
+            )
+            if not value
+        ]
+        if missing:
+            parser.error(f"Missing required configuration: {', '.join(missing)}")
     else:
         if not args.url:
             parser.error("--url is required when --config is not used")
@@ -1181,18 +1245,13 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
         except Exception:
             pass  # The existing per-suffix config path reports invalid configuration.
 
-    selected_mode = (
-        args.mode
-        if "mode" in explicit_dests or not args.config
-        else config_dict.get("mode", "mirror")
-    )
     if selected_mode == "download":
         from .config import load_config_from_args
         from .transfers import download_url_list, require_backend
 
         try:
             if len(args.dir_suffix) > 1:
-                raise ConfigError("URL-list mode supports one selected suffix per run")
+                raise ConfigError("download mode supports one selected suffix per run")
             if args.config:
                 values = {
                     **config_dict,
@@ -1216,7 +1275,7 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
             setup_shared_logging(args, _effective_args(args, explicit_dests, download_config))
             ownership.callback(_close_run_handlers, list(logging.root.handlers))
             logging.info(
-                "URL-list download: backend=%s, discovery and freshness checks omitted",
+                "Known-URL download: backend=%s, discovery and freshness checks omitted",
                 download_config.backend,
             )
             summary = download_url_list(download_config)

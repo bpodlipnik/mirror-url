@@ -171,13 +171,16 @@ mirror-url --config mirror.yaml
 ## Command-line usage
 
 Either supply `--url`, `--dest-path`, and `--log-path`, **or** point at a config
-file with `--config`. Run `mirror-url --help` for the complete, authoritative
-list of options. The most commonly used options:
+file with `--config`. The development checkout also supports
+`mirror-url --mode download FILE_URL` with shortcut defaults, described under
+[known-URL downloads](#known-url-downloads); published 3.2.0 requires `--url-list`.
+Run `mirror-url --help` for the complete, authoritative list of options.
+The most commonly used options:
 
 > `--list-dirs` and `--list-files` are exceptions: since they only discover
 > and print the remote tree and never download or delete anything, neither
 > requires `--dest-path` or `--log-path` when using `--url` without `--config`.
-> A config-file run still requires `base_url`, `dest_path`, and `log_path`.
+> Config-file listing and mirror runs still require `base_url`, `dest_path`, and `log_path`.
 > See their entries in "Filtering and scope" below.
 
 ### Targets
@@ -195,15 +198,15 @@ list of options. The most commonly used options:
 <tbody>
 <tr>
 <td nowrap><samp>--url URL</samp></td>
-<td>Base URL to mirror (required unless <code>--config</code> is used).</td>
+<td>Base URL to mirror. For a direct file URL in download mode, defaults to that URL's parent directory.</td>
 </tr>
 <tr>
 <td nowrap><samp>--dest-path DIR</samp></td>
-<td>Local destination directory.</td>
+<td>Local destination directory. A direct file URL defaults to the current directory.</td>
 </tr>
 <tr>
 <td nowrap><samp>--log-path DIR</samp></td>
-<td>Directory for logs and the cache file.</td>
+<td>Directory for logs and the cache file. A direct file URL defaults to a destination-specific folder under the system temporary directory.</td>
 </tr>
 <tr>
 <td nowrap><samp>--config FILE</samp></td>
@@ -211,7 +214,11 @@ list of options. The most commonly used options:
 </tr>
 <tr>
 <td nowrap><samp>--mode mirror|download</samp></td>
-<td>Normal mirroring (default) or the exact list in <code>--url-list</code>.</td>
+<td>Normal mirroring (default) or exact known URLs from <code>--url-list</code> or one positional <code>FILE_URL</code>.</td>
+</tr>
+<tr>
+<td nowrap><samp>FILE_URL</samp></td>
+<td>One absolute file URL, for download mode. Cannot be combined with <code>--url-list</code>. Added after 3.2.0.</td>
 </tr>
 <tr>
 <td nowrap><samp>--url-list FILE</samp></td>
@@ -704,7 +711,10 @@ command line overrides the same setting in the file — including a flag whose
 value happens to equal its own default (e.g. `--workers 8` overrides a file's
 `workers: 4` even though 8 is also the built-in default). A flag you don't
 type is left alone at whatever the file says. Only `base_url`, `dest_path`,
-and `log_path` are required for a config-file run, including listing modes.
+and `log_path` are required for mirror/listing config runs. Direct download
+configs can use the CLI shortcut defaults described under
+[known-URL downloads](#known-url-downloads). Standalone config validation still
+requires explicit target fields.
 Unknown keys are rejected. `dir_suffix` is one string in a config file; the
 CLI's `--dir-suffix` accepts several values. Logging controls such as
 `--print-logs`, `--quiet`, `--verbose`, `--debug`, and `--log-file` should be
@@ -924,10 +934,41 @@ aliases and external writers need separate coordination.
 
 ## Known-URL downloads
 
-This mode is available from version 3.2.0. It downloads every URL in
-the list with a whole-file GET; it performs no discovery, HEAD freshness checks,
+URL-list mode is available from version 3.2.0. It downloads every selected URL
+with a whole-file GET; it performs no discovery, HEAD freshness checks,
 ETag reuse or ranged resume. It never deletes obsolete local files. Use normal
 mirror mode when you need incremental synchronization.
+
+### One file URL (development checkout, unreleased)
+
+The direct shortcut is added after 3.2.0; install this development checkout to
+use it before the next release:
+
+```bash
+mirror-url --mode download https://example.org/files/a.fits
+```
+
+Without `--url`, the file URL's parent directory becomes the allowed remote
+scope. The file keeps its original name and is downloaded into the current
+working directory. Logs go to `mirror-url-download-<destination-hash>` under
+the system temporary directory, outside the default destination. Use
+`--dest-path` and `--log-path` to choose persistent locations:
+
+```bash
+mirror-url --mode download https://example.org/files/a.fits \
+  --dest-path ./downloads --log-path ./logs --verify-content
+```
+
+An explicit `--url` sets the allowed scope and retains paths relative to that
+base. Query strings remain in the HTTP request but are excluded from the local
+filename. Supply exactly one positional URL or one `--url-list` file. Selecting
+one source explicitly on the CLI replaces the other source configured in
+YAML/JSON. The configuration field for the direct source is `download_url`.
+The CLI supplies the same shortcut defaults for a download config containing
+that field; standalone `MirrorConfig`/`validate_config_file()` still require
+explicit `base_url`, `dest_path` and `log_path`.
+
+### A URL list
 
 ```text
 # urls.txt

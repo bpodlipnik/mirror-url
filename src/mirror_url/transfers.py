@@ -489,13 +489,13 @@ def _save_receipts(path: Path, data: dict) -> None:
 
 
 def download_url_list(config: MirrorConfig) -> dict:
-    """GET the exact list without discovery, HEAD, reuse, resume or cleanup.
+    """GET exact URLs from a list or one direct URL without discovery or freshness HEADs.
 
     Existing files require a matching prior receipt or explicit overwrite.
     Failed whole-file attempts restart from byte zero. Unknown state is kept.
     """
-    if config.mode != "download" or config.url_list is None:
-        raise ConfigError("download_url_list requires mode=download and a URL list")
+    if config.mode != "download" or (config.url_list is None) == (config.download_url is None):
+        raise ConfigError("download_url_list requires mode=download and exactly one URL source")
     require_backend(config.backend)
     target = config.dest_path
     for part in filter(None, config.dir_suffix.split("/")):
@@ -505,11 +505,15 @@ def download_url_list(config: MirrorConfig) -> dict:
     if config.dir_suffix:
         scope = urljoin(scope, config.dir_suffix.strip("/") + "/")
     validate_url(scope, config.base_url.rstrip("/") + "/")
-    urls = [
-        line.strip()
-        for line in config.url_list.read_text(encoding="utf-8").splitlines()
-        if line.strip() and not line.lstrip().startswith("#")
-    ]
+    if config.download_url is not None:
+        urls = [config.download_url]
+    else:
+        assert config.url_list is not None
+        urls = [
+            line.strip()
+            for line in config.url_list.read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        ]
     if not urls:
         raise ValueError("URL list is empty")
     resources = [target, PathSafety._resolve_destination_root(config.log_path)]
