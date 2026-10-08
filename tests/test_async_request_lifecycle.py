@@ -84,7 +84,8 @@ async def test_transient_failure_retries_and_preserves_conditional_headers(manag
         assert all(request.headers["if-none-match"] == '"v1"' for request in requests)
         assert manager.metrics.metrics["async_metadata_checks"] == 1
         if failure in ("429", "503"):
-            assert asyncio.sleep.await_args.args[0] >= 2
+            # Pacing may follow the retry backoff even with legacy security disabled.
+            assert any(call.args[0] >= 2 for call in asyncio.sleep.await_args_list)
     finally:
         await client.aclose()
 

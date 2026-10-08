@@ -32,7 +32,7 @@ from ..cache import CacheManager, NullCacheManager
 from ..compat import LXML_AVAILABLE, PSUTIL_AVAILABLE, TQDM_AVAILABLE
 from ..concurrency import UnifiedConcurrencyManager
 from ..connection import ConnectionManager
-from ..constants import ADAPTIVE_MAX_CONCURRENCY, DEFAULT_RATE_LIMIT
+from ..constants import ADAPTIVE_MAX_CONCURRENCY
 from ..destination_lock import DestinationLock, MirrorFileHandler, current_run_lock
 from ..download import ParallelDownloadManager, PartialDownloadManager
 from ..enums import CleanupPolicy
@@ -162,6 +162,12 @@ class _MirrorBase(MirrorHost):
         # 1. BASIC CONFIGURATION - Initialize all attributes with safe defaults
         # ============================================================================
         self.config = config
+        if config.mode != "mirror":
+            raise ValueError("Use download_url_list() for mode=download")
+        if config.backend == "aiohttp":
+            from ..transfers import require_backend
+
+            require_backend(config.backend)
         # Check the requested path before starting managers or resolving away
         # a symlink in dest_path or the selected suffix.
         requested_target = config.dest_path
@@ -428,7 +434,9 @@ class _MirrorBase(MirrorHost):
         self.scratch_manager: Optional[OwnedScratch] = None
         self.health_checker = HealthChecker(self)
         self.multi_progress = MultiLevelProgress()
-        self.per_ip_limiter = PerIPRateLimiter(requests_per_second=DEFAULT_RATE_LIMIT)
+        self.per_ip_limiter = PerIPRateLimiter(
+            requests_per_second=config.requests_per_second, delay=config.request_delay
+        )
         self.health_server = None
 
         # ============================================================================
@@ -504,9 +512,9 @@ class _MirrorBase(MirrorHost):
         logging.info(f"{prefix}Scan mode: {config.scan_mode.value}")
 
         # Log rate limiting
-        delay_ms = config.request_delay * 1000
+        delay_ms = config.effective_request_interval * 1000
         logging.info(
-            f"{prefix}Rate limiting: {delay_ms:.1f}ms delay{' (trusted server)' if config.trusted_server else ''}"
+            f"{prefix}Rate limiting: {delay_ms:.1f}ms effective spacing{' (trusted server)' if config.trusted_server else ''}"
         )
 
         # Log async settings

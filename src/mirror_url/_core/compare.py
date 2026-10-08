@@ -474,7 +474,7 @@ class CompareMixin(MirrorHost):
 
                 # Process results
                 batch_needs_download = []
-                for (_task, local, url), result in zip(tasks, results):
+                for (_task, local, url), result in zip(tasks, results, strict=False):
                     if isinstance(result, BaseException):
                         logging.warning(f"Async check failed for {url}: {result}")
                         batch_needs_download.append((url, local))
@@ -563,7 +563,7 @@ class CompareMixin(MirrorHost):
                     if use_adaptive and hasattr(manager, "apply_pending_concurrency_change"):
                         await manager.apply_pending_concurrency_change()
 
-                    for (_task, local, url), result in zip(tasks, results):
+                    for (_task, local, url), result in zip(tasks, results, strict=False):
                         if isinstance(result, BaseException) or not result:
                             to_download.append((url, local))
 

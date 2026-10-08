@@ -39,6 +39,7 @@ from .constants import (
     DEFAULT_ASYNC_WORKERS,
     DEFAULT_CACHE_MAX_AGE_DAYS,
     DEFAULT_MAX_RETRIES,
+    DEFAULT_RATE_LIMIT,
     DEFAULT_RETRY_DELAY,
     DEFAULT_RGET_LIST_MAX_AGE,
     DEFAULT_TIMEOUT,
@@ -168,6 +169,10 @@ class MirrorConfig(BaseModel):
     log_path: Path
     print_logs: bool = False
     dir_suffix: str = ""
+    mode: Literal["mirror", "download"] = "mirror"
+    backend: Literal["httpx", "aiohttp"] = "httpx"
+    url_list: Optional[Path] = None
+    overwrite: bool = False
     workers: int = Field(default=DEFAULT_WORKERS, ge=1, le=MAX_WORKERS_HARD_LIMIT)
     timeout: int = Field(default=DEFAULT_TIMEOUT, ge=MIN_TIMEOUT, le=MAX_TIMEOUT)
     max_retries: int = Field(default=DEFAULT_MAX_RETRIES, ge=0, le=10)
@@ -209,7 +214,10 @@ class MirrorConfig(BaseModel):
     async_workers: int = Field(default=DEFAULT_ASYNC_WORKERS, ge=1, le=200)
     content_hash_small_files: bool = True
     trusted_server: bool = False
-    request_delay: float = Field(default=REQUEST_DELAY, ge=0.001, le=1.0)
+    request_delay: float = Field(default=REQUEST_DELAY, ge=0, le=1.0, allow_inf_nan=False)
+    requests_per_second: float = Field(
+        default=DEFAULT_RATE_LIMIT, ge=0, le=10000, allow_inf_nan=False
+    )
     cache_html: bool = True
     html_cache_max_age: int = Field(default=HTML_CACHE_MAX_AGE_HOURS, ge=1, le=168)
     hash_algorithm: str = Field(
@@ -387,6 +395,12 @@ class MirrorConfig(BaseModel):
             raise ConfigError("Cannot enable list_dirs and list_files simultaneously.")
         return self
 
+    @property
+    def effective_request_interval(self) -> float:
+        return max(
+            1 / self.requests_per_second if self.requests_per_second else 0, self.request_delay
+        )
+
     @model_validator(mode="after")
     def validate_and_normalize(self) -> MirrorConfig:
         # 1. Normalize base URL (strip whitespace & trailing slashes)
@@ -402,6 +416,35 @@ class MirrorConfig(BaseModel):
 
         # Use object.__setattr__ to bypass Pydantic's frozen model protection
         object.__setattr__(self, "base_url", url)
+
+        if self.mode == "download":
+            if self.url_list is None:
+                raise ConfigError("download mode requires --url-list")
+            if self.list_dirs or self.list_files or self.benchmark or self.quick:
+                raise ConfigError(
+                    "download mode cannot list, benchmark discovery, or use quick mode"
+                )
+            if self.cleanup_policy != CleanupPolicy.SAFE_NO_DELETE:
+                raise ConfigError("URL-list downloads never clean obsolete files; use cleanup=safe")
+            if (
+                self.exclude_dirs
+                or self.file_filters
+                or self.parallel_downloads
+                or self.streaming_parallel
+                or self.auto_concurrency
+                or self.missing_files
+            ):
+                raise ConfigError(
+                    "URL-list mode uses the exact input list and whole-file streaming"
+                )
+        elif self.url_list is not None or self.overwrite:
+            raise ConfigError("--url-list and --overwrite require --mode download")
+        if self.backend == "aiohttp" and (
+            self.parallel_downloads or self.streaming_parallel or self.auto_concurrency
+        ):
+            raise ConfigError(
+                "aiohttp uses bounded whole-file transfers; chunk modes and auto-concurrency require httpx"
+            )
 
         # 2. Validate regex patterns in file_filters
         for pattern in self.file_filters:
@@ -762,6 +805,11 @@ def load_config_from_args(args: argparse.Namespace, silent: bool = False) -> Mir
         "content_hash_small_files": getattr(args, "content_hash_small_files", True),
         "trusted_server": getattr(args, "trusted_server", False),
         "request_delay": getattr(args, "request_delay", REQUEST_DELAY),
+        "requests_per_second": getattr(args, "requests_per_second", DEFAULT_RATE_LIMIT),
+        "mode": getattr(args, "mode", "mirror"),
+        "backend": getattr(args, "backend", "httpx"),
+        "url_list": getattr(args, "url_list", None),
+        "overwrite": getattr(args, "overwrite", False),
         "cache_html": getattr(args, "cache_html", True),
         "html_cache_max_age": getattr(args, "html_cache_max_age", HTML_CACHE_MAX_AGE_HOURS),
         "adaptive_async": getattr(args, "adaptive_async", ADAPTIVE_ASYNC_ENABLED),

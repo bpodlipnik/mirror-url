@@ -22,6 +22,7 @@ from ..decorators import log_performance
 from ..destination_lock import destination_operation
 from ..enums import CleanupPolicy, DownloadMethod
 from ..progress import ProgressTracker
+from ..transfers import AsyncTransfers, TransferResult
 from ..utils import format_bytes, format_duration, sanitize_url_for_log
 
 if TYPE_CHECKING:
@@ -433,7 +434,8 @@ class ReportMixin(MirrorHost):
                 # ========== FIX 2: AUTO-SELECT DOWNLOAD METHOD (FULL IMPLEMENTATION) ==========
                 # Only auto-select if user didn't explicitly enable a download mode
                 if (
-                    not self.config.parallel_downloads
+                    self.config.backend == "httpx"
+                    and not self.config.parallel_downloads
                     and not self.config.streaming_parallel
                     and not self.config.sequential_downloads
                 ):
@@ -485,7 +487,42 @@ class ReportMixin(MirrorHost):
                 )
 
                 # ========== DOWNLOAD EXECUTION ==========
-                if self.config.sequential_downloads:
+                if self.config.backend == "aiohttp":
+                    if (
+                        self.target_dir is None
+                        or self.scratch_manager is None
+                        or self.target_base_url is None
+                    ):
+                        raise ValueError(
+                            "Async transfers require owned destination and staging state"
+                        )
+                    transfers = AsyncTransfers(
+                        self.config, self.target_dir, self.target_base_url, self.scratch_manager
+                    )
+
+                    def published(result: TransferResult) -> None:
+                        mtime = (
+                            result.path.stat().st_mtime if result.mtime is None else result.mtime
+                        )
+                        self.cache_manager.save_file_metadata(
+                            result.path, result.etag, mtime, result.size, sha256=result.sha256
+                        )
+                        self.files_processed.increment(1)
+                        self.total_downloaded_size.add(result.size)
+                        self.multi_progress.update("downloads")
+
+                    logging.info(
+                        "Using aiohttp whole-file streaming; existing partials are preserved"
+                    )
+                    results = asyncio.run(transfers.run(to_download, published))
+                    self.files_failed.increment(sum(not result.success for result in results))
+                    logging.info(
+                        "aiohttp transfer stages: pacing %.3fs, fsync %.3fs, hash %.3fs",
+                        transfers.pacer.wait_seconds,
+                        transfers.stage_seconds["fsync"],
+                        transfers.stage_seconds["hash"],
+                    )
+                elif self.config.sequential_downloads:
                     # Sequential mode: simple loop
                     for url, path in to_download:
                         # FIX: Pass pre-fetched size to avoid redundant HEAD request

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import time
 from threading import Lock, RLock
 from typing import Any, Dict, Optional
@@ -96,7 +97,14 @@ class RateLimiter:
             delay: Minimum delay between requests
             per_ip: Whether to rate limit per IP
         """
-        self.min_interval = max(1.0 / requests_per_second, delay)
+        if (
+            not math.isfinite(requests_per_second)
+            or requests_per_second < 0
+            or not math.isfinite(delay)
+            or delay < 0
+        ):
+            raise ValueError("Request rate and delay must be finite and nonnegative")
+        self.min_interval = max(1.0 / requests_per_second if requests_per_second else 0, delay)
         self.last_request = 0.0
         self.per_ip = per_ip
         self.ip_last_requests: Dict[str, float] = {}
@@ -180,9 +188,8 @@ class RateLimiter:
 class PerIPRateLimiter(RateLimiter):
     """Rate limiter that tracks and limits requests per IP address with async support."""
 
-    def __init__(self, requests_per_second: float = DEFAULT_RATE_LIMIT):
-        # Initialize base class (delay=0 ensures min_interval is purely rate-based)
-        super().__init__(requests_per_second=requests_per_second, delay=0.0, per_ip=True)
+    def __init__(self, requests_per_second: float = DEFAULT_RATE_LIMIT, delay: float = 0.0):
+        super().__init__(requests_per_second=requests_per_second, delay=delay, per_ip=True)
         # Use explicit per-IP tracking for better cleanup control
         self.last_requests: Dict[str, float] = {}
         # self.lock and self.total_delays are inherited from RateLimiter
