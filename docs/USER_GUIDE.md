@@ -803,29 +803,29 @@ an estimated network speed, and server Range support.
 <thead>
 <tr>
 <th scope="col" nowrap>Mode</th>
-<th scope="col">Flag</th>
+<th scope="col" nowrap>Flag</th>
 <th scope="col">Behavior</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td nowrap><strong>Sequential</strong></td>
-<td><code>--sequential-downloads</code></td>
+<td nowrap><samp>--sequential-downloads</samp></td>
 <td>Download one file at a time. Metadata and size probes may still run concurrently.</td>
 </tr>
 <tr>
 <td nowrap><strong>Traditional parallel</strong></td>
-<td><code>--parallel-downloads</code></td>
+<td nowrap><samp>--parallel-downloads</samp></td>
 <td>Download several files at once; eligible files use chunks stored in temporary files and verified before assembly.</td>
 </tr>
 <tr>
 <td nowrap><strong>Streaming parallel</strong></td>
-<td><code>--streaming-parallel</code></td>
+<td nowrap><samp>--streaming-parallel</samp></td>
 <td>Download several files at once; eligible chunks write to a pre-allocated staging file and publish after verification.</td>
 </tr>
 <tr>
 <td nowrap><strong>Auto</strong></td>
-<td><em>(default)</em></td>
+<td nowrap><em>(default)</em></td>
 <td>Select sequential, traditional parallel, or streaming parallel for this run.</td>
 </tr>
 </tbody>
