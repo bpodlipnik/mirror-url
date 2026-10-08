@@ -1,10 +1,12 @@
 # MirrorURL — User Guide
 
-MirrorURL is a security-hardened command-line tool and Python library for
-mirroring files behind an HTTP(S) **directory listing** to local disk. It walks
-the remote directory tree, decides which files are new or changed, and downloads
-them efficiently — with adaptive concurrency, resumable/parallel downloads,
-integrity checks, incremental caching, and an SSRF-hardened transport layer.
+MirrorURL is a command-line tool and Python library for mirroring and
+incrementally syncing public HTTP(S) directory trees to local disk. It walks
+HTML **directory listings**, decides which files are new or changed, and
+downloads them with adaptive concurrency, resumable/parallel downloads,
+integrity checks and incremental caching. It also supports direct file URLs
+and exact URL lists without directory discovery. URL-scope, private-network
+and filesystem protections guard discovery and transfers.
 
 - **Version:** 3.2.1
 - **Python:** 3.10 or newer; CI tests Python 3.10–3.14
@@ -15,6 +17,7 @@ integrity checks, incremental caching, and an SSRF-hardened transport layer.
 ## Table of contents
 
 - [What it does](#what-it-does)
+- [Who it is for](#who-it-is-for)
 - [Requirements](#requirements)
 - [Installation](#installation)
 - [Quick start](#quick-start)
@@ -55,6 +58,24 @@ Given a base URL that serves an HTML directory index (e.g. an Apache/nginx
 Highlights: adaptive async metadata checks, per-domain circuit breakers,
 bandwidth limiting, integrity verification, a persistent cache for fast
 incremental runs, and strong SSRF/path-traversal protections.
+
+---
+
+## Who it is for
+
+MirrorURL is for people and organizations that regularly need to maintain
+local copies of files published over public HTTP(S):
+
+- Researchers maintaining local copies of scientific data archives.
+- Organizations downloading bulk files from public directory indexes.
+- Maintainers of software, package, artifact and documentation mirrors.
+- Sysadmins and data engineers maintaining local datasets.
+- Public-data preservation communities.
+- Users moving from `wget --mirror`, `lftp mirror` or custom scripts.
+
+Scientific mission archives used in the examples illustrate workflows that
+also apply to these other sources. Recursive mirroring requires an HTML
+directory index; direct file and URL-list downloads do not require a listing.
 
 ---
 

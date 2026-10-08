@@ -4,14 +4,31 @@
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](https://github.com/bpodlipnik/mirror-url/blob/main/LICENSE)
 
-Security-hardened remote directory mirroring tool. MirrorURL recursively
-discovers files behind an HTTP(S) directory listing and mirrors them locally
-with adaptive concurrency, resumable/partial downloads, integrity verification,
-and an SSRF-hardened transport layer.
+MirrorURL is a Python command-line tool and library for mirroring and
+incrementally syncing public HTTP(S) directory trees to local disk. It also
+downloads individual file URLs or exact URL lists, with resumable transfers,
+parallel downloads, caching and integrity checks. URL-scope, private-network
+and filesystem protections guard discovery and transfers.
 
 Version 3.2.1 adds direct file URLs with `mirror-url --mode download FILE_URL`,
 using the same guarded HTTPX or optional aiohttp transfer pipeline as URL lists.
 See [the 3.2.1 changelog](CHANGELOG.md#321---2026-10-08).
+
+## Who it is for
+
+MirrorURL is for people and organizations that regularly need to maintain
+local copies of files published over public HTTP(S):
+
+- Researchers maintaining local copies of scientific data archives.
+- Organizations downloading bulk files from public directory indexes.
+- Maintainers of software, package, artifact and documentation mirrors.
+- Sysadmins and data engineers maintaining local datasets.
+- Public-data preservation communities.
+- Users moving from `wget --mirror`, `lftp mirror` or custom scripts.
+
+Scientific mission archives used in the examples illustrate workflows that
+also apply to these other sources. Recursive mirroring requires an HTML
+directory index; direct file and URL-list downloads do not require a listing.
 
 ## Features
 

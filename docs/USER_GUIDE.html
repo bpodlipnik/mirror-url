@@ -267,12 +267,14 @@
 </head>
 <body>
 <h1 id="mirrorurl--user-guide">MirrorURL — User Guide</h1>
-<p>MirrorURL is a security-hardened command-line tool and Python library
-for mirroring files behind an HTTP(S) <strong>directory listing</strong>
-to local disk. It walks the remote directory tree, decides which files
-are new or changed, and downloads them efficiently — with adaptive
-concurrency, resumable/parallel downloads, integrity checks, incremental
-caching, and an SSRF-hardened transport layer.</p>
+<p>MirrorURL is a command-line tool and Python library for mirroring and
+incrementally syncing public HTTP(S) directory trees to local disk. It
+walks HTML <strong>directory listings</strong>, decides which files are
+new or changed, and downloads them with adaptive concurrency,
+resumable/parallel downloads, integrity checks and incremental caching.
+It also supports direct file URLs and exact URL lists without directory
+discovery. URL-scope, private-network and filesystem protections guard
+discovery and transfers.</p>
 <ul>
 <li><strong>Version:</strong> 3.2.1</li>
 <li><strong>Python:</strong> 3.10 or newer; CI tests Python
@@ -283,6 +285,7 @@ caching, and an SSRF-hardened transport layer.</p>
 <h2 id="table-of-contents">Table of contents</h2>
 <ul>
 <li><a href="#what-it-does">What it does</a></li>
+<li><a href="#who-it-is-for">Who it is for</a></li>
 <li><a href="#requirements">Requirements</a></li>
 <li><a href="#installation">Installation</a></li>
 <li><a href="#quick-start">Quick start</a></li>
@@ -332,6 +335,26 @@ exist remotely (preview / move / delete policies).</li>
 breakers, bandwidth limiting, integrity verification, a persistent cache
 for fast incremental runs, and strong SSRF/path-traversal
 protections.</p>
+<hr />
+<h2 id="who-it-is-for">Who it is for</h2>
+<p>MirrorURL is for people and organizations that regularly need to
+maintain local copies of files published over public HTTP(S):</p>
+<ul>
+<li>Researchers maintaining local copies of scientific data
+archives.</li>
+<li>Organizations downloading bulk files from public directory
+indexes.</li>
+<li>Maintainers of software, package, artifact and documentation
+mirrors.</li>
+<li>Sysadmins and data engineers maintaining local datasets.</li>
+<li>Public-data preservation communities.</li>
+<li>Users moving from <code>wget --mirror</code>,
+<code>lftp mirror</code> or custom scripts.</li>
+</ul>
+<p>Scientific mission archives used in the examples illustrate workflows
+that also apply to these other sources. Recursive mirroring requires an
+HTML directory index; direct file and URL-list downloads do not require
+a listing.</p>
 <hr />
 <h2 id="requirements">Requirements</h2>
 <ul>
