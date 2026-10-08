@@ -8,6 +8,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Add unreleased `--mode download --url-list` for an exact list of scoped URLs,
+  without discovery or freshness HEADs. A shared async whole-file pipeline uses
+  a bounded worker set, pooled HTTPX or optional aiohttp, explicit redirect
+  handling, public-IP DNS pinning, raw identity bytes, owned staging, length
+  checks, optional SHA-256 receipts and atomic publication. Existing files need
+  a matching receipt or explicit `--overwrite`; unrelated state is preserved.
+- Add optional `aiohttp` extra and `--backend aiohttp` whole-file transfers in
+  normal mirroring, keeping its discovery, freshness and receipt checks. Chunk
+  modes, ranged resume and auto-concurrency remain on the HTTPX backend.
+- Add `--requests-per-second` (default 20), allow `--request-delay 0`, and add
+  `--concurrency` as an alias for `--max-concurrent-downloads`. Both pacing
+  values must be zero to request unpaced transfers. Metadata and sync transport
+  limiters honor the configured rate and minimum spacing. Known-URL adapters
+  share one monotonic request budget and one aggregate bandwidth budget.
+- Add local HTTP tests covering both backends, byte receipts, truncation and
+  retries, redirects, preserved destination/state, cancellation, pooled
+  connections, optional dependency errors and configuration precedence.
+
 - Opt-in `--verify-content` / `verify_content` checks local files against saved
   SHA-256 receipts before trusting remote freshness metadata. Downloads hash
   completed staging files before publication in all three download modes.
@@ -36,6 +54,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Detect case sensitivity in the actual destination directory instead of
+  rejecting every case-only remote pair on every filesystem. Preserve both
+  original filenames and their separate content receipts on case-sensitive
+  destinations, including case-sensitive APFS on macOS. Fail before payload
+  downloads on case-insensitive destinations; preserve existing differently
+  capitalized files, directory aliases and all other filename safety guards.
+  Test all three transfer modes on both macOS filesystem formats, plus probe
+  failure/replacement cases and filename preservation guard mutations.
 - A chunk wait timeout or executor submission failure now keeps transfer scratch
   leased until all submitted writers exit. Late cleanup preserves a newer
   transfer's tracking entry and never publishes timed-out chunks.
@@ -58,6 +84,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Documentation
 
+- Document case-only and other filename collisions, filesystem-aware preflight,
+  zero downloads for a failing suffix, preserved existing files, failure status
+  and the full subtree omitted by exclusions. Explain the NASA
+  `Deep_Field_v3.pro` / `deep_field_v3.pro` example and how a case-sensitive APFS
+  destination preserves both originals without excluding their directory.
+  Distinguish this unreleased change from the published 3.1.79 preflight.
 - Explain local content receipts, initial redownloads, hashing costs and cache
   options. This verifies local bytes; it does not authenticate remote content
   against a server-provided cryptographic checksum. Explain cooperative locking

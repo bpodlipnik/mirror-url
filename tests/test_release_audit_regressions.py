@@ -494,7 +494,7 @@ def test_async_head_retries_503_then_succeeds(mirror, monkeypatch, mode):
 
     asyncio.run(run())
     assert len(calls) == 2
-    assert sleep.await_args.args[0] >= 7
+    assert any(call.args[0] >= 7 for call in sleep.await_args_list)
 
 
 def test_fixed_async_available_before_initialization_and_honors_workers(mirror):

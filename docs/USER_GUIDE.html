@@ -286,7 +286,11 @@ caching, and an SSRF-hardened transport layer.</p>
 <li><a href="#configuration-files-yamljson">Configuration files
 (YAML/JSON)</a></li>
 <li><a href="#download-modes">Download modes</a></li>
+<li><a href="#known-url-downloads-unreleased">Known-URL downloads
+(unreleased)</a></li>
 <li><a href="#filtering-and-scope">Filtering and scope</a></li>
+<li><a href="#filename-collisions-and-download-behavior">Filename
+collisions and download behavior</a></li>
 <li><a href="#caching-and-incremental-sync">Caching and incremental
 sync</a></li>
 <li><a href="#cleaning-up-obsolete-files">Cleaning up obsolete
@@ -309,6 +313,9 @@ MirrorURL:</p>
 <li><strong>Discovers</strong> the remote tree by recursively parsing
 directory listings (breadth-first, with depth and exclusion limits,
 cycle-safe).</li>
+<li><strong>Validates local names</strong> before file transfers.
+Distinct selected remote URLs must map to safe, unchanged,
+non-conflicting local paths.</li>
 <li><strong>Compares</strong> each remote file against the local copy
 using size, timestamp, and ETag. Directory listing validators never
 stand in for file checks.</li>
@@ -450,6 +457,21 @@ used).</td>
 <td>YAML or JSON configuration file (see below).</td>
 </tr>
 <tr>
+<td><code>--mode mirror|download</code></td>
+<td>Unreleased: normal mirroring (default) or the exact list in
+<code>--url-list</code>.</td>
+</tr>
+<tr>
+<td><code>--url-list FILE</code></td>
+<td>Unreleased: one absolute file URL per line, for download mode. Blank
+lines and lines beginning with <code>#</code> are ignored.</td>
+</tr>
+<tr>
+<td><code>--overwrite</code></td>
+<td>Unreleased: allow replacing regular, owned local files without a
+matching URL-list receipt; download mode only.</td>
+</tr>
+<tr>
 <td><code>--dir-suffix S [S ...]</code></td>
 <td>Mirror one or more subpaths under the base URL (e.g.
 <code>L1/v1 L2/v2</code>).</td>
@@ -486,6 +508,17 @@ published.</td>
 <tr>
 <td><code>--max-concurrent-downloads N</code></td>
 <td>Max files downloaded at once (default 10).</td>
+</tr>
+<tr>
+<td><code>--concurrency N</code></td>
+<td>Unreleased alias for <code>--max-concurrent-downloads</code>; range
+1–50.</td>
+</tr>
+<tr>
+<td><code>--backend httpx|aiohttp</code></td>
+<td>Unreleased: HTTPX is the default. aiohttp requires the optional
+extra and uses HTTP/1.1 whole-file streaming. Normal mirroring keeps
+discovery and freshness checks with either backend.</td>
 </tr>
 <tr>
 <td><code>--max-chunks N</code></td>
@@ -562,9 +595,16 @@ their own fixed budget.</td>
 <td>Base delay for retry backoff (default 2).</td>
 </tr>
 <tr>
+<td><code>--requests-per-second N</code></td>
+<td>Unreleased request ceiling (default 20; zero removes this
+ceiling).</td>
+</tr>
+<tr>
 <td><code>--request-delay SECS</code></td>
-<td>Request pacing delay (default 0.05; range 0.001–1.0). Increase it
-for throttled servers.</td>
+<td>Minimum request spacing (default 0.05; unreleased range 0–1.0).
+Effective spacing is the larger of this value and
+<code>1 / requests_per_second</code>. Set both controls to zero for
+unpaced transfers.</td>
 </tr>
 <tr>
 <td><code>--trusted-server</code></td>
@@ -1215,6 +1255,63 @@ versions and other applications do not participate. Network filesystems,
 multiple hosts, mount aliases and external writers need separate
 coordination.</p>
 <hr />
+<h2 id="known-url-downloads-unreleased">Known-URL downloads
+(unreleased)</h2>
+<p>This mode is available in the development checkout. It downloads
+every URL in the list with a whole-file GET; it performs no discovery,
+HEAD freshness checks, ETag reuse or ranged resume. It never deletes
+obsolete local files. Use normal mirror mode when you need incremental
+synchronization.</p>
+<pre class="text"><code># urls.txt
+https://example.org/files/a.bin
+https://example.org/files/nested/b.bin</code></pre>
+<div class="sourceCode" id="cb22"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> <span class="at">-m</span> mirror_url <span class="at">--mode</span> download <span class="at">--backend</span> httpx <span class="dt">\</span></span>
+<span id="cb22-2"><a href="#cb22-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--url</span> https://example.org/files/ <span class="at">--url-list</span> urls.txt <span class="dt">\</span></span>
+<span id="cb22-3"><a href="#cb22-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--dest-path</span> ./downloads <span class="at">--log-path</span> ./logs <span class="at">--concurrency</span> 20 <span class="dt">\</span></span>
+<span id="cb22-4"><a href="#cb22-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">--requests-per-second</span> 0 <span class="at">--request-delay</span> 0 <span class="at">--verify-content</span></span></code></pre></div>
+<p>To use aiohttp, install
+<code>python -m pip install -e ".[aiohttp]"</code> from the checkout in
+your development environment, then change <code>--backend httpx</code>
+to <code>--backend aiohttp</code>. Both clients use the same publication
+and receipt policy. Do not expect bare-client benchmark timings:
+filesystem checks, durable staging and optional SHA-256 hashing are
+included here.</p>
+<p>All URLs and redirect hops must stay below the selected base URL, on
+its exact origin. One optional <code>--dir-suffix</code> narrows that
+scope and appends the suffix to the destination. Nested file paths are
+retained. The full list is checked for filename collisions before any
+GET. Direct IP URLs, private DNS answers, unsafe paths, symlinks, hard
+links and reserved-state collisions are rejected. TLS certificates
+remain verified, and proxy environment variables are ignored.
+<code>--trusted-server</code> and the legacy security toggle do not
+remove these checks.</p>
+<p>An existing file is redownloaded only when its identity matches the
+receipt from this mode, or <code>--overwrite</code> explicitly permits
+replacement. With <code>--verify-content</code>, its saved SHA-256 must
+match too. Failed transfers leave the original bytes intact. Connection
+and payload interruptions have bounded whole-file retries; HTTP failures
+are reported without status retries. Only a complete HTTP 200 response
+with a matching declared length is published. When the server omits the
+length, the backend must report a clean stream end; SHA-256 records
+local bytes, not proof of a remote reference digest.</p>
+<p>Owned temporary work is removed after success, failure or cooperative
+cancellation. Unknown state and pre-existing partial downloads are
+preserved. Receipts for published files are saved at the end of the run,
+including during cooperative cancellation. An abrupt process kill
+between publication and this save may leave a file without a receipt:
+the next run refuses to replace it without <code>--overwrite</code>.
+This mode does not offer resumable partial transfers.</p>
+<p>The CLI writes a run log and prints a JSON summary with
+downloaded/failed file counts, bytes, elapsed time, pacing waits,
+fsync/hash time and any failures. A failed file makes the command exit
+nonzero. <code>--dry-run</code> validates the list without network
+access or download state creation. Discovery/listing/filter flags, chunk
+modes, auto-concurrency, missing-only mode and cleanup policies other
+than <code>safe</code> are rejected in download mode. For normal
+mirroring, <code>--backend aiohttp</code> supports whole-file transfers;
+chunk modes and auto-concurrency require HTTPX, and existing partials
+are preserved.</p>
 <h2 id="filtering-and-scope-1">Filtering and scope</h2>
 <ul>
 <li><p><strong><code>--filter</code></strong> accepts one or more
@@ -1224,19 +1321,19 @@ case-insensitive filename patterns. A bare extension
 metacharacters use <code>re.search</code>. <strong>Multiple patterns are
 OR'd</strong> — a file matches if <em>any</em> pattern matches, not all
 of them:</p>
-<div class="sourceCode" id="cb21"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a><span class="ex">--filter</span> .fits .txt                 <span class="co"># any .fits or .txt</span></span>
-<span id="cb21-2"><a href="#cb21-2" aria-hidden="true" tabindex="-1"></a><span class="ex">--filter</span> <span class="st">&#39;.*\.fits$&#39;</span>                <span class="co"># regex: files ending in .fits</span></span>
-<span id="cb21-3"><a href="#cb21-3" aria-hidden="true" tabindex="-1"></a><span class="ex">--filter</span> <span class="st">&#39;2024.*\.fits$&#39;</span> .png       <span class="co"># mixed regex + extension</span></span></code></pre></div>
+<div class="sourceCode" id="cb23"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true" tabindex="-1"></a><span class="ex">--filter</span> .fits .txt                 <span class="co"># any .fits or .txt</span></span>
+<span id="cb23-2"><a href="#cb23-2" aria-hidden="true" tabindex="-1"></a><span class="ex">--filter</span> <span class="st">&#39;.*\.fits$&#39;</span>                <span class="co"># regex: files ending in .fits</span></span>
+<span id="cb23-3"><a href="#cb23-3" aria-hidden="true" tabindex="-1"></a><span class="ex">--filter</span> <span class="st">&#39;2024.*\.fits$&#39;</span> .png       <span class="co"># mixed regex + extension</span></span></code></pre></div>
 <p>For <strong>AND</strong> (a file must match multiple independent
 conditions at once — e.g. a channel <em>and</em> a date range), pass a
 single pattern combining them with regex lookaheads instead of multiple
 <code>--filter</code> values — the engine already falls back to full
 <code>re</code> support (including lookaheads) for any pattern
 containing regex metacharacters:</p>
-<div class="sourceCode" id="cb22"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a><span class="co"># (fe OR pb channel) AND (18-20 June, 03-05h) -- one --filter value</span></span>
-<span id="cb22-2"><a href="#cb22-2" aria-hidden="true" tabindex="-1"></a><span class="ex">--filter</span> <span class="st">&#39;(?=.*(?:fe|pb))(?=.*_202606(?:1[89]|20)T0[3-5]\d{4}_)&#39;</span></span></code></pre></div>
+<div class="sourceCode" id="cb24"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a><span class="co"># (fe OR pb channel) AND (18-20 June, 03-05h) -- one --filter value</span></span>
+<span id="cb24-2"><a href="#cb24-2" aria-hidden="true" tabindex="-1"></a><span class="ex">--filter</span> <span class="st">&#39;(?=.*(?:fe|pb))(?=.*_202606(?:1[89]|20)T0[3-5]\d{4}_)&#39;</span></span></code></pre></div>
 <p>If you combine <code>--filter</code> with
 <code>--list-files [N]</code>/<code>--list-dirs [N]</code>'s "last
 <code>N</code>" ranking, see the callout below
@@ -1284,20 +1381,20 @@ paths.</p>
 immediate children. With <code>--config</code>, the file's
 <code>max_depth</code> applies (or 50 when omitted). Pass
 <code>--max-depth</code> explicitly to override either:</p>
-<div class="sourceCode" id="cb23"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Immediate children only (the default)</span></span>
-<span id="cb23-2"><a href="#cb23-2" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--url</span> https://archive.example.org/mission/ <span class="at">--list-dirs</span></span>
-<span id="cb23-3"><a href="#cb23-3" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb23-4"><a href="#cb23-4" aria-hidden="true" tabindex="-1"></a><span class="co"># Walk 3 levels deep instead</span></span>
-<span id="cb23-5"><a href="#cb23-5" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--url</span> https://archive.example.org/mission/ <span class="at">--list-dirs</span> <span class="dt">\</span></span>
-<span id="cb23-6"><a href="#cb23-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">--max-depth</span> 3</span></code></pre></div>
+<div class="sourceCode" id="cb25"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb25-1"><a href="#cb25-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Immediate children only (the default)</span></span>
+<span id="cb25-2"><a href="#cb25-2" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--url</span> https://archive.example.org/mission/ <span class="at">--list-dirs</span></span>
+<span id="cb25-3"><a href="#cb25-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb25-4"><a href="#cb25-4" aria-hidden="true" tabindex="-1"></a><span class="co"># Walk 3 levels deep instead</span></span>
+<span id="cb25-5"><a href="#cb25-5" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--url</span> https://archive.example.org/mission/ <span class="at">--list-dirs</span> <span class="dt">\</span></span>
+<span id="cb25-6"><a href="#cb25-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">--max-depth</span> 3</span></code></pre></div>
 <p>Each directory is printed to <strong>stdout</strong> as a bare
 relative path, one per line (<code>.</code> for the root), independent
 of <code>--print-logs</code>/<code>--quiet</code> and the usual
 banner/summary logging — pipe or capture it directly:</p>
-<div class="sourceCode" id="cb24"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--url</span> https://archive.example.org/mission/ <span class="at">--list-dirs</span> <span class="dt">\</span></span>
-<span id="cb24-2"><a href="#cb24-2" aria-hidden="true" tabindex="-1"></a>  <span class="kw">|</span> <span class="fu">xargs</span> <span class="at">-I{}</span> echo <span class="st">&quot;found: {}&quot;</span></span></code></pre></div>
+<div class="sourceCode" id="cb26"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb26-1"><a href="#cb26-1" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--url</span> https://archive.example.org/mission/ <span class="at">--list-dirs</span> <span class="dt">\</span></span>
+<span id="cb26-2"><a href="#cb26-2" aria-hidden="true" tabindex="-1"></a>  <span class="kw">|</span> <span class="fu">xargs</span> <span class="at">-I{}</span> echo <span class="st">&quot;found: {}&quot;</span></span></code></pre></div>
 <p>The listing is always followed by a
 <code># Directories N/total</code> comment line on stdout — including an
 unrestricted (no-<code>N</code>) run, where <code>N == total</code> —
@@ -1316,9 +1413,9 @@ are naturally grouped by the directory that contains them),
 <code>--list-dirs [N]</code> ranks across the <strong>entire</strong>
 discovered tree for this suffix, since directories have no equivalent
 natural grouping:</p>
-<div class="sourceCode" id="cb25"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb25-1"><a href="#cb25-1" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--url</span> https://archive.example.org/mission/L3_png/v03/ <span class="dt">\</span></span>
-<span id="cb25-2"><a href="#cb25-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--list-dirs</span> 3</span></code></pre></div>
+<div class="sourceCode" id="cb27"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb27-1"><a href="#cb27-1" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--url</span> https://archive.example.org/mission/L3_png/v03/ <span class="dt">\</span></span>
+<span id="cb27-2"><a href="#cb27-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--list-dirs</span> 3</span></code></pre></div>
 <p>This directly replaces the common pattern of piping
 <code>--list-dirs</code> through
 <code>grep -v '^\.$' | sort | tail -n N</code> to pick the most recent N
@@ -1355,9 +1452,9 @@ so scripts can rely on the marker being present unconditionally rather
 than only when truncated. Comment lines start with <code>#</code> and
 can be dropped with <code>grep -v '^#'</code> for a pure
 one-line-per-file stream:</p>
-<div class="sourceCode" id="cb26"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb26-1"><a href="#cb26-1" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--url</span> https://archive.example.org/mission/L3_png/v03/ <span class="dt">\</span></span>
-<span id="cb26-2"><a href="#cb26-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--list-files</span> 5 <span class="kw">|</span> <span class="fu">grep</span> <span class="at">-v</span> <span class="st">&#39;^#&#39;</span></span></code></pre></div>
+<div class="sourceCode" id="cb28"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb28-1"><a href="#cb28-1" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--url</span> https://archive.example.org/mission/L3_png/v03/ <span class="dt">\</span></span>
+<span id="cb28-2"><a href="#cb28-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--list-files</span> 5 <span class="kw">|</span> <span class="fu">grep</span> <span class="at">-v</span> <span class="st">&#39;^#&#39;</span></span></code></pre></div>
 <p>When more than one <code>--dir-suffix</code> is mirrored in the same
 run, each file line gets the same tab-separated suffix column as
 <code>--list-dirs</code>. Comment lines are never suffix-qualified,
@@ -1394,10 +1491,10 @@ ever ranks within one prefix.</li>
 <li><strong>Or request enough files to be sure</strong>, then
 sort/filter by timestamp yourself instead of relying on the
 filename-prefix order:
-<div class="sourceCode" id="cb27"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb27-1"><a href="#cb27-1" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--url</span> https://archive.example.org/mission/L3_png/v03/ <span class="dt">\</span></span>
-<span id="cb27-2"><a href="#cb27-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--list-files</span> 200 <span class="at">--filter</span> fe pb <span class="at">--quiet</span> <span class="dt">\</span></span>
-<span id="cb27-3"><a href="#cb27-3" aria-hidden="true" tabindex="-1"></a>  <span class="kw">|</span> <span class="fu">grep</span> <span class="at">-v</span> <span class="st">&#39;^#&#39;</span> <span class="kw">|</span> <span class="fu">sort</span> <span class="at">-t_</span> <span class="at">-k4</span> <span class="kw">|</span> <span class="fu">tail</span> <span class="at">-3</span></span></code></pre></div>
+<div class="sourceCode" id="cb29"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb29-1"><a href="#cb29-1" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--url</span> https://archive.example.org/mission/L3_png/v03/ <span class="dt">\</span></span>
+<span id="cb29-2"><a href="#cb29-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--list-files</span> 200 <span class="at">--filter</span> fe pb <span class="at">--quiet</span> <span class="dt">\</span></span>
+<span id="cb29-3"><a href="#cb29-3" aria-hidden="true" tabindex="-1"></a>  <span class="kw">|</span> <span class="fu">grep</span> <span class="at">-v</span> <span class="st">&#39;^#&#39;</span> <span class="kw">|</span> <span class="fu">sort</span> <span class="at">-t_</span> <span class="at">-k4</span> <span class="kw">|</span> <span class="fu">tail</span> <span class="at">-3</span></span></code></pre></div>
 (<code>sort -t_ -k4</code> sorts from the 4th underscore-delimited field
 onward — i.e. from the embedded timestamp, not the channel prefix
 sitting before it. This assumes that filename layout; adapt the field
@@ -1405,6 +1502,131 @@ number for your archive.)</li>
 </ul>
 </blockquote></li>
 </ul>
+<hr />
+<h2 id="filename-collisions-and-download-behavior">Filename collisions
+and download behavior</h2>
+<p><strong>A filename collision fails the entire affected suffix before
+file downloads.</strong> MirrorURL does not choose one of the
+conflicting files, rename either file, or download the other files in
+that suffix while silently skipping the pair. Existing mirrored file
+contents are preserved, and obsolete-file cleanup is not reached.
+Directory listings, connection/metadata requests and log/cache
+bookkeeping can still occur before the failure.</p>
+<p>For example, NASA SolarSoft has these two different files under
+<code>stereo</code>:</p>
+<pre class="text"><code>secchi/idl/daily/Deep_Field_v3.pro
+secchi/idl/daily/deep_field_v3.pro</code></pre>
+<p>They have different contents. Common case-insensitive macOS volumes
+cannot store both names as separate files. A case-sensitive Linux
+filesystem or case-sensitive APFS volume can store both; an existing
+Linux mirror can therefore contain both originals.</p>
+<p><strong>Unreleased filesystem-aware behavior:</strong> this checkout
+checks the destination when selected names differ only by case. On a
+confirmed case-sensitive destination, it downloads both files with their
+original capitalization and keeps their content receipts separate. On a
+case-insensitive destination, the pair fails preflight before any file
+payload in that suffix is downloaded. There is no option to choose
+whichever file arrives first or overwrite one with the other. The
+published 3.1.79 preflight still rejects selected case-only pairs on
+every filesystem; this change requires the updated implementation.</p>
+<p>The check also covers directory names such as
+<code>DAILY/one.pro</code> and <code>daily/two.pro</code>. If a
+requested filename already resolves to a differently capitalized local
+entry, preflight fails and preserves that entry, even when only one
+remote file is selected or <code>--missing-files</code> is used.
+Otherwise a missing-only run could mistake different local data for the
+requested file.</p>
+<p>For an ambiguous pair, MirrorURL creates an exclusively owned,
+randomly named empty probe in its actual parent directory, or the
+nearest existing ancestor when the parent does not exist yet. It checks
+the differently capitalized probe name and removes only its own
+unchanged regular file. This check also runs during a dry run. If the
+directory cannot be inspected or probed safely, the suffix fails instead
+of guessing its filesystem behavior. Ordinary unique names do not
+require a case probe.</p>
+<p><strong>Preserving the complete selected tree:</strong> use a
+destination that can store both original filenames, and the updated
+filesystem-aware MirrorURL implementation. On macOS, an APFS
+(Case-sensitive) disk image or volume provides the required storage
+behavior. Apple's <a
+href="https://support.apple.com/guide/disk-utility/create-a-disk-image-dskutl11888/mac">disk-image
+instructions</a> describe creating a blank image with that format; a
+sparse image grows as files are added. This avoids reformatting the
+existing startup volume. Choose a new destination inside the mounted
+image for the complete mirror; an ordinary case-insensitive destination
+cannot hold both originals. Size the image for the selected payload and
+temporary transfer space. With the updated code, retain the same URL and
+suffix and include <code>daily</code> instead of excluding it. Moving an
+existing mirror or changing the destination of a running job is a
+separate operation; do not change its filesystem while it is
+writing.</p>
+<p>Excluding <code>daily</code> does <strong>not</strong> solve complete
+mirroring: it discards an entire remote subtree from the selected scope.
+Automatically renaming one file would also change the archive's original
+names and may break references between files. Neither behavior is a
+substitute for preserving both originals.</p>
+<table>
+<thead>
+<tr>
+<th>Selected scope</th>
+<th>What is downloaded?</th>
+<th>Result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Both case-distinct files are included on a confirmed case-sensitive
+destination, with the updated code</td>
+<td>Both original files, plus other eligible files in the suffix</td>
+<td>Separate filenames and receipts are preserved</td>
+</tr>
+<tr>
+<td>Both case-distinct files are included on a case-insensitive
+destination</td>
+<td>No mirrored file payload from that suffix, including unrelated
+files</td>
+<td>The suffix fails; neither conflicting file is chosen</td>
+</tr>
+<tr>
+<td><code>stereo/secchi/idl/daily</code> is explicitly excluded</td>
+<td>Only eligible missing/changed files outside that entire subtree</td>
+<td>Sync can proceed if all remaining paths and checks pass</td>
+</tr>
+<tr>
+<td>A filter excludes both <code>.pro</code> files, for example
+<code>--filter .fits</code></td>
+<td>Only matching files in the remaining selection</td>
+<td>Sync can proceed if no other mapping conflicts or failures
+occur</td>
+</tr>
+</tbody>
+</table>
+<p>If a deliberately reduced scope is acceptable, directory exclusions
+are relative to <code>--url</code>: with the SolarSoft root URL,
+excluding <code>stereo/secchi/idl/daily</code> omits <strong>every file
+and subdirectory under <code>daily</code></strong>, not just the two
+conflicting names. Files already present under an excluded subtree are
+preserved by cleanup. Use this only when that omission is intended.</p>
+<p>Other mapping problems also fail preflight: Unicode-normalized name
+aliases, names that would be truncated or rewritten by sanitization,
+unsafe local paths, and collisions with reserved
+<code>.mirror-url-state</code> storage. A repeated identical remote URL
+is deduplicated; distinct URLs that collide are not deduplicated by
+content, even if their bytes happen to match. Case-insensitive
+<code>--filter</code> matching cannot select just one of the two example
+filenames by capitalization.</p>
+<p>For a multi-suffix CLI invocation, failure of one suffix does not
+roll back earlier successful suffixes. Other suffixes may still run, and
+the overall CLI exits <code>1</code> when a suffix fails. The Python
+<code>sync()</code> call returns <code>False</code>; inspect the log for
+<code>Distinct remote URLs map to the same local filename</code>,
+<code>Remote filename would be changed by local path sanitization</code>,
+or <code>Remote file has an unsafe or reserved local path</code>.</p>
+<p>This describes normal synchronization and its dry run.
+<code>--list-files</code> is discovery-only and can list both remote
+URLs; it does not prove that the selected files can be mirrored.
+<code>--quick</code> also skips remote-file validation and
+transfers.</p>
 <hr />
 <h2 id="caching-and-incremental-sync">Caching and incremental sync</h2>
 <p>MirrorURL stores file identity metadata and directory signatures in a
@@ -1513,15 +1735,15 @@ place and never falls back to deletion. MOVE also refuses symlinked
 archive paths and existing timestamp collision names. It preserves the
 source and previous archives and reports a failed cleanup operation;
 inspect the archive before retrying.</p>
-<div class="sourceCode" id="cb28"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb28-1"><a href="#cb28-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Observe cleanup without downloads or changes to mirrored files</span></span>
-<span id="cb28-2"><a href="#cb28-2" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--config</span> mirror.yaml <span class="at">--cleanup</span> preview <span class="at">--dry-run</span></span>
-<span id="cb28-3"><a href="#cb28-3" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb28-4"><a href="#cb28-4" aria-hidden="true" tabindex="-1"></a><span class="co"># Move obsolete files into sibling &lt;dest&gt;_obsolete/ instead of deleting</span></span>
-<span id="cb28-5"><a href="#cb28-5" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--config</span> mirror.yaml <span class="at">--cleanup</span> move</span>
-<span id="cb28-6"><a href="#cb28-6" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb28-7"><a href="#cb28-7" aria-hidden="true" tabindex="-1"></a><span class="co"># Actually delete, with a confirmation prompt</span></span>
-<span id="cb28-8"><a href="#cb28-8" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--config</span> mirror.yaml <span class="at">--cleanup</span> delete <span class="at">--confirm-delete</span></span></code></pre></div>
+<div class="sourceCode" id="cb31"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb31-1"><a href="#cb31-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Observe cleanup without downloads or changes to mirrored files</span></span>
+<span id="cb31-2"><a href="#cb31-2" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--config</span> mirror.yaml <span class="at">--cleanup</span> preview <span class="at">--dry-run</span></span>
+<span id="cb31-3"><a href="#cb31-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-4"><a href="#cb31-4" aria-hidden="true" tabindex="-1"></a><span class="co"># Move obsolete files into sibling &lt;dest&gt;_obsolete/ instead of deleting</span></span>
+<span id="cb31-5"><a href="#cb31-5" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--config</span> mirror.yaml <span class="at">--cleanup</span> move</span>
+<span id="cb31-6"><a href="#cb31-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-7"><a href="#cb31-7" aria-hidden="true" tabindex="-1"></a><span class="co"># Actually delete, with a confirmation prompt</span></span>
+<span id="cb31-8"><a href="#cb31-8" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--config</span> mirror.yaml <span class="at">--cleanup</span> delete <span class="at">--confirm-delete</span></span></code></pre></div>
 <p>Combine any of these with <code>--dry-run</code> to simulate the
 entire run (scan + download + cleanup) without downloading or changing
 mirrored files. The run still requests directory listings and metadata;
@@ -1608,8 +1830,8 @@ directory duplicates.</td>
 </tbody>
 </table>
 <p>Start with a survey:</p>
-<div class="sourceCode" id="cb29"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb29-1"><a href="#cb29-1" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--config</span> mirror.yaml <span class="at">--handle-symlinks</span> <span class="at">--symlink-mode</span> detect <span class="at">--print-logs</span></span></code></pre></div>
+<div class="sourceCode" id="cb32"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb32-1"><a href="#cb32-1" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--config</span> mirror.yaml <span class="at">--handle-symlinks</span> <span class="at">--symlink-mode</span> detect <span class="at">--print-logs</span></span></code></pre></div>
 <p>Review the <code>Symlink detected</code> log lines. To avoid a known
 duplicate permanently, use <code>--exclude-dir</code> with its exact
 path relative to <code>--url</code>, or an explicit <code>*</code> glob
@@ -1645,9 +1867,9 @@ connected with fewer than 10 failed files, otherwise HTTP 503 with
 <li><code>GET /metrics</code> → JSON counters (files
 downloaded/failed/skipped, bytes, elapsed).</li>
 </ul>
-<div class="sourceCode" id="cb30"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb30-1"><a href="#cb30-1" aria-hidden="true" tabindex="-1"></a><span class="ex">curl</span> http://localhost:8080/health</span>
-<span id="cb30-2"><a href="#cb30-2" aria-hidden="true" tabindex="-1"></a><span class="ex">curl</span> http://localhost:8080/metrics</span></code></pre></div></li>
+<div class="sourceCode" id="cb33"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb33-1"><a href="#cb33-1" aria-hidden="true" tabindex="-1"></a><span class="ex">curl</span> http://localhost:8080/health</span>
+<span id="cb33-2"><a href="#cb33-2" aria-hidden="true" tabindex="-1"></a><span class="ex">curl</span> http://localhost:8080/metrics</span></code></pre></div></li>
 <li><p><strong>Logging.</strong> Each run writes a timestamped log under
 <code>--log-path</code>. Use <code>--verbose</code>/<code>--debug</code>
 for more detail, <code>--quiet</code> for less, and
@@ -1656,23 +1878,23 @@ for more detail, <code>--quiet</code> for less, and
 <hr />
 <h2 id="using-mirrorurl-from-python">Using MirrorURL from Python</h2>
 <p>MirrorURL is a library as well as a CLI. The public API:</p>
-<div class="sourceCode" id="cb31"><pre
-class="sourceCode python"><code class="sourceCode python"><span id="cb31-1"><a href="#cb31-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> pathlib <span class="im">import</span> Path</span>
-<span id="cb31-2"><a href="#cb31-2" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> mirror_url <span class="im">import</span> MirrorURL, MirrorConfig</span>
-<span id="cb31-3"><a href="#cb31-3" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb31-4"><a href="#cb31-4" aria-hidden="true" tabindex="-1"></a>config <span class="op">=</span> MirrorConfig(</span>
-<span id="cb31-5"><a href="#cb31-5" aria-hidden="true" tabindex="-1"></a>    base_url<span class="op">=</span><span class="st">&quot;https://archive.example.org/mission/&quot;</span>,</span>
-<span id="cb31-6"><a href="#cb31-6" aria-hidden="true" tabindex="-1"></a>    dest_path<span class="op">=</span>Path(<span class="st">&quot;/data/mission&quot;</span>),</span>
-<span id="cb31-7"><a href="#cb31-7" aria-hidden="true" tabindex="-1"></a>    log_path<span class="op">=</span>Path(<span class="st">&quot;/var/log/mirror&quot;</span>),</span>
-<span id="cb31-8"><a href="#cb31-8" aria-hidden="true" tabindex="-1"></a>    file_filters<span class="op">=</span>[<span class="st">&quot;.fits&quot;</span>],</span>
-<span id="cb31-9"><a href="#cb31-9" aria-hidden="true" tabindex="-1"></a>    parallel_downloads<span class="op">=</span><span class="va">True</span>,</span>
-<span id="cb31-10"><a href="#cb31-10" aria-hidden="true" tabindex="-1"></a>    cache_max_age<span class="op">=</span><span class="dv">7</span>,</span>
-<span id="cb31-11"><a href="#cb31-11" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb31-12"><a href="#cb31-12" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb31-13"><a href="#cb31-13" aria-hidden="true" tabindex="-1"></a><span class="cf">with</span> MirrorURL(config) <span class="im">as</span> mirror:</span>
-<span id="cb31-14"><a href="#cb31-14" aria-hidden="true" tabindex="-1"></a>    ok <span class="op">=</span> mirror.sync()  <span class="co"># returns True on success, False on failure</span></span>
-<span id="cb31-15"><a href="#cb31-15" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb31-16"><a href="#cb31-16" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;sync succeeded&quot;</span> <span class="cf">if</span> ok <span class="cf">else</span> <span class="st">&quot;sync failed&quot;</span>)</span></code></pre></div>
+<div class="sourceCode" id="cb34"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb34-1"><a href="#cb34-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> pathlib <span class="im">import</span> Path</span>
+<span id="cb34-2"><a href="#cb34-2" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> mirror_url <span class="im">import</span> MirrorURL, MirrorConfig</span>
+<span id="cb34-3"><a href="#cb34-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb34-4"><a href="#cb34-4" aria-hidden="true" tabindex="-1"></a>config <span class="op">=</span> MirrorConfig(</span>
+<span id="cb34-5"><a href="#cb34-5" aria-hidden="true" tabindex="-1"></a>    base_url<span class="op">=</span><span class="st">&quot;https://archive.example.org/mission/&quot;</span>,</span>
+<span id="cb34-6"><a href="#cb34-6" aria-hidden="true" tabindex="-1"></a>    dest_path<span class="op">=</span>Path(<span class="st">&quot;/data/mission&quot;</span>),</span>
+<span id="cb34-7"><a href="#cb34-7" aria-hidden="true" tabindex="-1"></a>    log_path<span class="op">=</span>Path(<span class="st">&quot;/var/log/mirror&quot;</span>),</span>
+<span id="cb34-8"><a href="#cb34-8" aria-hidden="true" tabindex="-1"></a>    file_filters<span class="op">=</span>[<span class="st">&quot;.fits&quot;</span>],</span>
+<span id="cb34-9"><a href="#cb34-9" aria-hidden="true" tabindex="-1"></a>    parallel_downloads<span class="op">=</span><span class="va">True</span>,</span>
+<span id="cb34-10"><a href="#cb34-10" aria-hidden="true" tabindex="-1"></a>    cache_max_age<span class="op">=</span><span class="dv">7</span>,</span>
+<span id="cb34-11"><a href="#cb34-11" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb34-12"><a href="#cb34-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb34-13"><a href="#cb34-13" aria-hidden="true" tabindex="-1"></a><span class="cf">with</span> MirrorURL(config) <span class="im">as</span> mirror:</span>
+<span id="cb34-14"><a href="#cb34-14" aria-hidden="true" tabindex="-1"></a>    ok <span class="op">=</span> mirror.sync()  <span class="co"># returns True on success, False on failure</span></span>
+<span id="cb34-15"><a href="#cb34-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb34-16"><a href="#cb34-16" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;sync succeeded&quot;</span> <span class="cf">if</span> ok <span class="cf">else</span> <span class="st">&quot;sync failed&quot;</span>)</span></code></pre></div>
 <p>Use the context manager (<code>with</code>) to clean up connection
 pools, background workers, async components, and any health server.
 <code>sync()</code> is blocking; library construction leaves signal
@@ -1681,24 +1903,24 @@ handling. Freshness checks, resume rules, and cleanup policies are the
 same for CLI and library runs.</p>
 <p>Load configuration from a YAML/JSON file (<code>from_yaml</code>
 accepts JSON as YAML-compatible syntax):</p>
-<div class="sourceCode" id="cb32"><pre
-class="sourceCode python"><code class="sourceCode python"><span id="cb32-1"><a href="#cb32-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> pathlib <span class="im">import</span> Path</span>
-<span id="cb32-2"><a href="#cb32-2" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> mirror_url <span class="im">import</span> MirrorConfig, MirrorURL</span>
-<span id="cb32-3"><a href="#cb32-3" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb32-4"><a href="#cb32-4" aria-hidden="true" tabindex="-1"></a>config <span class="op">=</span> MirrorConfig.from_yaml(Path(<span class="st">&quot;mirror.yaml&quot;</span>))</span>
-<span id="cb32-5"><a href="#cb32-5" aria-hidden="true" tabindex="-1"></a><span class="cf">with</span> MirrorURL(config) <span class="im">as</span> mirror:</span>
-<span id="cb32-6"><a href="#cb32-6" aria-hidden="true" tabindex="-1"></a>    mirror.sync()</span></code></pre></div>
+<div class="sourceCode" id="cb35"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb35-1"><a href="#cb35-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> pathlib <span class="im">import</span> Path</span>
+<span id="cb35-2"><a href="#cb35-2" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> mirror_url <span class="im">import</span> MirrorConfig, MirrorURL</span>
+<span id="cb35-3"><a href="#cb35-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb35-4"><a href="#cb35-4" aria-hidden="true" tabindex="-1"></a>config <span class="op">=</span> MirrorConfig.from_yaml(Path(<span class="st">&quot;mirror.yaml&quot;</span>))</span>
+<span id="cb35-5"><a href="#cb35-5" aria-hidden="true" tabindex="-1"></a><span class="cf">with</span> MirrorURL(config) <span class="im">as</span> mirror:</span>
+<span id="cb35-6"><a href="#cb35-6" aria-hidden="true" tabindex="-1"></a>    mirror.sync()</span></code></pre></div>
 <p>Handle configuration errors:</p>
-<div class="sourceCode" id="cb33"><pre
-class="sourceCode python"><code class="sourceCode python"><span id="cb33-1"><a href="#cb33-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> pathlib <span class="im">import</span> Path</span>
-<span id="cb33-2"><a href="#cb33-2" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> pydantic <span class="im">import</span> ValidationError</span>
-<span id="cb33-3"><a href="#cb33-3" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> mirror_url <span class="im">import</span> MirrorConfig</span>
-<span id="cb33-4"><a href="#cb33-4" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> mirror_url.exceptions <span class="im">import</span> ConfigError</span>
-<span id="cb33-5"><a href="#cb33-5" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb33-6"><a href="#cb33-6" aria-hidden="true" tabindex="-1"></a><span class="cf">try</span>:</span>
-<span id="cb33-7"><a href="#cb33-7" aria-hidden="true" tabindex="-1"></a>    cfg <span class="op">=</span> MirrorConfig(base_url<span class="op">=</span><span class="st">&quot;ftp://nope&quot;</span>, dest_path<span class="op">=</span>Path(<span class="st">&quot;d&quot;</span>), log_path<span class="op">=</span>Path(<span class="st">&quot;l&quot;</span>))</span>
-<span id="cb33-8"><a href="#cb33-8" aria-hidden="true" tabindex="-1"></a><span class="cf">except</span> (ConfigError, ValidationError) <span class="im">as</span> e:</span>
-<span id="cb33-9"><a href="#cb33-9" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(<span class="st">&quot;bad config:&quot;</span>, e)</span></code></pre></div>
+<div class="sourceCode" id="cb36"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb36-1"><a href="#cb36-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> pathlib <span class="im">import</span> Path</span>
+<span id="cb36-2"><a href="#cb36-2" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> pydantic <span class="im">import</span> ValidationError</span>
+<span id="cb36-3"><a href="#cb36-3" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> mirror_url <span class="im">import</span> MirrorConfig</span>
+<span id="cb36-4"><a href="#cb36-4" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> mirror_url.exceptions <span class="im">import</span> ConfigError</span>
+<span id="cb36-5"><a href="#cb36-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb36-6"><a href="#cb36-6" aria-hidden="true" tabindex="-1"></a><span class="cf">try</span>:</span>
+<span id="cb36-7"><a href="#cb36-7" aria-hidden="true" tabindex="-1"></a>    cfg <span class="op">=</span> MirrorConfig(base_url<span class="op">=</span><span class="st">&quot;ftp://nope&quot;</span>, dest_path<span class="op">=</span>Path(<span class="st">&quot;d&quot;</span>), log_path<span class="op">=</span>Path(<span class="st">&quot;l&quot;</span>))</span>
+<span id="cb36-8"><a href="#cb36-8" aria-hidden="true" tabindex="-1"></a><span class="cf">except</span> (ConfigError, ValidationError) <span class="im">as</span> e:</span>
+<span id="cb36-9"><a href="#cb36-9" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(<span class="st">&quot;bad config:&quot;</span>, e)</span></code></pre></div>
 <p>Useful exported names: <code>MirrorURL</code>,
 <code>MirrorConfig</code>, <code>load_config_from_args</code>,
 <code>main</code>, and the exception types (<code>MirrorError</code>,
@@ -1748,8 +1970,8 @@ the completion summary when an interruption occurred rather than
 treating that exit code as proof that all files were mirrored. The
 Python API returns a boolean from <code>sync()</code> instead of setting
 a process exit code.</p>
-<div class="sourceCode" id="cb34"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb34-1"><a href="#cb34-1" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--config</span> mirror.yaml <span class="kw">&amp;&amp;</span> <span class="bu">echo</span> <span class="st">&quot;OK&quot;</span> <span class="kw">||</span> <span class="bu">echo</span> <span class="st">&quot;FAILED (</span><span class="va">$?</span><span class="st">)&quot;</span></span></code></pre></div>
+<div class="sourceCode" id="cb37"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb37-1"><a href="#cb37-1" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--config</span> mirror.yaml <span class="kw">&amp;&amp;</span> <span class="bu">echo</span> <span class="st">&quot;OK&quot;</span> <span class="kw">||</span> <span class="bu">echo</span> <span class="st">&quot;FAILED (</span><span class="va">$?</span><span class="st">)&quot;</span></span></code></pre></div>
 <hr />
 <h2 id="troubleshooting">Troubleshooting</h2>
 <p><strong>"Hostname resolves to private IP" / connection refused to
@@ -1769,6 +1991,15 @@ in your config), increase <code>--request-delay</code>, reduce
 single file or a JS-rendered page). Check your <code>--filter</code>
 isn't excluding everything, and try <code>--debug</code> to see the
 parsed links and scope decisions.</p>
+<p><strong>"Distinct remote URLs map to the same local filename" /
+case-only names.</strong> The selected suffix stopped before file
+downloads. Neither conflicting file is chosen; other files in that
+suffix are also not transferred. See <a
+href="#filename-collisions-and-download-behavior">Filename collisions
+and download behavior</a> for the NASA example, the filesystem-aware
+behavior, and how a case-sensitive destination preserves both original
+files. A probe/inspection failure also requires resolving destination
+access before retrying.</p>
 <p><strong>Parallel mode isn't kicking in.</strong> Chunking needs a
 known file size of at least <code>--min-chunk-size</code>, byte Range
 support, and a strong ETag. Otherwise MirrorURL uses whole-file
@@ -1783,10 +2014,10 @@ lives) and you're not passing <code>--no-cache</code> /
 <code>--refresh-cache</code>.</p>
 <hr />
 <h2 id="uninstalling">Uninstalling</h2>
-<div class="sourceCode" id="cb35"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb35-1"><a href="#cb35-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> uninstall mirror-url</span>
-<span id="cb35-2"><a href="#cb35-2" aria-hidden="true" tabindex="-1"></a><span class="co"># or, if installed with pipx:</span></span>
-<span id="cb35-3"><a href="#cb35-3" aria-hidden="true" tabindex="-1"></a><span class="ex">pipx</span> uninstall mirror-url</span></code></pre></div>
+<div class="sourceCode" id="cb38"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb38-1"><a href="#cb38-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> uninstall mirror-url</span>
+<span id="cb38-2"><a href="#cb38-2" aria-hidden="true" tabindex="-1"></a><span class="co"># or, if installed with pipx:</span></span>
+<span id="cb38-3"><a href="#cb38-3" aria-hidden="true" tabindex="-1"></a><span class="ex">pipx</span> uninstall mirror-url</span></code></pre></div>
 <p>Generated logs, the JSON cache under <code>--log-path</code>,
 mirrored data and partial state under <code>--dest-path</code>, and
 per-user domain-health metadata are left in place. Domain-health

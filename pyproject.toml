@@ -48,7 +48,8 @@ dependencies = [
 fast = ["stringzilla>=3.0", "lxml>=4.9"]
 progress = ["tqdm>=4.65"]
 monitor = ["psutil>=5.9"]
-all = ["stringzilla>=3.0", "lxml>=4.9", "tqdm>=4.65", "psutil>=5.9"]
+aiohttp = ["aiohttp>=3.10,<4"]
+all = ["stringzilla>=3.0", "lxml>=4.9", "tqdm>=4.65", "psutil>=5.9", "aiohttp>=3.10,<4"]
 
 # Development / CI toolchain.
 dev = [

@@ -35,6 +35,7 @@ if TYPE_CHECKING:  # pragma: no cover - declarations have no runtime implementat
     from ..queue import DownloadQueue
     from ..rate_limiter import BandwidthLimiter, PerIPRateLimiter
     from ..scanner import DirectoryScanner
+    from ..scratch import OwnedScratch
     from ..security import SymlinkTracker
     from ..storage import DiskBackedSet, FileSystemCache
     from ..tuner import AutoConcurrencyTuner
@@ -84,6 +85,7 @@ if TYPE_CHECKING:  # pragma: no cover - declarations have no runtime implementat
         disk_manager: Optional[DiskSpaceManager]
         performance_monitor: PerformanceMonitor
         partial_manager: Optional[PartialDownloadManager]
+        scratch_manager: Optional[OwnedScratch]
         health_checker: HealthChecker
         multi_progress: MultiLevelProgress
         per_ip_limiter: PerIPRateLimiter

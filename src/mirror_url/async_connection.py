@@ -74,7 +74,7 @@ class AsyncConnectionManager:
         if config.circuit_breaker_enabled:
             self.circuit_breaker_manager = CircuitBreakerManager()
         self._closed = False
-        self.rate_limiter = PerIPRateLimiter() if config.security_validation else None
+        self.rate_limiter = PerIPRateLimiter(config.requests_per_second, config.request_delay)
 
     async def __aenter__(self):
         """Context manager entry"""
@@ -442,7 +442,7 @@ class AdaptiveAsyncManager:
             self.circuit_breaker_manager = CircuitBreakerManager()
         self._pending_concurrency: Optional[int] = None
         self._last_concurrency_change: float = 0.0
-        self.rate_limiter = PerIPRateLimiter() if config.security_validation else None
+        self.rate_limiter = PerIPRateLimiter(config.requests_per_second, config.request_delay)
         self._client_initialized = False  # Add this flag
         # FIX: shared concurrency-limit semaphore. Previously each call
         # created its own asyncio.Semaphore(self._current_concurrency),

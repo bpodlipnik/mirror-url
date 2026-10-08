@@ -347,6 +347,29 @@ A full mirror run is driven by `ReportMixin.sync()`. The high-level path:
    set (cycle-safe). Directory listings are parsed by `parsing.py`. Results feed
    in-memory parsed-listing caches. The resulting remote file list is
    deduplicated and preflighted for unsafe, reserved, or colliding local paths.
+   `ReportMixin.sync()` calls `_validate_remote_paths()` before per-file
+   comparison and downloads. `filename_mapping.FilenameMap` checks every file
+   and directory prefix. Unicode-normalized aliases and exact file/directory
+   conflicts remain rejected. Case-folded candidate pairs trigger an actual
+   filesystem probe in their parent (or nearest existing ancestor). A confirmed
+   case-sensitive parent permits distinct original spellings; an insensitive
+   parent fails. Parent caches use spelling-preserving tuples because Windows
+   `Path` equality folds case even for case-sensitive directories. Existing
+   directory entries are checked against requested names so an insensitive
+   lookup cannot overwrite or skip a differently capitalized local file.
+   The random exclusive probe is removed only after confirming its regular
+   file type, single link and original device/inode; unexpected entries are
+   preserved and inspection/probe failures fail closed. A preflight
+   exception is caught by `sync()`, which logs a fatal error and returns
+   `False`: no file in the affected suffix is downloaded, and obsolete-file
+   cleanup is not reached. Discovery-only listing modes bypass this check.
+   Lossy-name, reserved-state and unsafe-path rejection remain in place.
+   Probe checks also run during dry-run preflight. This unreleased behavior
+   differs from published 3.1.79's unconditional case-fold collision rejection.
+   The [User Guide](./USER_GUIDE.md#filename-collisions-and-download-behavior)
+   documents the NASA pair and the storage and preflight requirements for
+   preserving both original files. Directory exclusion reduces the mirrored
+   scope and does not resolve complete mirroring.
 4. **Compare (`CompareMixin`).** For each remote file, decide whether the local
    copy is current using a shared sync/async size, timestamp, and ETag policy.
    Cached ETags require matching local size/mtime/ctime metadata, and directory
@@ -452,6 +475,35 @@ precedence tests. Keep those observable contracts intact during refactoring.
 ---
 
 ## The configuration system
+
+The unreleased transfer configuration adds `mode` (`mirror` or `download`),
+`backend` (`httpx` or `aiohttp`), `url_list`, `overwrite` and
+`requests_per_second`. The default rate remains 20 requests/second with 50 ms
+minimum spacing. `effective_request_interval` is the maximum of both limits;
+zero for both explicitly requests unpaced traffic. Neither option changes
+security policy. CLI overrides use the existing explicit-argument precedence
+rules for YAML/JSON too.
+
+`transfers.py` owns the shared async whole-file pipeline. Its backend adapters
+provide raw bytes and response headers; the controller owns redirects, a
+monotonic request budget, aggregate bandwidth, fixed workers, full filename
+preflight, disk headroom, retry bounds, scratch leases and atomic publication.
+The HTTPX adapter uses `SecureAsyncTransport`; the optional aiohttp resolver
+returns the validated public address directly to its connector, preserving the
+original hostname for Host and TLS. aiohttp requests retain encoded URL paths,
+use HTTP/1.1 and disable implicit redirects, decompression, cookies and proxies.
+
+`download_url_list(MirrorConfig(mode="download", ...))` takes destination/log
+ownership before creating state. Receipts are namespaced by the scoped base URL
+under `.mirror-url-state`, and existing payloads require a matching receipt or
+explicit overwrite. It never calls the scanner or metadata freshness layer.
+`ReportMixin.sync()` uses the same pipeline for `backend="aiohttp"` after its
+normal discovery and checks, then saves results through `CacheManager`.
+HTTPX remains the default mirror implementation, including ranged resume and
+chunks. The whole-file pipeline preserves those existing partials.
+
+The new candidate needs its own CI and full qualification runs. Frozen
+validation of an older source snapshot does not cover this implementation.
 
 `MirrorConfig` is the validated pydantic runtime model, including Paths, enums,
 flags and numeric bounds. `ConfigSchema` is a compatibility alias for this same
@@ -727,8 +779,9 @@ statement/branch coverage overall. It additionally requires 100% statement and
 branch coverage separately for `download.py` and `download_integrity.py`, using
 the exact missing counts in the JSON report. It uploads HTML, JSON, and XML
 reports. The safety gate separately requires 100% statements and branches for
-`scanner.py`, `_core/scan.py`, `_core/urls.py`, `_core/cleanup.py`, `security.py`
-`transport.py`, `destination_lock.py` and `scratch.py`, plus `utils.url_within_scope` and `utils._relative_url_path`.
+`scanner.py`, `_core/scan.py`, `_core/urls.py`, `_core/cleanup.py`, `security.py`,
+`filename_mapping.py`, `transport.py`, `destination_lock.py` and `scratch.py`,
+plus `utils.url_within_scope` and `utils._relative_url_path`.
 It uses exact missing counts and checks helper exclusions; unrelated uncovered
 utility functions do not get hidden or counted as covered.
 
@@ -736,12 +789,19 @@ Hypothesis generates once-decoded path identities, origin boundaries and nested
 traversal encodings. Filesystem tests inject permission, resolution, listing and
 move failures, and assert preserved source and archive bytes. Local HTTP tests
 assert that malformed listings and lossy filenames fail before destructive
-cleanup or publication. The mutation check temporarily weakens thirteen guards:
+cleanup or publication. `test_filename_mapping.py` checks the native filesystem
+and can use a separately mounted case-sensitive APFS test image through
+`MIRROR_URL_CASE_TEST_VOLUME`. Real HTTP tests preserve both NASA-style names,
+different contents and separate receipts through all modes and repeat syncs;
+insensitive filesystem tests require failure before any selected file payload.
+Additional tests preserve preexisting aliases and replaced/shared probe entries.
+The mutation check temporarily weakens sixteen guards:
 mixed DNS rejection, archive collision rejection, incomplete-scan cleanup,
 same-origin scope, address pinning, lossy filename preflight and content receipt
 verification, the long-hash deadline policy, destination locking and retention
 of abandoned-worker ownership, scratch manifest ownership, live work leases and
-late chunk writer cleanup. Each selected
+late chunk writer cleanup, case-insensitive filename collision rejection,
+probe inode identity and preservation of existing filename aliases. Each selected
 test must first pass against the original source and then fail an assertion
 against the mutation. Collection or environment errors do not count as success.
 These checks improve evidence of correctness; neither 100% coverage nor this

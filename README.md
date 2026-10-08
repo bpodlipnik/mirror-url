@@ -9,7 +9,8 @@ discovers files behind an HTTP(S) directory listing and mirrors them locally
 with adaptive concurrency, resumable/partial downloads, integrity verification,
 and an SSRF-hardened transport layer.
 
-The development checkout includes `--verify-content` and destination locking;
+The development checkout includes `--verify-content`, destination locking,
+known-URL downloads, configurable request ceilings and an optional aiohttp backend;
 these changes are not in the published 3.1.79 package yet. See
 [the unreleased changelog](CHANGELOG.md#unreleased).
 
@@ -24,8 +25,11 @@ these changes are not in the published 3.1.79 package yet. See
 - **Destination ownership** — cooperating processes reject overlapping local trees and shared cache/state paths; hard process termination releases ownership automatically.
 - **Crash recovery** — the next owner reclaims recorded abandoned parallel chunks and staging under reserved state; live writers, unknown files and legitimate MOVE archives are preserved.
 - **Security** — path-traversal and symlink-bomb defenses, private-IP/SSRF guards, URL-scope enforcement.
+- **Filename preflight** — preserve distinct original names on a confirmed case-sensitive destination; reject case collisions on a case-insensitive destination before downloads. Rewritten, unsafe and Unicode-aliased paths remain blocked; see [download behavior and preserving original names](docs/USER_GUIDE.md#filename-collisions-and-download-behavior).
 - **Operability** — metrics collection, multi-level progress, optional HTTP health-check server.
 - **Caching** — directory listings and file metadata; discovery currently keeps the remote file list in memory.
+- **Known-URL downloads (unreleased)** — `--mode download --url-list urls.txt` streams an exact list without discovery or freshness probes. Both HTTPX and optional aiohttp use the same destination, scope, staging and receipt checks.
+- **Explicit pacing (unreleased)** — `--requests-per-second` and `--request-delay` control the request budget independently of security checks.
 
 ## Installation
 
@@ -61,10 +65,30 @@ mirror-url --help
 
 Core dependencies: `httpx[http2]`, `pydantic` (v2), `PyYAML`, `portalocker`
 (including `pywin32` on Windows). Optional extras:
-`fast` (stringzilla, lxml), `progress` (tqdm), `monitor` (psutil), and `all`
+`fast` (stringzilla, lxml), `progress` (tqdm), `monitor` (psutil),
+unreleased `aiohttp` (the whole-file backend), and `all`
 (all optional runtime packages). Contributor setup is described below.
 
 ## Usage
+
+For an exact, pre-built list, the development checkout also supports:
+
+```bash
+# Install the optional backend from this checkout, in your development venv.
+python -m pip install -e ".[aiohttp]"
+python -m mirror_url --mode download --backend aiohttp \
+  --url https://example.org/files/ --url-list urls.txt \
+  --dest-path ./downloads --log-path ./logs --concurrency 20 \
+  --requests-per-second 0 --request-delay 0 --verify-content
+```
+
+`urls.txt` contains one absolute URL per line below the selected base URL.
+The two zero pacing values explicitly remove the default 20 requests/second
+ceiling and 50 ms spacing. TLS verification, public-IP DNS validation, redirect
+scope, safe filename mapping and atomic publication stay enabled. Existing
+files need a matching ownership receipt or explicit `--overwrite`. See
+[known-URL downloads](docs/USER_GUIDE.md#known-url-downloads-unreleased) for limits
+and the HTTPX equivalent.
 
 Run via the console entry point or the module:
 

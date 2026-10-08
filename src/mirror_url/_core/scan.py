@@ -13,7 +13,6 @@ import re
 import socket
 import sys
 import time
-import unicodedata
 from collections import deque
 from pathlib import Path
 from re import error as re_error
@@ -25,6 +24,7 @@ import httpx
 from ..decorators import log_performance
 from ..destination_lock import destination_operation
 from ..enums import MemoryPressure
+from ..filename_mapping import FilenameMap
 from ..security import PathSafety
 from ..utils import _relative_url_path, sanitize_url_for_log, trim_url, url_within_scope
 
@@ -326,6 +326,7 @@ class ScanMixin(MirrorHost):
     def _validate_remote_paths(self, remote_files):
         """Refuse lossy or reserved filename mappings before downloading."""
         destinations = {}
+        filenames = FilenameMap(self.target_dir)
         lossy_mapping = False
         for remote_url in remote_files:
             local = self._get_local_path_from_url(remote_url)
@@ -334,7 +335,7 @@ class ScanMixin(MirrorHost):
                 or local.relative_to(self.target_dir).parts[0].casefold() == ".mirror-url-state"
             ):
                 raise ValueError("Remote file has an unsafe or reserved local path")
-            key = unicodedata.normalize("NFC", str(local)).casefold()
+            key = filenames.key(local)
             if key in destinations and destinations[key] != remote_url:
                 raise ValueError("Distinct remote URLs map to the same local filename")
             destinations[key] = remote_url

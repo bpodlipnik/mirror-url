@@ -189,6 +189,7 @@ class ParallelDownloadManager:
         )
 
         self.rate_limiter = ChunkAwareRateLimiter(
+            requests_per_second=config.requests_per_second,
             delay=config.request_delay,
             per_ip=config.security_validation,
             disable_scaling=disable_scaling,

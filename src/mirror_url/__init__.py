@@ -27,6 +27,7 @@ from .exceptions import (
     SecurityError,
     URLScopeError,
 )
+from .transfers import download_url_list
 
 __all__ = [
     "__version__",
@@ -34,6 +35,7 @@ __all__ = [
     "MirrorURL",
     "MirrorConfig",
     "load_config_from_args",
+    "download_url_list",
     "main",
     "MirrorError",
     "MirrorConnectionError",

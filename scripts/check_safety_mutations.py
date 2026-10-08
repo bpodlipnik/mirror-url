@@ -15,6 +15,34 @@ from pathlib import Path
 
 MUTATIONS = (
     (
+        "whole-file staging hash identity",
+        "transfers.py",
+        "if _identity(staging) != staged_identity:",
+        "if False:",
+        "tests/test_transfer_backends.py::test_staging_replaced_after_hash_never_publishes_wrong_receipt[httpx-True]",
+    ),
+    (
+        "whole-file staging publication identity",
+        "transfers.py",
+        "current_staging[:3] != staged_identity[:3]",
+        "False",
+        "tests/test_transfer_backends.py::test_staging_change_during_timestamp_update_is_preserved[httpx]",
+    ),
+    (
+        "whole-file redirect scope",
+        "transfers.py",
+        "if not url_within_scope(url, scope):",
+        "if False:",
+        "tests/test_transfer_backends.py::test_outside_redirect_is_never_contacted[httpx-/outside/a]",
+    ),
+    (
+        "whole-file concurrent destination change",
+        "transfers.py",
+        "if checked != local or _identity(local) != original:",
+        "if False:",
+        "tests/test_transfer_backends.py::test_destination_changed_during_transfer_is_preserved[httpx]",
+    ),
+    (
         "mixed DNS",
         "security.py",
         "if private_ips:",
@@ -55,6 +83,27 @@ MUTATIONS = (
         "if lossy_mapping:",
         "if False:",
         "tests/test_http_mirror_workflows.py::test_lossy_filename_cannot_overwrite_an_unrelated_local_file",
+    ),
+    (
+        "case-insensitive filename collision",
+        "filename_mapping.py",
+        "if not self.sensitivity[parent.parts]:",
+        "if False:",
+        "tests/test_filename_mapping.py::test_case_insensitive_preflight_rejects_file_and_directory_aliases",
+    ),
+    (
+        "case probe replaced inode",
+        "filename_mapping.py",
+        "or (current.st_dev, current.st_ino) != (owned.st_dev, owned.st_ino)",
+        "or False",
+        "tests/test_filename_mapping.py::test_probe_never_deletes_replaced_or_shared_entries",
+    ),
+    (
+        "existing local filename alias",
+        "filename_mapping.py",
+        "and name not in existing",
+        "and False",
+        "tests/test_filename_mapping.py::test_existing_alias_lookup_cannot_bypass_preflight",
     ),
     (
         "local content receipt",
