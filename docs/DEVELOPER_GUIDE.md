@@ -405,8 +405,7 @@ A full mirror run is driven by `ReportMixin.sync()`. The high-level path:
    `False`: no file in the affected suffix is downloaded, and obsolete-file
    cleanup is not reached. Discovery-only listing modes bypass this check.
    Lossy-name, reserved-state and unsafe-path rejection remain in place.
-   Probe checks also run during dry-run preflight. The 3.2.0 behavior
-   differs from 3.1.79's unconditional case-fold collision rejection.
+   Probe checks also run during dry-run preflight.
    The [User Guide](./USER_GUIDE.md#filename-collisions-and-download-behavior)
    documents the NASA pair and the storage and preflight requirements for
    preserving both original files. Directory exclusion reduces the mirrored
@@ -442,9 +441,22 @@ A full mirror run is driven by `ReportMixin.sync()`. The high-level path:
 
 ## Runtime guarantees and compatibility
 
-These invariants are part of the current implementation, regardless of which
-release introduced them:
+These invariants are part of the current implementation:
 
+- **URL identity:** discovery, mapping, exclusions and cleanup share
+  `utils._relative_url_path()`: parse with `urlsplit`, validate origin and
+  traversal, and decode path identity once. Repeated decoding only detects
+  traversal; query/fragment text never becomes a local filename. Directory
+  classification uses the parsed path, and BFS deduplicates directory aliases
+  independently of query strings. URL decode errors reject the request.
+- **Local paths:** construction validates the selected destination before
+  starting managers or resolving local symlinks away. The fixed macOS `/var`,
+  `/tmp` and `/etc` aliases are accepted; user destination/suffix symlinks are
+  rejected, and descendant/leaf symlinks block mapping. Remote-path preflight
+  rejects truncation, control-character removal and reserved-name rewriting
+  before downloads. Cooperative locks coordinate participating MirrorURL
+  processes; local path checks do not isolate the filesystem from external
+  writers changing the tree.
 - **Publication:** whole-file partials use an owned `.mirror-url-state/` below
   the target directory; final assembly and streaming staging stay on the
   destination filesystem. Verification precedes `os.replace`, so failures
@@ -459,7 +471,12 @@ release introduced them:
 - **Cleanup:** walk the local tree once, preserve excluded/depth-limited and
   skipped-symlink paths, local symlinks, and reserved state. Incomplete scans
   suppress obsolete-file actions. A complete empty scan may clean the selected
-  local files. MOVE failures preserve their source and do not become deletion.
+  local files. Unsafe expected paths fail the run and suppress cleanup. MOVE
+  checks archive destinations before creating parents and again after selecting
+  a collision name; symlinked archives and occupied timestamp names fail while
+  preserving source/archive bytes. Directory inspection and removal exceptions
+  contribute to cleanup failure metrics and fail the sync. MOVE failures
+  preserve their source and do not become deletion.
 - **Response ownership:** streamed sync requests keep their coordinator lease
   until the body/response is closed. Always close responses on success, error,
   cancellation, and retry paths.
@@ -517,7 +534,7 @@ precedence tests. Keep those observable contracts intact during refactoring.
 
 ## The configuration system
 
-The 3.2.0 transfer configuration adds `mode` (`mirror` or `download`),
+Transfer configuration includes `mode` (`mirror` or `download`),
 `backend` (`httpx` or `aiohttp`), `url_list`, `overwrite` and
 `requests_per_second`. The default rate remains 20 requests/second with 50 ms
 minimum spacing. `effective_request_interval` is the maximum of both limits;
@@ -525,7 +542,7 @@ zero for both explicitly requests unpaced traffic. Neither option changes
 security policy. CLI overrides use the existing explicit-argument precedence
 rules for YAML/JSON too.
 
-The 3.2.1 single-URL shortcut adds `download_url` as an alternative to
+The single-URL shortcut uses `download_url` as an alternative to
 `url_list`. `--mode download FILE_URL` supplies the parent URL, current working
 directory and a destination-specific system temporary log folder only for
 omitted target fields. Explicit scope/paths win. CLI source selection clears
@@ -578,7 +595,9 @@ expansion leaves unset `${VAR}` placeholders intact. Logging handler setup is
 controlled by CLI logging flags, rather than config-file verbosity fields.
 For listing modes, CLI-only runs supply scratch paths and a shallow directory
 depth; config-file runs still require URL/destination/log fields and use their
-model/file depth unless explicitly overridden.
+model/file depth unless explicitly overridden. Library/config-file listing
+modes are validated, and an explicit CLI listing choice disables the opposing
+file mode.
 
 ---
 
@@ -591,7 +610,14 @@ convenience. Both accept a `test_mode` flag that relaxes the guard; this is how
 integration tests hit a local server (see [Testing](#testing)). Note the flag is
 not wired from `MirrorConfig` and should remain test-only. Existing HTTP tests
 install scoped `monkeypatch` transport bypasses or replace the fixture's pooled
-client; they need no new production configuration flag.
+client; they need no new production configuration flag. DNS validation
+classifies every returned answer, including IPv6 link-local addresses, and
+rejects mixed public/non-public results. URL decode exceptions reject requests.
+
+**Directory parsing (`parsing.py`).** Lightweight-parser selection when lxml
+is unavailable is independent of the lxml-failure fallback flag. Disabling
+`fast_parsing_fallback` does not require lxml to be installed. Scanner HTML
+statistics read the live `CacheManager` cache.
 
 **Circuit breakers (`circuit_breaker.py`).** `CircuitBreakerManager` keeps one
 breaker per domain, created lazily via `get_breaker(domain)`. State transitions
@@ -610,6 +636,9 @@ The standalone `submit_to_shared_pool()` helper rechecks its condition after
 every wakeup and rejects submission during shutdown. Completion includes failed
 and cancelled jobs; each contributes once to the failure count. Its `queue_size`
 argument is accepted for compatibility and does not bound pending submissions.
+`use_shared_thread_pool` enables the coordinator's chunk pool; file transfers
+and metadata comparisons retain separate executors. The ordinary chunk path
+reuses the raw executor and acquires its own coordinator leases.
 
 **Async path (`async_connection.py`).** `AdaptiveAsyncManager` tunes its
 concurrency from measured RTT, throughput, and error rate; `AsyncTaskManager`
@@ -1063,42 +1092,3 @@ Preserve these constraints when extending or refactoring the current code.
 
 *This guide describes the architecture as of version 3.2.1. When you change the
 structure, update this document in the same PR.*
-
-## Release 3.1.78 behavior
-
-Discovery, mapping, exclusions and cleanup share `utils._relative_url_path()`:
-parse with `urlsplit`, validate origin and traversal, and decode path identity
-once. Repeated decoding only detects traversal; query/fragment text never becomes
-a local filename. Directory classification uses the parsed path. BFS deduplicates
-directory aliases independently of query strings. Cleanup reuses the mapper and
-fails closed if any expected path is unsafe.
-
-The constructor validates the selected destination before starting managers or
-resolving local symlinks away. The fixed macOS `/var`, `/tmp` and `/etc` aliases
-are accepted; user destination/suffix symlinks are rejected. Descendant and leaf
-symlinks still block mapping. Library/config-file listing modes are validated,
-and an explicit CLI listing choice disables the opposing file mode.
-
-Lightweight-parser selection without lxml is independent of the lxml-failure
-fallback flag. Shared-pool submissions recheck admission after wakeup, stop on
-shutdown, and count each failed/cancelled completion once. The ordinary chunk
-path reuses the raw executor and acquires its own coordinator leases.
-Unreachable async dry-run/404 branches, orphaned private helpers and the empty
-scanner HTML cache were removed. Scanner HTML statistics now read the live
-CacheManager cache. Public compatibility fields and framework hooks remain.
-Local path checks assume the destination tree is not concurrently mutated by
-another process; they do not provide filesystem isolation against such a process.
-
-## Release 3.1.79 behavior
-
-Remote-path preflight rejects mappings that change the once-decoded filename,
-including truncation, control-character removal and reserved-name rewriting,
-before any download. Archive destinations are checked before creating parents
-and again after selecting a collision name. Existing timestamp names and
-symlinked archive paths fail the move while preserving source/archive bytes.
-Directory inspection and removal exceptions contribute to cleanup failure
-metrics, which fail the sync run.
-
-DNS validation classifies every returned answer, including IPv6 link-local
-addresses. URL decode exceptions reject the request. The safety coverage and
-mutation gates and native CI lanes described above are release requirements.
