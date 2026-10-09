@@ -192,7 +192,7 @@ mirror-url --config mirror.yaml
 ## Command-line usage
 
 Either supply `--url`, `--dest-path`, and `--log-path`, **or** point at a config
-file with `--config`. Version 3.2.1 also supports
+file with `--config`. You can also use
 `mirror-url --mode download FILE_URL` with shortcut defaults, described under
 [known-URL downloads](#known-url-downloads).
 Run `mirror-url --help` for the complete, authoritative list of options.
@@ -955,14 +955,14 @@ aliases and external writers need separate coordination.
 
 ## Known-URL downloads
 
-URL-list mode is available from version 3.2.0. It downloads every selected URL
+URL-list mode downloads every selected URL
 with a whole-file GET; it performs no discovery, HEAD freshness checks,
 ETag reuse or ranged resume. It never deletes obsolete local files. Use normal
 mirror mode when you need incremental synchronization.
 
 ### One file URL
 
-The direct shortcut is available from version 3.2.1:
+Use the direct shortcut to download one file:
 
 ```bash
 mirror-url --mode download https://example.org/files/a.fits
@@ -1238,14 +1238,13 @@ store both names as separate files. A case-sensitive Linux filesystem or
 case-sensitive APFS volume can store both; an existing Linux mirror can
 therefore contain both originals.
 
-**Filesystem-aware behavior in 3.2.0:** MirrorURL checks the destination
+**Filesystem-aware behavior:** MirrorURL checks the destination
 when selected names differ only by case. On a confirmed case-sensitive
 destination, it downloads both files with their original capitalization and
 keeps their content receipts separate. On a case-insensitive destination, the
 pair fails preflight before any file payload in that suffix is downloaded.
 There is no option to choose whichever file arrives first or overwrite one
-with the other. The 3.1.79 preflight rejects selected case-only pairs on every
-filesystem; upgrade to 3.2.0 for filesystem-aware handling.
+with the other.
 
 The check also covers directory names such as `DAILY/one.pro` and
 `daily/two.pro`. If a requested filename already resolves to a differently
@@ -1322,8 +1321,11 @@ Other mapping problems also fail preflight: Unicode-normalized name aliases,
 names that would be truncated or rewritten by sanitization, unsafe local paths,
 and collisions with reserved `.mirror-url-state` storage. A repeated identical
 remote URL is deduplicated; distinct URLs that collide are not deduplicated by
-content, even if their bytes happen to match. Case-insensitive `--filter`
-matching cannot select just one of the two example filenames by capitalization.
+content, even if their bytes happen to match. Control characters and Windows
+reserved names are rejected rather than rewritten. If the configured filename
+length limit is too small, increase `--max-filename-len` or narrow the selection.
+Case-insensitive `--filter` matching cannot select just one of the two example
+filenames by capitalization.
 
 For a multi-suffix CLI invocation, failure of one suffix does not roll back
 earlier successful suffixes. Other suffixes may still run, and the overall CLI
@@ -1356,9 +1358,8 @@ contents are unchanged. Without usable file ETags, checks fall back to size and
 the server's `Last-Modified` header when available; changes that preserve those
 values can be missed. No remote cryptographic digest comparison is performed.
 
-Version 3.2.0 adds `--verify-content` (or `verify_content: true` in
-YAML) to detect local changes
-even when file sizes and timestamps still match. This mode saves a SHA-256
+Use `--verify-content` (or `verify_content: true` in YAML) to detect local
+changes even when file sizes and timestamps still match. This mode saves a SHA-256
 receipt of each completed staging file **before** atomic publication, then
 hashes existing local files before trusting freshness metadata. A missing,
 expired, malformed or mismatched receipt requires a new download. Enabling it
@@ -1376,10 +1377,10 @@ the metadata-only async check/batch deadlines. Slow storage can lengthen a run.
 Content verification proves agreement with the saved local receipt. Remote
 freshness still depends on the server's HTTP validators, size and modification
 time; a remote change that preserves those values can be missed. This mode does
-not compare against a server-provided cryptographic checksum. Give each
-destination to one mirror process at a time and avoid external edits during a
-run: there is no interprocess destination lock, and arbitrary concurrent writes
-are outside the guarantee.
+not compare against a server-provided cryptographic checksum. Cooperative
+destination locks prevent overlap between participating MirrorURL processes,
+but do not isolate the filesystem from other writers. Avoid external edits
+during a run; see [Concurrent runs and destination ownership](#concurrent-runs-and-destination-ownership).
 
 Parsed HTML listings also have bounded **in-memory** caches. They are not
 restored from disk on a new process launch. `--html-cache-max-age` controls their
@@ -1431,7 +1432,8 @@ Cleanup only acts within the current scan selection. Files excluded by
 filters, directory exclusions, depth limits, or skipped symlink subtrees are
 preserved, as are local symlinks and `.mirror-url-state/`. A complete empty scan can
 clean the selected local files; an incomplete scan skips cleanup and fails the
-run. Cleanup operation failures also fail the run.
+run. Directory inspection, removal and other cleanup operation failures also
+fail the run.
 If the MOVE archive cannot be created, cleanup stops; a failed move leaves
 the source in place and never falls back to deletion.
 MOVE also refuses symlinked archive paths and existing timestamp collision
@@ -1476,8 +1478,22 @@ MirrorURL ships with security protections **enabled by default**:
 > validation. There is no production option for mirroring private or local
 > servers.
 
+Discovery, local filename mapping and cleanup use the same validated,
+once-decoded URL paths. Equivalent percent-encoded roots are accepted; literal
+percent escapes and semicolons in filenames are preserved. Query parameters
+do not turn directory links into files. Invalid URL decoding or unsafe expected
+paths fail the run and suppress obsolete-file cleanup. DNS checks reject a
+response containing any non-public address, including a mix of public and
+link-local answers.
+
+Local symlinks in a selected destination root are rejected before managers
+start; leaf and descendant symlinks block file mapping. The fixed macOS `/var`,
+`/tmp` and `/etc` system aliases are accepted. Local path checks do not protect
+against another process changing the destination tree during a run.
+
 Symlink handling is off by default; see [Symlink handling](#symlink-handling)
-below for how it works and how to use it.
+below for how it works and how to use it. Remote directory-duplicate handling
+does not permit writes through local symlinks.
 
 ---
 
@@ -1732,37 +1748,3 @@ state under `--dest-path`, and per-user domain-health metadata are left in
 place. Domain-health metadata lives under `$XDG_CACHE_HOME/mirror-url/`
 (or `~/.cache/mirror-url/`) on POSIX and under the local application-data
 `mirror-url/` directory on Windows. Remove these manually if desired.
-
-## Release 3.1.78 behavior
-
-Version 3.1.78 uses the same validated, once-decoded URL paths for discovery,
-local mapping and cleanup. Equivalent percent-encoded roots are accepted;
-literal percent escapes and semicolons in filenames are preserved. Directory
-links with query parameters are traversed as directories. Unsafe expected
-paths suppress obsolete-file cleanup and fail the run.
-
-Local symlinks in a selected destination root are rejected before manager
-startup; leaf and descendant symlinks block remote file mapping. The fixed
-macOS `/var`, `/tmp` and `/etc` system aliases are accepted. Remote duplicate
-directory handling does not authorize local symlink writes.
-
-CLI listing choices override the opposing config-file mode. Disabling lxml
-error fallback still permits lightweight-parser selection when lxml is absent.
-The standalone shared-pool submission helper rechecks its capacity after
-wakeup and counts failed or cancelled jobs once. `use_shared_thread_pool`
-enables the coordinator's chunk pool; file transfers and metadata comparisons
-retain their separate executors.
-Local path checks assume the destination tree is not concurrently mutated by
-another process; they do not provide filesystem isolation against such a process.
-
-## Release 3.1.79 behavior
-
-Sync now rejects filenames that would need truncation or sanitization before
-starting downloads. This includes control characters and Windows reserved
-names. Increase `--max-filename-len` or narrow the selection when the configured
-length limit is too small.
-
-MOVE cleanup rejects symlinked archive paths and occupied timestamp collision
-names, preserving the source and previous archives. Directory inspection or
-removal failures are reported as cleanup failures. The transport rejects mixed
-public and link-local DNS results, and URL decoding failures reject the request.

@@ -91,6 +91,7 @@
       color: #606060;
     }
     code {
+      white-space: pre-wrap;
       font-family: Menlo, Monaco, Consolas, 'Lucida Console', monospace;
       font-size: 85%;
       margin: 0;
@@ -154,7 +155,6 @@
     #TOC a:not(:hover) {
       text-decoration: none;
     }
-    code{white-space: pre-wrap;}
     span.smallcaps{font-variant: small-caps;}
     div.columns{display: flex; gap: min(4vw, 1.5em);}
     div.column{flex: auto; overflow-x: auto;}
@@ -738,8 +738,7 @@ logs a fatal error and returns <code>False</code>: no file in the
 affected suffix is downloaded, and obsolete-file cleanup is not reached.
 Discovery-only listing modes bypass this check. Lossy-name,
 reserved-state and unsafe-path rejection remain in place. Probe checks
-also run during dry-run preflight. The 3.2.0 behavior differs from
-3.1.79's unconditional case-fold collision rejection. The <a
+also run during dry-run preflight. The <a
 href="./USER_GUIDE.html#filename-collisions-and-download-behavior">User
 Guide</a> documents the NASA pair and the storage and preflight
 requirements for preserving both original files. Directory exclusion
@@ -781,9 +780,24 @@ loops, and the health server.</p>
 <hr />
 <h2 id="runtime-guarantees-and-compatibility">Runtime guarantees and
 compatibility</h2>
-<p>These invariants are part of the current implementation, regardless
-of which release introduced them:</p>
+<p>These invariants are part of the current implementation:</p>
 <ul>
+<li><strong>URL identity:</strong> discovery, mapping, exclusions and
+cleanup share <code>utils._relative_url_path()</code>: parse with
+<code>urlsplit</code>, validate origin and traversal, and decode path
+identity once. Repeated decoding only detects traversal; query/fragment
+text never becomes a local filename. Directory classification uses the
+parsed path, and BFS deduplicates directory aliases independently of
+query strings. URL decode errors reject the request.</li>
+<li><strong>Local paths:</strong> construction validates the selected
+destination before starting managers or resolving local symlinks away.
+The fixed macOS <code>/var</code>, <code>/tmp</code> and
+<code>/etc</code> aliases are accepted; user destination/suffix symlinks
+are rejected, and descendant/leaf symlinks block mapping. Remote-path
+preflight rejects truncation, control-character removal and
+reserved-name rewriting before downloads. Cooperative locks coordinate
+participating MirrorURL processes; local path checks do not isolate the
+filesystem from external writers changing the tree.</li>
 <li><strong>Publication:</strong> whole-file partials use an owned
 <code>.mirror-url-state/</code> below the target directory; final
 assembly and streaming staging stay on the destination filesystem.
@@ -799,8 +813,13 @@ no remote cryptographic digest comparison is performed.</li>
 <li><strong>Cleanup:</strong> walk the local tree once, preserve
 excluded/depth-limited and skipped-symlink paths, local symlinks, and
 reserved state. Incomplete scans suppress obsolete-file actions. A
-complete empty scan may clean the selected local files. MOVE failures
-preserve their source and do not become deletion.</li>
+complete empty scan may clean the selected local files. Unsafe expected
+paths fail the run and suppress cleanup. MOVE checks archive
+destinations before creating parents and again after selecting a
+collision name; symlinked archives and occupied timestamp names fail
+while preserving source/archive bytes. Directory inspection and removal
+exceptions contribute to cleanup failure metrics and fail the sync. MOVE
+failures preserve their source and do not become deletion.</li>
 <li><strong>Response ownership:</strong> streamed sync requests keep
 their coordinator lease until the body/response is closed. Always close
 responses on success, error, cancellation, and retry paths.</li>
@@ -866,7 +885,7 @@ precedence tests. Keep those observable contracts intact during
 refactoring.</p>
 <hr />
 <h2 id="the-configuration-system">The configuration system</h2>
-<p>The 3.2.0 transfer configuration adds <code>mode</code>
+<p>Transfer configuration includes <code>mode</code>
 (<code>mirror</code> or <code>download</code>), <code>backend</code>
 (<code>httpx</code> or <code>aiohttp</code>), <code>url_list</code>,
 <code>overwrite</code> and <code>requests_per_second</code>. The default
@@ -875,7 +894,7 @@ rate remains 20 requests/second with 50 ms minimum spacing.
 zero for both explicitly requests unpaced traffic. Neither option
 changes security policy. CLI overrides use the existing
 explicit-argument precedence rules for YAML/JSON too.</p>
-<p>The 3.2.1 single-URL shortcut adds <code>download_url</code> as an
+<p>The single-URL shortcut uses <code>download_url</code> as an
 alternative to <code>url_list</code>.
 <code>--mode download FILE_URL</code> supplies the parent URL, current
 working directory and a destination-specific system temporary log folder
@@ -931,7 +950,8 @@ handler setup is controlled by CLI logging flags, rather than
 config-file verbosity fields. For listing modes, CLI-only runs supply
 scratch paths and a shallow directory depth; config-file runs still
 require URL/destination/log fields and use their model/file depth unless
-explicitly overridden.</p>
+explicitly overridden. Library/config-file listing modes are validated,
+and an explicit CLI listing choice disables the opposing file mode.</p>
 <hr />
 <h2 id="subsystem-deep-dives">Subsystem deep-dives</h2>
 <p><strong>SSRF-hardened transport (<code>transport.py</code>).</strong>
@@ -944,7 +964,15 @@ href="#testing">Testing</a>). Note the flag is not wired from
 <code>MirrorConfig</code> and should remain test-only. Existing HTTP
 tests install scoped <code>monkeypatch</code> transport bypasses or
 replace the fixture's pooled client; they need no new production
-configuration flag.</p>
+configuration flag. DNS validation classifies every returned answer,
+including IPv6 link-local addresses, and rejects mixed public/non-public
+results. URL decode exceptions reject requests.</p>
+<p><strong>Directory parsing (<code>parsing.py</code>).</strong>
+Lightweight-parser selection when lxml is unavailable is independent of
+the lxml-failure fallback flag. Disabling
+<code>fast_parsing_fallback</code> does not require lxml to be
+installed. Scanner HTML statistics read the live
+<code>CacheManager</code> cache.</p>
 <p><strong>Circuit breakers (<code>circuit_breaker.py</code>).</strong>
 <code>CircuitBreakerManager</code> keeps one breaker per domain, created
 lazily via <code>get_breaker(domain)</code>. State transitions are
@@ -963,7 +991,11 @@ Always close streamed responses in a <code>finally</code>.</p>
 its condition after every wakeup and rejects submission during shutdown.
 Completion includes failed and cancelled jobs; each contributes once to
 the failure count. Its <code>queue_size</code> argument is accepted for
-compatibility and does not bound pending submissions.</p>
+compatibility and does not bound pending submissions.
+<code>use_shared_thread_pool</code> enables the coordinator's chunk
+pool; file transfers and metadata comparisons retain separate executors.
+The ordinary chunk path reuses the raw executor and acquires its own
+coordinator leases.</p>
 <p><strong>Async path (<code>async_connection.py</code>).</strong>
 <code>AdaptiveAsyncManager</code> tunes its concurrency from measured
 RTT, throughput, and error rate; <code>AsyncTaskManager</code> runs the
@@ -1446,45 +1478,5 @@ refactoring nearby code.</li>
 <hr />
 <p><em>This guide describes the architecture as of version 3.2.1. When
 you change the structure, update this document in the same PR.</em></p>
-<h2 id="release-3178-behavior">Release 3.1.78 behavior</h2>
-<p>Discovery, mapping, exclusions and cleanup share
-<code>utils._relative_url_path()</code>: parse with
-<code>urlsplit</code>, validate origin and traversal, and decode path
-identity once. Repeated decoding only detects traversal; query/fragment
-text never becomes a local filename. Directory classification uses the
-parsed path. BFS deduplicates directory aliases independently of query
-strings. Cleanup reuses the mapper and fails closed if any expected path
-is unsafe.</p>
-<p>The constructor validates the selected destination before starting
-managers or resolving local symlinks away. The fixed macOS
-<code>/var</code>, <code>/tmp</code> and <code>/etc</code> aliases are
-accepted; user destination/suffix symlinks are rejected. Descendant and
-leaf symlinks still block mapping. Library/config-file listing modes are
-validated, and an explicit CLI listing choice disables the opposing file
-mode.</p>
-<p>Lightweight-parser selection without lxml is independent of the
-lxml-failure fallback flag. Shared-pool submissions recheck admission
-after wakeup, stop on shutdown, and count each failed/cancelled
-completion once. The ordinary chunk path reuses the raw executor and
-acquires its own coordinator leases. Unreachable async dry-run/404
-branches, orphaned private helpers and the empty scanner HTML cache were
-removed. Scanner HTML statistics now read the live CacheManager cache.
-Public compatibility fields and framework hooks remain. Local path
-checks assume the destination tree is not concurrently mutated by
-another process; they do not provide filesystem isolation against such a
-process.</p>
-<h2 id="release-3179-behavior">Release 3.1.79 behavior</h2>
-<p>Remote-path preflight rejects mappings that change the once-decoded
-filename, including truncation, control-character removal and
-reserved-name rewriting, before any download. Archive destinations are
-checked before creating parents and again after selecting a collision
-name. Existing timestamp names and symlinked archive paths fail the move
-while preserving source/archive bytes. Directory inspection and removal
-exceptions contribute to cleanup failure metrics, which fail the sync
-run.</p>
-<p>DNS validation classifies every returned answer, including IPv6
-link-local addresses. URL decode exceptions reject the request. The
-safety coverage and mutation gates and native CI lanes described above
-are release requirements.</p>
 </body>
 </html>
