@@ -19,11 +19,11 @@ sensitive is still probed gently, concurrently within that same
 conservative bound, rather than at full PROFILE_SAMPLE_SIZE burst
 regardless of its throttle history.
 
-These tests prove genuine concurrency (not just "still works"): the mock
-transport records in-flight request counts and enforces a small
-artificial per-request delay, so a sequential implementation would take
-roughly N * delay wall-clock time, while a properly concurrent one
-bounded by concurrency C takes roughly ceil(N / C) * delay.
+These tests prove concurrency directly: controlled response barriers hold
+each batch until all configured concurrent requests have started. Other
+tests use small artificial delays to record overlapping requests. Elapsed
+time is only bounded when testing a request timeout, not used as a speed
+assertion that depends on CI runner scheduling.
 
 Following the stubbing convention from test_429_retry_after.py: replace
 self._client with a real httpx.AsyncClient backed by httpx.MockTransport
@@ -133,35 +133,63 @@ async def test_concurrency_is_bounded_by_current_concurrency():
 
 
 @pytest.mark.asyncio
-async def test_concurrent_profiling_is_meaningfully_faster_than_sequential():
-    """Direct, quantifiable proof of the speedup: N samples at a fixed
-    per-request delay, bounded by concurrency C, must complete in
-    roughly ceil(N / C) * delay wall-clock time -- not N * delay (what
-    the old sequential loop would have cost)."""
-    delay = 0.05
+async def test_profiling_starts_full_batches_before_responses_complete():
+    """Hold each batch's responses until all concurrent probes have started.
+
+    A sequential implementation cannot fill the first batch, and an
+    unbounded implementation starts the second batch before the first is
+    released. Deadlines only guard against a hung test.
+    """
     n_samples = 10
     concurrency = 5
-    handler = _ConcurrencyTrackingHandler(delay=delay)
+    batch_started = [asyncio.Event(), asyncio.Event()]
+    release_batch = [asyncio.Event(), asyncio.Event()]
+    started_urls = []
+    in_flight = 0
+    peak_in_flight = 0
+    completed = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal in_flight, peak_in_flight, completed
+        batch = len(started_urls) // concurrency
+        started_urls.append(str(request.url))
+        in_flight += 1
+        peak_in_flight = max(peak_in_flight, in_flight)
+        if len(started_urls) == (batch + 1) * concurrency:
+            batch_started[batch].set()
+        try:
+            await release_batch[batch].wait()
+            completed += 1
+            return httpx.Response(200)
+        finally:
+            in_flight -= 1
+
     mgr = _make_manager()
     mgr._current_concurrency = concurrency
     await _install_mock_transport(mgr, handler)
-
     urls = [f"https://example.test/data/file{i}.png" for i in range(n_samples)]
+    profiling = asyncio.create_task(mgr.profile_server(urls))
+    try:
+        for batch in range(len(batch_started)):
+            await asyncio.wait_for(batch_started[batch].wait(), timeout=5.0)
+            assert len(started_urls) == (batch + 1) * concurrency
+            assert in_flight == concurrency
+            assert completed == batch * concurrency
+            assert not profiling.done()
+            release_batch[batch].set()
 
-    start = time.monotonic()
-    await mgr.profile_server(urls)
-    elapsed = time.monotonic() - start
-
-    sequential_estimate = n_samples * delay
-    concurrent_estimate = (n_samples / concurrency) * delay
-
-    assert elapsed < sequential_estimate * 0.7, (
-        f"took {elapsed:.3f}s -- too close to the sequential estimate of "
-        f"{sequential_estimate:.3f}s to be genuinely concurrent"
-    )
-    # Generous upper bound -- allows for scheduling overhead/CI jitter
-    # without the test becoming flaky.
-    assert elapsed < concurrent_estimate * 3 + 0.2
+        assert await asyncio.wait_for(profiling, timeout=5.0) is True
+        assert sorted(started_urls) == sorted(urls)
+        assert completed == n_samples
+        assert in_flight == 0
+        assert peak_in_flight == concurrency
+        profile = mgr._get_profile(urls[0])
+        assert len(profile.samples) == n_samples
+        assert profile.error_rate == 0
+    finally:
+        profiling.cancel()
+        await asyncio.gather(profiling, return_exceptions=True)
+        await mgr._client.aclose()
 
 
 @pytest.mark.asyncio

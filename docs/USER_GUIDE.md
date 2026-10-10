@@ -239,7 +239,7 @@ The most commonly used options:
 </tr>
 <tr>
 <td nowrap><samp>FILE_URL</samp></td>
-<td>One absolute file URL, for download mode. Cannot be combined with <code>--url-list</code>. Available from 3.2.1.</td>
+<td>One absolute file URL, for download mode. Cannot be combined with <code>--url-list</code>.</td>
 </tr>
 <tr>
 <td nowrap><samp>--url-list FILE</samp></td>
@@ -446,7 +446,7 @@ The most commonly used options:
 </tr>
 <tr>
 <td nowrap><samp>--check-files PATH [PATH ...]</samp></td>
-<td>Next release: with <code>--missing-files</code>, check selected existing files for updates. Exact, case-sensitive paths relative to <code>--url</code>, including any suffix. Use <code>@FILE</code> for a UTF-8 list, one path per line. Does not expand discovery scope.</td>
+<td>With <code>--missing-files</code>, check selected existing files for updates. Exact, case-sensitive paths relative to <code>--url</code>, including any suffix. Use <code>@FILE</code> for a UTF-8 list, one path per line. Does not expand discovery scope.</td>
 </tr>
 <tr>
 <td nowrap><samp>--quick</samp></td>
@@ -950,10 +950,10 @@ hard kill. No stale PID file needs removal. Use `with MirrorURL(config)` or
 call `cleanup()` explicitly. Cleanup rejects new work; a writer still running
 after a shutdown timeout retains ownership until it stops.
 
-This protects cooperating new-version processes using the same account, home
-directory and local filesystem. Version 3.1.79 and older versions and other
-applications do not participate. Network filesystems, multiple hosts, mount
-aliases and external writers need separate coordination.
+This protects cooperating MirrorURL processes using the same account, home
+directory and local filesystem. Programs that do not participate in these
+locks can still modify the same tree. Network filesystems, multiple hosts,
+mount aliases and external writers need separate coordination.
 
 ---
 

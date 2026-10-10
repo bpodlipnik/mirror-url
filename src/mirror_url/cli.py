@@ -683,19 +683,6 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
         "--bandwidth-limit", type=float, metavar="MB/S", help="Limit download bandwidth (MB/s)"
     )
 
-    directory.add_argument(
-        "--check-files",
-        nargs="+",
-        action="extend",
-        default=[],
-        metavar="PATH",
-        help=(
-            "With --missing-files, check selected existing files for updates. "
-            "Exact paths relative to --url, including any --dir-suffix; "
-            "use @FILE for a UTF-8 list (one path per line)"
-        ),
-    )
-
     cache = parser.add_argument_group("Cache Options")
     cache.add_argument(
         "--no-cache",
@@ -775,6 +762,18 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
             "Download absent files and skip freshness checks for existing files, "
             "except paths selected by --check-files. Unselected in-place changes "
             "will be missed; use occasional full runs when needed."
+        ),
+    )
+    cache.add_argument(
+        "--check-files",
+        nargs="+",
+        action="extend",
+        default=[],
+        metavar="PATH",
+        help=(
+            "With --missing-files, check selected existing files for updates. "
+            "Exact paths relative to --url, including any --dir-suffix; "
+            "use @FILE for a UTF-8 list (one path per line)"
         ),
     )
 
