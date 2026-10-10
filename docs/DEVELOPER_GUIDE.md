@@ -240,6 +240,8 @@ pool warm-up checks each redirect before contacting its target.
 
 - `metrics.py` — `MetricsCollector` (thread-safe counters/aggregates; emits the
   metrics JSON).
+- `run_report.py` — `RunReport` (per-sync final file decisions, publication
+  counts, selection coverage and monotonic phase timing).
 - `progress.py` — `ProgressTracker`, `MultiLevelProgress`.
 - `monitoring.py` — `MemoryMonitor`, `DiskSpaceManager`, `PerformanceMonitor`.
 - `connection.py` — `ConnectionPool`, `ConnectionManager` (synchronous request
@@ -439,6 +441,41 @@ A full mirror run is driven by `ReportMixin.sync()`. The high-level path:
    cleanup work when the scan is complete, render the normal summary, and
    optionally export metrics JSON. A failed download, incomplete scan, or
    recorded cleanup-operation failure makes `sync()` return `False`.
+
+### Run reporting
+
+`MetricsCollector.run_report` starts a fresh reporting interval for each
+`sync()`. It records file decisions by remote URL, replacing intermediate
+decisions after async-to-sync fallback instead of counting the same file twice.
+`CompareMixin._freshness_result()` supplies the existing policy result with a
+reason and a reporting category: current, changed, or uncertain. Missing and
+unchecked local files are recorded before making any remote freshness request.
+Reporting must not change the freshness policy or add requests.
+
+Successful publication hooks in sequential, chunked and aiohttp transfers record
+the published URL. A truthy transfer return can also mean an HTTP skip, so it is
+not sufficient evidence for a downloaded-file count. Missing, changed and
+uncertain-freshness download counts include only published files. Failed or
+queued transfers never receive publication credit. An unavailable/invalid HEAD
+result is uncertain, even if a later GET succeeds.
+
+`RunReport.phase()` and `begin_phase()`/`end_phase()` measure coordinator
+wall-clock intervals with `perf_counter()`, including exception unwinding.
+Download preparation is separate
+from actual transfers. Aggregate download throughput uses transferred bytes
+divided by the download phase's elapsed time, rather than summed worker times.
+Completion freezes elapsed time; beginning another sync clears its decisions,
+publication set and phases. Listing work is measured per call, includes fetch
+wait, and is reported as summed work rather than CPU parsing time.
+
+The text summary reports this sync's cache/subsystem activity using a baseline
+of lifetime counters. JSON retains existing metric keys and adds `metrics.run`
+with explicit outcomes, selection coverage, status, reasons, `phase_seconds`,
+`elapsed_seconds` and nullable `download_throughput`. Directory signatures,
+in-memory listing reuse, HTML hits/misses and cache bypasses remain distinct.
+Test repeated syncs, async fallback, HTTP skips, failed publication and both
+backends when changing reporting. No release-version labels belong in usage
+descriptions.
 
 `MirrorURL` is a context manager — use `with MirrorURL(cfg) as mirror:` so
 `__exit__`/`cleanup` tears down pools, async loops, and the health server.

@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Report mirror file outcomes separately: checked/current, freshness skipped,
+  missing downloads, changed downloads and uncertain-freshness downloads.
+  Include selected-path coverage and concise freshness decision reasons.
+- Replace duplicate sync summaries with one result block, monotonic phase
+  timings and aggregate download-phase throughput. Separate listing cache
+  sources and bypass reasons; retain legacy JSON metrics alongside `metrics.run`.
+
 ## [3.3.1] - 2026-10-10
 
 ### Fixed

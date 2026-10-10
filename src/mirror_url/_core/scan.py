@@ -198,6 +198,7 @@ class ScanMixin(MirrorHost):
             cache_loaded, cached_signatures = self.cache_manager.load()
             if cache_loaded and cached_signatures is not None:
                 self.scanner.cached_signatures = cached_signatures
+                self.metrics.increment("directory_signatures_loaded", len(cached_signatures))
                 logging.info(
                     f"{prefix}📖 Loaded {len(cached_signatures)} directory signatures from cache"
                 )

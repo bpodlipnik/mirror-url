@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any, Dict
 
 from ._version import __version__
 from .constants import ADAPTIVE_START_CONCURRENCY
+from .run_report import RunReport
 from .utils import format_bytes, format_duration, sanitize_url_for_log
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, avoids an import cycle
@@ -122,6 +123,7 @@ class MetricsCollector:
         self._parse_times = deque(maxlen=1000)
         self._errors = deque(maxlen=100)
         self._times_lock = RLock()
+        self.run_report = RunReport()
 
     def increment(self, metric: str, value: int = 1) -> None:
         """
@@ -158,6 +160,7 @@ class MetricsCollector:
 
     def add_error(self, error: str, error_type: str = "unknown") -> None:
         """Add error to metrics - THREAD SAFE"""
+        self.increment("errors_recorded")
         with self._times_lock:
             self._errors.append(
                 {"timestamp": datetime.now().isoformat(), "type": error_type, "message": error}
@@ -172,6 +175,13 @@ class MetricsCollector:
         """Add download time to metrics - THREAD SAFE"""
         with self._times_lock:
             self._download_times.append(duration)
+
+    def add_parse_time(self, duration: float) -> None:
+        """Retain each listing operation's duration and its accumulated work."""
+        with self.lock:
+            self.metrics["parse_time_seconds"] += duration
+            with self._times_lock:
+                self._parse_times.append(duration)
 
     def set_rget_used(self) -> None:
         """Mark RGET-LIST as used"""
@@ -197,10 +207,7 @@ class MetricsCollector:
         """Stop parse timer and record duration"""
         if self.parse_start_time > 0:
             elapsed = time.time() - self.parse_start_time
-            with self.lock:
-                self.metrics["parse_time_seconds"] += elapsed
-                with self._times_lock:
-                    self._parse_times.append(elapsed)
+            self.add_parse_time(elapsed)
             self.parse_start_time = 0
 
     def update_queue_metrics(self, queue_size: int, max_size: int) -> None:
@@ -241,6 +248,9 @@ class MetricsCollector:
             elapsed = time.time() - self.start_time
             summary["elapsed_seconds"] = elapsed
             summary["download_speed"] = summary["bytes_downloaded"] / elapsed if elapsed > 0 else 0
+            summary["run"] = self.run_report.snapshot(
+                summary["bytes_downloaded"], summary["files_skipped"]
+            )
 
             # Calculate statistics safely
             if summary["request_times"]:
@@ -262,6 +272,51 @@ class MetricsCollector:
             Formatted metrics report
         """
         summary = self.get_summary()
+        active_report = self.run_report.started is not None
+        if active_report:
+            # Preserve lifetime metrics in the API/JSON; display this sync's
+            # cache and subsystem activity rather than earlier sync calls.
+            activity = {
+                "directories_processed",
+                "directories_scanned_parallel",
+                "directories_scanned_sequential",
+                "directories_scanned_async",
+                "async_metadata_checks",
+                "html_cache_hits",
+                "html_cache_misses",
+                "parsed_listing_reuses",
+                "html_cache_bypass_disabled",
+                "html_cache_bypass_no_cache",
+                "html_cache_bypass_refresh",
+                "parse_time_seconds",
+                "directory_signatures_loaded",
+                "listing_fetches",
+                "cache_head_requests_saved",
+                "etag_matches",
+                "etag_mismatches",
+                "etag_304_responses",
+                "etag_unavailable",
+                "http2_connections",
+                "http11_fallbacks",
+                "disk_space_warnings",
+                "memory_pressure_events",
+                "partial_downloads",
+                "partial_resumes",
+                "stale_partials_cleaned",
+                "rate_limit_delays",
+                "chunk_downloads",
+                "chunk_assemblies",
+                "chunk_failures",
+                "parallel_files",
+                "total_chunks",
+                "fast_parses",
+                "lxml_parses",
+                "errors_recorded",
+            }
+            summary = {
+                key: self.run_report.delta(summary, key) if key in activity else value
+                for key, value in summary.items()
+            }
         lines = [
             f"{prefix}METRICS SUMMARY:",
             f"{prefix}  Files downloaded: {summary['files_downloaded']}",
@@ -270,6 +325,46 @@ class MetricsCollector:
             f"{prefix}  Files failed: {summary['files_failed']}",
             f"{prefix}  Directories processed: {summary['directories_processed']}",
         ]
+        if active_report:
+            run = summary["run"]
+            lines = [
+                f"{prefix}SUMMARY:",
+                f"{prefix}  Result: {run['status'].upper()}",
+                f"{prefix}  Remote files found: {run['remote_files_found']}",
+                f"{prefix}  Selected paths: {run['selected_paths_found']}/{run['selected_paths_configured']} found in scope",
+                f"{prefix}  Selected existing files checked: {run['selected_existing_files_checked']}",
+                f"{prefix}  Existing files checked and current: {run['existing_files_current']}",
+                f"{prefix}  Freshness checks skipped: {run['freshness_checks_skipped']}",
+                f"{prefix}  Other files skipped: {run['other_files_skipped']}",
+                f"{prefix}  Missing files downloaded: {run['missing_files_downloaded']}",
+                f"{prefix}  Changed files downloaded: {run['changed_files_downloaded']}",
+                f"{prefix}  Uncertain-freshness downloads: {run['uncertain_freshness_downloads']}",
+                f"{prefix}  Files failed: {summary['files_failed']}",
+                f"{prefix}  Obsolete files deleted: {self.metrics.get('files_deleted', 0)}",
+                f"{prefix}  Obsolete files moved: {self.metrics.get('files_moved', 0)}",
+                f"{prefix}  Downloaded bytes: {format_bytes(summary['bytes_downloaded'])}",
+            ]
+            if run["status"] in ("dry run", "failed dry run"):
+                lines.append(
+                    f"{prefix}  Files that would be downloaded: {run['downloads_planned']}"
+                )
+            if run["unclassified_downloads"]:
+                lines.append(f"{prefix}  Other files downloaded: {run['unclassified_downloads']}")
+            if run["metadata_checks_unresolved"]:
+                lines.append(
+                    f"{prefix}  Unresolved freshness checks: {run['metadata_checks_unresolved']}"
+                )
+            if run["reasons"]:
+                lines.append(f"{prefix}  Result details: {run['reasons']}")
+            for phase in ("discovery", "metadata", "download preparation", "downloads", "cleanup"):
+                lines.append(
+                    f"{prefix}  {phase.capitalize()} time: {run['phase_seconds'].get(phase, 0):.3f}s"
+                )
+            throughput = run["download_throughput"]
+            speed = f"{format_bytes(throughput)}/s" if throughput is not None else "n/a"
+            lines.append(f"{prefix}  Download throughput: {speed}")
+            lines.append(f"{prefix}  Total duration: {run['elapsed_seconds']:.3f}s")
+            lines.append(f"{prefix}  Directories scanned: {summary['directories_processed']}")
 
         # Scan mode metrics
         if summary["directories_scanned_parallel"] > 0:
@@ -288,8 +383,18 @@ class MetricsCollector:
             total_html = summary["html_cache_hits"] + summary["html_cache_misses"]
             html_hit_rate = (summary["html_cache_hits"] / total_html * 100) if total_html > 0 else 0
             lines.append(
-                f"{prefix}  HTML cache hits: {summary['html_cache_hits']} ({html_hit_rate:.1f}%)"
+                f"{prefix}  HTML listing cache: {summary['html_cache_hits']} hits, {summary['html_cache_misses']} misses ({html_hit_rate:.1f}% hits)"
             )
+        lines.append(
+            f"{prefix}  In-memory parsed listing reuses: {summary.get('parsed_listing_reuses', 0)}"
+        )
+        for key, label in (
+            ("html_cache_bypass_disabled", "HTML cache disabled"),
+            ("html_cache_bypass_no_cache", "--no-cache"),
+            ("html_cache_bypass_refresh", "--refresh-cache"),
+        ):
+            if summary.get(key, 0):
+                lines.append(f"{prefix}  Listing cache bypasses ({label}): {summary[key]}")
 
         # Adaptive async metrics
         if summary.get("adaptive_async_enabled"):
@@ -302,12 +407,16 @@ class MetricsCollector:
         # Parse metrics
         if summary["parse_time_seconds"] > 0:
             parse_speed = summary["directories_processed"] / summary["parse_time_seconds"]
-            lines.append(f"{prefix}  Parse time: {summary['parse_time_seconds']:.2f}s")
-            lines.append(f"{prefix}  Parse speed: {parse_speed:.1f} dirs/s")
+            lines.append(
+                f"{prefix}  Listing fetch/parse work (sum): {summary['parse_time_seconds']:.3f}s"
+            )
+            lines.append(f"{prefix}  Listing processing rate: {parse_speed:.1f} dirs/s")
 
         # Cache hit/miss metrics
-        lines.append(f"{prefix}  Cache hits: {summary['cache_hits']}")
-        lines.append(f"{prefix}  Cache misses: {summary['cache_misses']}")
+        lines.append(
+            f"{prefix}  Directory signatures loaded: {summary.get('directory_signatures_loaded', 0)}"
+        )
+        lines.append(f"{prefix}  Listing fetch calls: {summary.get('listing_fetches', 0)}")
         if summary["cache_head_requests_saved"] > 0:
             lines.append(f"{prefix}  HEAD requests saved: {summary['cache_head_requests_saved']}")
         lines.append(f"{prefix}  Cache signatures: {summary['cache_signatures']}")
@@ -349,10 +458,14 @@ class MetricsCollector:
         lines.append(f"{prefix}  RGET-LIST used: {summary['rget_list_used']}")
 
         # Download speed
-        lines.append(f"{prefix}  Download speed: {format_bytes(summary['download_speed'])}/s")
+        if not active_report:
+            lines.append(
+                f"{prefix}  Overall transfer average: {format_bytes(summary['download_speed'])}/s"
+            )
 
         # Duration
-        lines.append(f"{prefix}  Duration: {format_duration(summary['elapsed_seconds'])}")
+        if not active_report:
+            lines.append(f"{prefix}  Duration: {format_duration(summary['elapsed_seconds'])}")
 
         # Parser stats
         if summary.get("fast_parses", 0) > 0 or summary.get("lxml_parses", 0) > 0:
@@ -393,8 +506,9 @@ class MetricsCollector:
                 lines.append(f"{prefix}    Final concurrency: {summary['auto_concurrency_final']}")
 
         # Errors
-        if summary["errors"]:
-            lines.append(f"{prefix}  Errors: {len(summary['errors'])}")
+        error_count = summary.get("errors_recorded", 0) if active_report else len(summary["errors"])
+        if error_count:
+            lines.append(f"{prefix}  Errors: {error_count}")
 
         return "\n".join(lines)
 

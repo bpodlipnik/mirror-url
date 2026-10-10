@@ -34,7 +34,7 @@ from ..constants import (
 )
 from ..decorators import log_performance
 from ..download_integrity import local_content_matches
-from ..utils import normalize_etag, sanitize_url_for_log
+from ..utils import _relative_url_path, normalize_etag, sanitize_url_for_log
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, avoids an import cycle
     from ..progress import ProgressTracker
@@ -89,12 +89,16 @@ class CompareMixin(MirrorHost):
 
     def _response_is_current(self, response, stat, stored) -> bool:
         """Shared sync/async policy; listing validators never validate children."""
+        return self._freshness_result(response, stat, stored)[0]
+
+    def _freshness_result(self, response, stat, stored) -> Tuple[bool, str, str]:
+        """Return the existing policy decision with its reporting classification."""
         if response.status_code not in (200, 304):
-            return False
+            return False, "uncertain", f"metadata returned HTTP {response.status_code}"
         if getattr(self.config, "verify_content", False) and not (
             stored and stored.get("_local_verified")
         ):
-            return False
+            return False, "uncertain", "local content could not be verified against its receipt"
 
         raw_size = response.headers.get("Content-Length")
         size_matches = False
@@ -102,9 +106,11 @@ class CompareMixin(MirrorHost):
             try:
                 size = int(raw_size)
             except (TypeError, ValueError):
-                return False
+                return False, "uncertain", "invalid remote Content-Length"
             if size < 0 or size != stat.st_size:
-                return False
+                if size < 0 or response.status_code == 304:
+                    return False, "uncertain", "invalid or conflicting remote Content-Length"
+                return False, "changed", "remote size differs from local size"
             size_matches = True
 
         if response.status_code == 304:
@@ -116,24 +122,57 @@ class CompareMixin(MirrorHost):
             )
             if valid:
                 self.metrics.increment("etag_304_responses")
-            return valid
+            return (
+                (True, "current", "HTTP 304 Not Modified")
+                if valid
+                else (False, "uncertain", "HTTP 304 without a trusted local validator")
+            )
 
         remote_etag = response.headers.get("ETag")
         if remote_etag and stored and stored.get("etag") and not self.config.no_etag:
             matches = normalize_etag(remote_etag) == normalize_etag(stored["etag"])
             self.metrics.increment("etag_matches" if matches else "etag_mismatches")
-            return matches and bool(stored.get("_local_verified"))
+            if not matches:
+                return False, "changed", "ETag changed"
+            if not stored.get("_local_verified"):
+                return False, "uncertain", "local file differs from its saved receipt"
+            return True, "current", "ETag unchanged"
 
         last_modified = response.headers.get("Last-Modified")
         if last_modified:
             try:
                 remote_ts = parsedate_to_datetime(last_modified).timestamp()
                 if remote_ts > stat.st_mtime + TIMESTAMP_TOLERANCE_SECONDS:
-                    return False
-                return size_matches
+                    return False, "changed", "remote modification time is newer"
+                return (
+                    (True, "current", "size matches and remote modification time is not newer")
+                    if size_matches
+                    else (False, "uncertain", "remote size is unavailable")
+                )
             except (TypeError, ValueError, OverflowError):
-                return False
-        return size_matches
+                return False, "uncertain", "invalid remote Last-Modified"
+        return (
+            (True, "current", "size matches; no usable ETag or modification time")
+            if size_matches
+            else (False, "uncertain", "remote freshness metadata is unavailable")
+        )
+
+    def _record_check(self, remote_url: str, outcome: str, reason: str) -> None:
+        selected = bool(
+            getattr(self.config, "check_files", ())
+        ) and self.config.check_file_selected(remote_url)
+        self.metrics.run_report.record_check(remote_url, outcome, selected)
+        display = _relative_url_path(remote_url, str(getattr(self.config, "base_url", "")))
+        display = sanitize_url_for_log(display or remote_url)
+        level = logging.DEBUG
+        if outcome == "uncertain":
+            level = logging.WARNING
+        elif outcome == "changed" or (selected and outcome == "current"):
+            level = logging.INFO
+        action = {"current": "Current", "changed": "Updating", "uncertain": "Revalidating"}.get(
+            outcome, "File decision"
+        )
+        logging.log(level, "%s: %s — %s", action, display, reason)
 
     @log_performance("file_check")
     def file_exists_and_up_to_date(
@@ -143,9 +182,13 @@ class CompareMixin(MirrorHost):
         current = False
         try:
             if not local_path.is_file():
+                self._record_check(remote_url, "missing", "local file is absent")
                 return False
             if not self._should_check_existing_file(remote_url):
                 self.metrics.increment("missing_files_skipped_check")
+                self._record_check(
+                    remote_url, "unchecked", "freshness check skipped by --missing-files"
+                )
                 current = True
                 return True
             stat, stored = self._comparison_metadata(local_path, use_cache)
@@ -156,11 +199,23 @@ class CompareMixin(MirrorHost):
                 allow_redirects=True,
                 headers=self._freshness_headers(stored),
             )
-            current = self._response_is_current(response, stat, stored)
+            logging.debug(
+                "Freshness HEAD %s: HTTP %s, ETag=%r, Last-Modified=%r, Content-Length=%r",
+                sanitize_url_for_log(remote_url),
+                response.status_code,
+                response.headers.get("ETag"),
+                response.headers.get("Last-Modified"),
+                response.headers.get("Content-Length"),
+            )
+            current, outcome, reason = self._freshness_result(response, stat, stored)
+            self._record_check(remote_url, outcome, reason)
             self.metrics.increment("cache_hits" if current else "cache_misses")
             return current
         except Exception as e:
             logging.debug(f"Error checking file {local_path}: {e}")
+            self._record_check(
+                remote_url, "uncertain", f"metadata check failed ({type(e).__name__})"
+            )
             self.metrics.increment("cache_misses")
             return False
         finally:
@@ -401,9 +456,13 @@ class CompareMixin(MirrorHost):
 
         async def check_one(local_path: Path, remote_url: str, mgr) -> bool:
             if not local_path.is_file():
+                self._record_check(remote_url, "missing", "local file is absent")
                 return False
             if not self._should_check_existing_file(remote_url):
                 self.metrics.increment("missing_files_skipped_check")
+                self._record_check(
+                    remote_url, "unchecked", "freshness check skipped by --missing-files"
+                )
                 return True
             try:
                 if getattr(self.config, "verify_content", False):
@@ -417,7 +476,16 @@ class CompareMixin(MirrorHost):
                 )
                 if response is None or response.status_code not in (200, 304):
                     return await sync_fallback(local_path, remote_url)
-                current = self._response_is_current(response, stat, stored)
+                logging.debug(
+                    "Freshness HEAD %s: HTTP %s, ETag=%r, Last-Modified=%r, Content-Length=%r",
+                    sanitize_url_for_log(remote_url),
+                    response.status_code,
+                    response.headers.get("ETag"),
+                    response.headers.get("Last-Modified"),
+                    response.headers.get("Content-Length"),
+                )
+                current, outcome, reason = self._freshness_result(response, stat, stored)
+                self._record_check(remote_url, outcome, reason)
                 self.metrics.increment("cache_hits" if current else "cache_misses")
                 return current
             except Exception as e:

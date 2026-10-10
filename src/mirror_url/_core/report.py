@@ -131,6 +131,24 @@ class ReportMixin(MirrorHost):
         prefix = self._get_prefix()
         logging.info(f"{prefix}Starting sync for: '{self.config.dir_suffix or 'ROOT'}'")
         start = time.time()
+        run = self.metrics.run_report
+        run.start(self.metrics.metrics, len(getattr(self.config, "check_files", ())))
+        # Reset before discovery/checks, including a repeated dry run. Preserve
+        # all check-phase increments through transfers and the final summary.
+        self.files_processed.reset()
+        self.files_skipped.reset()
+        self.files_failed.reset()
+        self.total_downloaded_size.reset()
+        with self.metrics.lock:
+            for key in (
+                "files_downloaded",
+                "files_skipped",
+                "files_failed",
+                "bytes_downloaded",
+                "files_deleted",
+                "files_moved",
+            ):
+                self.metrics.metrics[key] = 0
 
         try:
             if self.config.quick:
@@ -149,6 +167,7 @@ class ReportMixin(MirrorHost):
                 logging.info(f"{prefix}QUICK MODE SUMMARY:")
                 logging.info(f"{prefix}  Duration: {format_duration(duration)}")
                 logging.info("-" * 50)
+                run.finish("quick")
                 return not getattr(self, "scan_incomplete", False)
 
             # FIX v2.0.1: Skip disk space check in dry-run mode
@@ -156,7 +175,8 @@ class ReportMixin(MirrorHost):
                 logging.error(f"{prefix}Insufficient disk space to start")
                 return False
 
-            remote_files = self.get_remote_files()
+            with run.phase("discovery"):
+                remote_files = self.get_remote_files()
             if remote_files is None:
                 logging.error(f"{prefix}Failed to get remote files - aborting sync")
                 return False
@@ -197,8 +217,20 @@ class ReportMixin(MirrorHost):
                 )
                 logging.info("-" * 50)
 
+                run.finish("survey")
                 return not getattr(self, "scan_incomplete", False)
 
+            run.remote_files = len(remote_files)
+            if run.selected_configured:
+                run.selected_found = sum(
+                    self.config.check_file_selected(url) for url in remote_files
+                )
+            if run.selected_found < run.selected_configured:
+                logging.info(
+                    "%sSelected paths not discovered: %s (absent or outside discovery scope)",
+                    prefix,
+                    run.selected_configured - run.selected_found,
+                )
             self._validate_remote_paths(remote_files)
 
             # FIX: In dry-run mode, we still need to check which files exist locally
@@ -211,7 +243,7 @@ class ReportMixin(MirrorHost):
                     progress = ProgressTracker(
                         total=len(remote_files),
                         prefix=prefix,
-                        name="files checked",
+                        name="files examined",
                         use_tqdm=TQDM_AVAILABLE,
                         config=self.config,
                     )
@@ -223,7 +255,8 @@ class ReportMixin(MirrorHost):
 
                 # Dry runs avoid adaptive metadata profiling delays.
                 logging.info(f"{prefix}Using sync metadata checks (dry-run simulation - faster)")
-                to_download = self._check_files_sync(remote_files, progress)
+                with run.phase("metadata"):
+                    to_download = self._check_files_sync(remote_files, progress)
 
                 if progress:
                     progress.report_final()
@@ -241,7 +274,9 @@ class ReportMixin(MirrorHost):
                     if len(to_download) > sample_size:
                         logging.info(f"{prefix}  ... and {len(to_download) - sample_size} more")
                 else:
-                    logging.info(f"{prefix}No files would be downloaded - all up to date")
+                    logging.info(
+                        f"{prefix}No files need downloading under the selected freshness policy"
+                    )
 
                 # Show what would be cleaned up
                 if self.config.cleanup_policy in (
@@ -251,23 +286,15 @@ class ReportMixin(MirrorHost):
                 ):
                     self.clean_obsolete(set(remote_files))
 
-                duration = time.time() - start
-                logging.info("-" * 50)
-                logging.info(f"{prefix}DRY RUN SUMMARY:")
-                logging.info(f"{prefix}  Remote files found: {len(remote_files)}")
-                logging.info(f"{prefix}  Files that would be downloaded: {len(to_download)}")
-                logging.info(
-                    f"{prefix}  Files that are up to date: {len(remote_files) - len(to_download)}"
-                )
-                logging.info(f"{prefix}  Duration: {format_duration(duration)}")
-                logging.info("-" * 50)
+                run.finish("failed dry run" if self.scan_incomplete else "dry run")
+                logging.info(self.metrics.report(prefix))
                 return not getattr(self, "scan_incomplete", False)
 
             if len(remote_files) > 0:
                 progress = ProgressTracker(
                     total=len(remote_files),
                     prefix=prefix,
-                    name="files checked",
+                    name="files examined",
                     use_tqdm=TQDM_AVAILABLE,
                     config=self.config,
                 )
@@ -280,20 +307,7 @@ class ReportMixin(MirrorHost):
 
             to_download = []
 
-            # FIX (test 29 / files_skipped accounting): reset the check-phase
-            # counters here, BEFORE the up-to-date check runs, not after.
-            # Both _check_files_sync() and _check_files_async() legitimately
-            # increment files_skipped (already-up-to-date files, skipped
-            # symlinks, etc.) and files_failed (per-file check errors) while
-            # they run. Those increments need to survive into the final
-            # tally for this sync() call. Resetting here (once, up front)
-            # still gives each sync() call a clean baseline, without wiping
-            # out the check phase's results the way the old post-check
-            # reset did (see the "before downloads" block below, which now
-            # only resets the download-phase counters).
-            self.files_skipped.reset()
-            self.files_failed.reset()
-
+            run.begin_phase("metadata")
             use_async = (
                 self.config.async_metadata
                 and bool(self.adaptive_async_manager or self.async_connection_manager)
@@ -393,20 +407,13 @@ class ReportMixin(MirrorHost):
                     logging.info(f"{prefix}Using sync metadata checks (async disabled/unavailable)")
                 to_download = self._check_files_sync(remote_files, progress)
 
+            run.end_phase()
+
             if progress:
                 progress.report_final()
 
-            # FIX v3.0.1: Reset counters before downloads.
-            # NOTE: files_skipped / files_failed are deliberately NOT reset
-            # here anymore — they're reset once up front (before the
-            # up-to-date check phase, see above) and the check phase's
-            # counts must survive into the download phase, since a file
-            # that's already up to date never enters to_download and would
-            # otherwise never be counted as "skipped" at all.
-            self.files_processed.reset()
-            self.total_downloaded_size.reset()
-
             if to_download:
+                run.begin_phase("download preparation")
                 # ========== FIX 1: PARALLELIZE SIZE FETCHING ==========
                 # Avoid sequential HEAD request bottleneck by fetching sizes concurrently
                 total_size = 0
@@ -492,6 +499,8 @@ class ReportMixin(MirrorHost):
                     "downloads", len(to_download), prefix, self.config.progress_bar, self.config
                 )
 
+                run.end_phase()
+                run.begin_phase("downloads")
                 # ========== DOWNLOAD EXECUTION ==========
                 if self.config.backend == "aiohttp":
                     if (
@@ -513,6 +522,7 @@ class ReportMixin(MirrorHost):
                         self.cache_manager.save_file_metadata(
                             result.path, result.etag, mtime, result.size, sha256=result.sha256
                         )
+                        run.record_publication(result.url)
                         self.files_processed.increment(1)
                         self.total_downloaded_size.add(result.size)
                         self.multi_progress.update("downloads")
@@ -664,6 +674,8 @@ class ReportMixin(MirrorHost):
 
                 # ========== END PARALLEL DOWNLOADS SECTION ==========
 
+            run.end_phase()
+
             # FIX v2.0.1: Skip directory size check in dry-run if directory doesn't exist
             if self.target_dir and self.target_dir.exists():
                 disk_size = self.get_directory_size(self.target_dir) / (1024 * 1024)
@@ -671,6 +683,7 @@ class ReportMixin(MirrorHost):
             else:
                 logging.info(f"{prefix}On-disk size: 0.00 MB (directory not created)")
 
+            run.begin_phase("cleanup")
             # FIX v2.0.1: Skip cleanup in dry-run mode (already handled above)
             if not self.config.dry_run:
                 self.clean_obsolete(set(remote_files))
@@ -683,9 +696,7 @@ class ReportMixin(MirrorHost):
                 except Exception as error:
                     logging.warning(f"Cache persistence failed: {error}")
 
-            duration = time.time() - start
-            # total_mb = self.total_downloaded_size / (1024 * 1024)
-            # speed = total_mb / duration if duration > 0 else 0
+            run.end_phase()
 
             # Get final values from atomic counters
             # FIX: Sync AtomicCounters to Metrics Collector before summary
@@ -696,60 +707,19 @@ class ReportMixin(MirrorHost):
                 self.metrics.metrics["files_skipped"] = self.files_skipped.value()
                 self.metrics.metrics["files_failed"] = self.files_failed.value()
 
-            downloaded_files = self.files_processed.value()
-            downloaded_bytes = self.total_downloaded_size.value()
-            skipped_files = (
-                self.files_skipped.value()
-                if hasattr(self.files_skipped, "value")
-                else self.files_skipped
-            )
-            failed_files = (
-                self.files_failed.value()
-                if hasattr(self.files_failed, "value")
-                else self.files_failed
-            )
-
-            # Also get from metrics if counters weren't updated (fallback)
-            if downloaded_files == 0 and hasattr(self, "metrics"):
-                downloaded_files = self.metrics.metrics.get("files_downloaded", 0)
-                downloaded_bytes = self.metrics.metrics.get("bytes_downloaded", 0)
-                if skipped_files == 0:
-                    skipped_files = self.metrics.metrics.get("files_skipped", 0)
-                if failed_files == 0:
-                    failed_files = self.metrics.metrics.get("files_failed", 0)
-
-            logging.info("-" * 50)
-            logging.info(f"{prefix}SUMMARY:")
-            logging.info(f"{prefix}  Downloaded: {downloaded_files}")
-            logging.info(f"{prefix}  Skipped: {skipped_files}")
-            logging.info(f"{prefix}  Failed: {failed_files}")
-            logging.info(f"{prefix}  Size: {format_bytes(downloaded_bytes)}")
-
-            if self.target_dir and self.target_dir.exists():
-                disk_size = self.get_directory_size(self.target_dir) / (1024 * 1024)
-                logging.info(f"{prefix}  On disk: {disk_size:.2f} MB")
-
-            downloaded_mb = downloaded_bytes / (1024 * 1024)
-            speed = downloaded_mb / duration if duration > 0 else 0
-            logging.info(f"{prefix}  Speed: {speed:.2f} MB/s")
-            logging.info(f"{prefix}  Duration: {format_duration(duration)}")
-            logging.info("-" * 50)
-
-            logging.info(self.metrics.report(prefix, show_stats=self.config.stats))
-
             if hasattr(self.scanner, "get_parse_stats"):
                 try:
                     parse_stats = self.scanner.get_parse_stats()
                     fast_parses = parse_stats.get("fast_parses", 0)
                     lxml_parses = parse_stats.get("lxml_parses", 0)
-                    logging.info(
+                    logging.debug(
                         f"{prefix}  Parse stats: {fast_parses + lxml_parses} directories parsed"
                     )
                 except Exception as e:
                     logging.debug(f"Error reporting parse stats: {e}")
 
             perf_summary = self.performance_monitor.get_summary()
-            logging.info(
+            logging.debug(
                 f"{prefix}  Performance: {perf_summary['total_operations']} operations tracked"
             )
 
@@ -781,9 +751,6 @@ class ReportMixin(MirrorHost):
                         f"{parallel_stats['active_chunks']} chunks active"
                     )
 
-            if self.config.metrics_json and not self.config.dry_run:
-                self.metrics.export_json(self.config.metrics_json, self.config)
-
             # Bug fix: previously this read ``return self.files_failed == 0``,
             # but ``files_failed`` is an AtomicCounter (object) — comparing the
             # object itself to 0 is always False, so ``sync()`` ALWAYS reported
@@ -796,6 +763,14 @@ class ReportMixin(MirrorHost):
                 reasons.append("incomplete remote scan")
             if cleanup_failures > 0:
                 reasons.append(f"{cleanup_failures} cleanup failures")
+            run.finish("failed" if reasons else "success", "; ".join(reasons))
+            logging.info("-" * 50)
+            logging.info(self.metrics.report(prefix, show_stats=self.config.stats))
+            logging.info("-" * 50)
+
+            if self.config.metrics_json and not self.config.dry_run:
+                self.metrics.export_json(self.config.metrics_json, self.config)
+
             if reasons:
                 logging.warning("%sSync failed: %s", prefix, "; ".join(reasons))
                 return False
@@ -806,7 +781,12 @@ class ReportMixin(MirrorHost):
         except Exception as e:
             logging.critical(f"{prefix}Fatal error: {e}", exc_info=True)
             self.metrics.add_error(str(e), "fatal")
+            run.finish("failed", type(e).__name__)
+            logging.info(self.metrics.report(prefix))
             return False
+        finally:
+            if run.finished is None:
+                run.finish("incomplete")
 
     def _print_early_exit_summary(self, prefix: str) -> None:
         """Print summary when skipping sync due to connection failure."""
