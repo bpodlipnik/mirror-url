@@ -26,7 +26,7 @@ import yaml
 
 from ._version import __version__
 from .compat import PSUTIL_AVAILABLE, TQDM_AVAILABLE
-from .config import MirrorConfig, expand_env_vars
+from .config import MirrorConfig, _expand_check_files, expand_env_vars
 from .constants import (
     ADAPTIVE_ASYNC_ENABLED,
     ADAPTIVE_ERROR_THRESHOLD,
@@ -683,6 +683,19 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
         "--bandwidth-limit", type=float, metavar="MB/S", help="Limit download bandwidth (MB/s)"
     )
 
+    directory.add_argument(
+        "--check-files",
+        nargs="+",
+        action="extend",
+        default=[],
+        metavar="PATH",
+        help=(
+            "With --missing-files, check selected existing files for updates. "
+            "Exact paths relative to --url, including any --dir-suffix; "
+            "use @FILE for a UTF-8 list (one path per line)"
+        ),
+    )
+
     cache = parser.add_argument_group("Cache Options")
     cache.add_argument(
         "--no-cache",
@@ -759,12 +772,9 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
         "--missing-files",
         action="store_true",
         help=(
-            "Skip the per-file freshness check entirely for files that already exist "
-            "locally -- only download files that are absent. Much faster for large, "
-            "largely-static datasets, but will not detect a file that changed in place "
-            "on the server while keeping the same name (no ETag/size/mtime comparison "
-            "is made for existing files). Use alongside occasional full runs (without "
-            "this flag) to still catch in-place changes periodically."
+            "Download absent files and skip freshness checks for existing files, "
+            "except paths selected by --check-files. Unselected in-place changes "
+            "will be missed; use occasional full runs when needed."
         ),
     )
 
@@ -1173,6 +1183,19 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
         except Exception as e:
             parser.error(f"Error reading config file: {e}")
 
+    # Resolve local selection inputs before ownership/logging and only once,
+    # so each suffix in a run uses the same selected remote paths.
+    try:
+        args.check_files = _expand_check_files(args.check_files)
+        if args.config:
+            config_dict["check_files"] = (
+                args.check_files
+                if "check_files" in explicit_dests
+                else _expand_check_files(config_dict.get("check_files", []))
+            )
+    except ConfigError as error:
+        parser.error(str(error))
+
     selected_mode = (
         args.mode
         if "mode" in explicit_dests or not args.config
@@ -1240,7 +1263,7 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
     effective, base_config = None, None
     if args.config:
         try:
-            base_config = MirrorConfig.from_yaml(Path(args.config), silent=True)
+            base_config = MirrorConfig.from_dict(config_dict, silent=True)
             effective = _effective_args(args, explicit_dests, base_config)
         except Exception:
             pass  # The existing per-suffix config path reports invalid configuration.
@@ -1411,6 +1434,7 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
             cache_max_age=args.cache_max_age,
             no_etag=getattr(args, "no_etag", False),
             missing_files=getattr(args, "missing_files", False),
+            check_files=getattr(args, "check_files", []),
             verify_content=getattr(args, "verify_content", False),
             use_shared_log=use_shared,
             scan_mode=ScanMode(args.scan_mode) if args.scan_mode else ScanMode.ADAPTIVE,
@@ -1591,6 +1615,7 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
                     cache_max_age=args.cache_max_age,
                     no_etag=getattr(args, "no_etag", False),
                     missing_files=getattr(args, "missing_files", False),
+                    check_files=getattr(args, "check_files", []),
                     verify_content=getattr(args, "verify_content", False),
                     list_dirs=getattr(args, "list_dirs", None) is not None,
                     list_dirs_n=getattr(args, "list_dirs", None) or 0,

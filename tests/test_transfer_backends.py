@@ -973,3 +973,46 @@ def test_download_runtime_rejects_mutated_source_config(tmp_path, origin, change
     with pytest.raises(ConfigError, match="exactly one URL source"):
         download_url_list(config)
     assert not origin.requests
+
+
+def test_selected_updates_and_failure_preservation_on_both_backends(
+    tmp_path, origin, backend, monkeypatch
+):
+    values = job(tmp_path, origin, backend).model_dump()
+    values.update(
+        mode="mirror",
+        url_list=None,
+        verify_content=False,
+        missing_files=True,
+        check_files=["nested/a"],
+        async_metadata=False,
+        connection_pool_prewarm=False,
+    )
+    config = MirrorConfig(**values)
+    for name in ["nested/a", "nested/b", "nested/missing"]:
+        origin.routes["/root/" + name] = (200, {"ETag": '"old"'}, b"original")
+    with MirrorURL(config) as mirror:
+        monkeypatch.setattr(
+            mirror,
+            "get_remote_files",
+            lambda: [origin.base + name for name in ["nested/a", "nested/b", "nested/missing"]],
+        )
+        assert mirror.sync()
+        local = config.dest_path / "nested/a"
+        origin.routes["/root/nested/a"] = (200, {"ETag": '"new"'}, b"MODIFIED")
+        origin.routes["/root/nested/b"] = (200, {"ETag": '"new"'}, b"MODIFIED")
+        (config.dest_path / "nested/missing").unlink()
+        origin.requests.clear()
+        assert mirror.sync()
+        assert local.read_bytes() == b"MODIFIED"
+        assert (config.dest_path / "nested/b").read_bytes() == b"original"
+        assert (config.dest_path / "nested/missing").read_bytes() == b"original"
+        assert not any(path == "/root/nested/b" for _, path, _, _ in origin.requests)
+        metadata = mirror.cache_manager.get_file_metadata(local)
+        assert metadata["etag"] == '"new"'
+        assert metadata["size"] == len(b"MODIFIED")
+        origin.routes["/root/nested/a"] = (503, {}, b"")
+        assert not mirror.sync()
+        assert local.read_bytes() == b"MODIFIED"
+        assert mirror.cache_manager.get_file_metadata(local) == metadata
+        assert_no_scratch(config.dest_path)

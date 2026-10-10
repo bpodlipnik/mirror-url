@@ -581,10 +581,24 @@ class _MirrorBase(MirrorHost):
         # Log ETag support
         logging.info(f"{prefix}ETag support: {'ENABLED' if not config.no_etag else 'DISABLED'}")
 
-        if getattr(config, "missing_files", False):
+        if config.missing_files:
+            if config.check_files:
+                logging.info(
+                    "%s--missing-files: checking %d selected remote paths; "
+                    "skipping freshness checks for other existing files",
+                    prefix,
+                    len(config.check_files),
+                )
+            else:
+                logging.info(
+                    f"{prefix}⏭️ --missing-files: skipping freshness checks for existing files "
+                    f"(will not detect in-place changes to already-downloaded files)"
+                )
+        elif config.check_files:
             logging.info(
-                f"{prefix}⏭️ --missing-files: skipping freshness checks for existing files "
-                f"(will not detect in-place changes to already-downloaded files)"
+                "%s--check-files: normal freshness checks apply to all files "
+                "without --missing-files",
+                prefix,
             )
 
         # Log security settings

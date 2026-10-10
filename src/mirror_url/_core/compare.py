@@ -13,6 +13,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from email.utils import parsedate_to_datetime
+from itertools import islice
 from pathlib import Path
 from typing import TYPE_CHECKING, List, Optional, Tuple, Union, cast
 
@@ -47,6 +48,13 @@ else:
 
 class CompareMixin(MirrorHost):
     async_task_manager: Optional[AsyncTaskManager]
+
+    def _should_check_existing_file(self, remote_url: str) -> bool:
+        if not getattr(self.config, "missing_files", False):
+            return True
+        if not getattr(self.config, "check_files", ()):
+            return False
+        return self.config.check_file_selected(remote_url)
 
     def _comparison_metadata(self, local_path: Path, use_cache: bool = True):
         """Only use an ETag belonging to the current local file."""
@@ -136,7 +144,7 @@ class CompareMixin(MirrorHost):
         try:
             if not local_path.is_file():
                 return False
-            if getattr(self.config, "missing_files", False):
+            if not self._should_check_existing_file(remote_url):
                 self.metrics.increment("missing_files_skipped_check")
                 current = True
                 return True
@@ -394,7 +402,7 @@ class CompareMixin(MirrorHost):
         async def check_one(local_path: Path, remote_url: str, mgr) -> bool:
             if not local_path.is_file():
                 return False
-            if getattr(self.config, "missing_files", False):
+            if not self._should_check_existing_file(remote_url):
                 self.metrics.increment("missing_files_skipped_check")
                 return True
             try:
@@ -423,7 +431,12 @@ class CompareMixin(MirrorHost):
 
             # Profile server if using adaptive async
             if use_adaptive:
-                sample_urls = [url for _, url in file_checks[:PROFILE_SAMPLE_SIZE]]
+                sample_urls = list(
+                    islice(
+                        (url for _, url in file_checks if self._should_check_existing_file(url)),
+                        PROFILE_SAMPLE_SIZE,
+                    )
+                )
                 if sample_urls:
                     try:
                         profile_task = await self.async_task_manager.create_task(

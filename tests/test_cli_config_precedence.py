@@ -423,7 +423,7 @@ TYPED = [
 # Options that are covered by dedicated tests above, or are not config fields.
 _SEPARATELY_TESTED = {
     "url", "dest_path", "log_path", "config", "dir_suffix", "filter", "exclude_dir",
-    "list_dirs", "list_files", "log_file", "benchmark",
+    "list_dirs", "list_files", "log_file", "benchmark", "check_files",
 }  # fmt: skip
 
 
@@ -591,3 +591,35 @@ def test_load_config_from_args_accepts_real_parser_namespace(tmp_path, extra, fi
     ns = _parser().parse_args([*base, *extra])
     cfg = load_config_from_args(ns)
     assert _plain(getattr(cfg, field)) == expected
+
+
+def test_check_files_reaches_plain_cli_and_config_and_cli_wins(run_main, tmp_path):
+    assert run_main(
+        ["--missing-files", "--check-files", "soho/gen/a", "soho/gen/b"]
+    ).check_files == ["soho/gen/a", "soho/gen/b"]
+    assert run_main([], "missing_files: true\ncheck_files: [soho/gen/a]\n").check_files == [
+        "soho/gen/a"
+    ]
+    assert run_main(["--check-files", "soho/gen/b"], "check_files: [soho/gen/a]\n").check_files == [
+        "soho/gen/b"
+    ]
+    assert run_main(["--check-files", "soho/gen/a", "--check-files", "soho/gen/b"]).check_files == [
+        "soho/gen/a",
+        "soho/gen/b",
+    ]
+    listing = tmp_path / "check-files.txt"
+    listing.write_text("soho/gen/a\nsoho/lasco/monthly/b\n")
+    assert run_main(["--check-files", "@" + str(listing)]).check_files == [
+        "soho/gen/a",
+        "soho/lasco/monthly/b",
+    ]
+    assert run_main([], f"check_files: ['@{listing}']\n").check_files == [
+        "soho/gen/a",
+        "soho/lasco/monthly/b",
+    ]
+
+
+def test_cli_selection_replaces_an_unreadable_config_list(run_main):
+    assert run_main(
+        ["--check-files", "a"], "check_files: ['@absent-selection.txt']\n"
+    ).check_files == ["a"]
