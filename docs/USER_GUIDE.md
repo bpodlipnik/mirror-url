@@ -8,7 +8,7 @@ integrity checks and incremental caching. It also supports direct file URLs
 and exact URL lists without directory discovery. URL-scope, private-network
 and filesystem protections guard discovery and transfers.
 
-- **Version:** 3.2.1
+- **Version:** 3.3.0
 - **Python:** 3.10 or newer; CI tests Python 3.10–3.14
 - **License:** MIT
 
@@ -106,21 +106,21 @@ From a checkout of the repository on a build machine:
 
 ```bash
 pip install build
-python -m build          # produces dist/mirror_url-3.2.1-py3-none-any.whl
+python -m build          # produces dist/mirror_url-3.3.0-py3-none-any.whl
 ```
 
 Copy the wheel to the target server and install it:
 
 ```bash
 python3 -m venv /opt/mirror-url
-/opt/mirror-url/bin/pip install /tmp/mirror_url-3.2.1-py3-none-any.whl
+/opt/mirror-url/bin/pip install /tmp/mirror_url-3.3.0-py3-none-any.whl
 /opt/mirror-url/bin/mirror-url --help
 ```
 
 To include the optional speed extras:
 
 ```bash
-/opt/mirror-url/bin/pip install "/tmp/mirror_url-3.2.1-py3-none-any.whl[fast]"
+/opt/mirror-url/bin/pip install "/tmp/mirror_url-3.3.0-py3-none-any.whl[fast]"
 ```
 
 Available extras: `fast` (stringzilla + lxml), `progress` (tqdm),
@@ -129,24 +129,24 @@ Available extras: `fast` (stringzilla + lxml), `progress` (tqdm),
 ### From a Git repository
 
 ```bash
-pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.2.1"
+pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.3.0"
 # private repo over SSH:
-pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.2.1"
+pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.3.0"
 ```
 
 ### As an isolated CLI with pipx
 
 ```bash
-pipx install /tmp/mirror_url-3.2.1-py3-none-any.whl
-# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.2.1"
+pipx install /tmp/mirror_url-3.3.0-py3-none-any.whl
+# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.3.0"
 ```
 
 ### With Docker
 
 ```dockerfile
 FROM python:3.12-slim
-COPY dist/mirror_url-3.2.1-py3-none-any.whl /tmp/
-RUN pip install --no-cache-dir "/tmp/mirror_url-3.2.1-py3-none-any.whl[fast]"
+COPY dist/mirror_url-3.3.0-py3-none-any.whl /tmp/
+RUN pip install --no-cache-dir "/tmp/mirror_url-3.3.0-py3-none-any.whl[fast]"
 ENTRYPOINT ["mirror-url"]
 ```
 
@@ -1088,7 +1088,7 @@ auto-concurrency require HTTPX, and existing partials are preserved.
   `--dir-suffix` is used.
 - **`--dir-suffix`** restricts mirroring to one or more subpaths under the base
   URL and mirrors each in turn.
-- **`--check-files PATH [PATH ...]`** (next release) selects existing files
+- **`--check-files PATH [PATH ...]`** selects existing files
   for normal freshness checks when combined with `--missing-files`. Missing
   files anywhere in the mirroring scope still download; other existing files
   skip freshness checks. A selected file downloads again only when the normal
@@ -1459,7 +1459,7 @@ fetching the remote listing.
   `--verify-content`, unavailable receipts require downloading existing files.
 - `--no-etag`: use size/time rather than file ETags for freshness checks.
 - `--missing-files`: download absent files and skip existing files, except
-  paths selected by `--check-files` (next release). Unselected in-place changes
+  paths selected by `--check-files`. Unselected in-place changes
   will be missed. Use occasional normal runs when those changes matter.
   It cannot be combined with `--verify-content`.
 - `--quick`: refresh an existing JSON cache's expiry timestamp, without scanning

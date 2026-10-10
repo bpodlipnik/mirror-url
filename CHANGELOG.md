@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.3.0] - 2026-10-10
 
 ### Added
 
@@ -18,6 +18,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Keep full freshness checks without `--missing-files` and reject the selection
   in known-URL download mode. Restrict async warm-up and adaptive profiling to
   selected paths, preserving updates and failure behavior on both backends.
+
+### Changed
+
+- Integrate current behavior into the guides and remove obsolete release-specific
+  appendices. Broaden the project description to cover public HTTP(S) mirrors
+  and exact file downloads as well as scientific data archives.
 
 ## [3.2.1] - 2026-10-08
 
