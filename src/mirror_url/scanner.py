@@ -64,6 +64,9 @@ class DirectoryScanner:
         # degrades gracefully to basename-only in that case, same as
         # before this existed.
         self.dir_response_headers: Dict[str, Tuple[Optional[str], Optional[str]]] = {}
+        # Reset by get_remote_files before discovery. Only a successfully
+        # parsed GET in that pass can supply a reusable directory signature.
+        self.fresh_listing_headers: Dict[str, Tuple[Optional[str], Optional[str]]] = {}
 
     def _maybe_cleanup_cache(self) -> None:
         """Periodically clean up cache"""
@@ -156,11 +159,16 @@ class DirectoryScanner:
         subdirs = []
 
         scan_start = time.perf_counter()
+        self.fresh_listing_headers.pop(url, None)
         try:
             start = time.time()
 
             self.metrics.increment("listing_fetches")
-            response = self.client.request(url, method="GET", timeout=30)
+            request_start = time.perf_counter()
+            try:
+                response = self.client.request(url, method="GET", timeout=30)
+            finally:
+                self.metrics.add_directory_request_time("GET", time.perf_counter() - request_start)
             self.metrics.add_request_time(time.time() - start)
 
             # Captured before the status-code check below so a non-200
@@ -263,6 +271,7 @@ class DirectoryScanner:
             logging.debug(
                 f"Scan complete for {sanitize_url_for_log(url)}: {len(files)} files, {len(subdirs)} subdirs"
             )
+            self.fresh_listing_headers[url] = self.dir_response_headers[url]
             return files, subdirs
 
         except ParsingError:

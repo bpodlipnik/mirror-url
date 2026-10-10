@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Reuse ETag or Last-Modified from successfully parsed directory listings
+  fetched during the current discovery, avoiding redundant signature HEAD calls.
+  Retain HEAD fallback for cached listings or missing validators, per-file
+  freshness checks and incomplete-scan cleanup protection.
+- Report directory listing GET and signature HEAD counts and summed request
+  times separately, along with fresh GET signature reuses.
+
 ## [3.3.2] - 2026-10-10
 
 ### Changed

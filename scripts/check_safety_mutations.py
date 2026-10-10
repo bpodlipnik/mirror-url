@@ -15,6 +15,20 @@ from pathlib import Path
 
 MUTATIONS = (
     (
+        "directory GET proof reset between discoveries",
+        "_core/scan.py",
+        "self.scanner.fresh_listing_headers = {}",
+        "pass",
+        "tests/test_listing_signature_reuse.py::test_cached_listing_never_reuses_previous_discovery_get_headers",
+    ),
+    (
+        "directory GET proof invalidation before refetch",
+        "scanner.py",
+        "self.fresh_listing_headers.pop(url, None)",
+        "pass",
+        "tests/test_listing_signature_reuse.py::test_failed_refetch_discards_get_proof_and_preserves_local_payload[http]",
+    ),
+    (
         "whole-file timestamp handle identity",
         "transfers.py",
         "or opened_identity != staged_identity",

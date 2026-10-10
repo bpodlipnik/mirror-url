@@ -108,9 +108,13 @@ class ScanMixin(MirrorHost):
             ).hexdigest()
             return f"content:{content_hash}"
 
+        self.metrics.increment("directory_signature_head_calls")
         try:
-            r = self.connection_manager.request(url, method="HEAD", timeout=15)
-
+            request_start = time.perf_counter()
+            try:
+                r = self.connection_manager.request(url, method="HEAD", timeout=15)
+            finally:
+                self.metrics.add_directory_request_time("HEAD", time.perf_counter() - request_start)
             if r.status_code != 200:
                 return f"url:{url}"
 
@@ -124,6 +128,19 @@ class ScanMixin(MirrorHost):
         except Exception as e:
             logging.debug(f"Error getting signature for {sanitize_url_for_log(url)}: {e}")
             return f"url:{url}:{int(time.time())}"
+
+    def _get_listing_signature(self, url: str) -> str:
+        """Reuse this discovery's successful GET validators, with HEAD fallback."""
+        headers = self.scanner.fresh_listing_headers.get(trim_url(url))
+        if headers is not None:
+            last_modified, etag = headers
+            if etag:
+                self.metrics.increment("directory_signatures_from_get")
+                return f"etag:{etag}"
+            if last_modified:
+                self.metrics.increment("directory_signatures_from_get")
+                return f"mtime:{last_modified}"
+        return self.get_directory_signature(url)
 
     def is_symlink(
         self, url: str, existing_response: Optional[httpx.Response] = None, depth: int = 0
@@ -178,6 +195,7 @@ class ScanMixin(MirrorHost):
         # FIX (partial-scan guard): fresh state for this run -- see
         # _discover_directories_bfs and CleanupMixin.clean_obsolete.
         self.scan_incomplete = False
+        self.scanner.fresh_listing_headers = {}
 
         try:
             # NOTE: Both the dir_suffix/target case AND the root-level case go
@@ -267,7 +285,7 @@ class ScanMixin(MirrorHost):
                     self.scan_incomplete = True
                     files = []
                 all_files.extend(files)
-                sig = self.get_directory_signature(url)
+                sig = self._get_listing_signature(url)
                 dir_signatures[url] = sig
                 self.multi_progress.update("directories")
 

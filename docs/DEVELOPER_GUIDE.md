@@ -473,6 +473,23 @@ of lifetime counters. JSON retains existing metric keys and adds `metrics.run`
 with explicit outcomes, selection coverage, status, reasons, `phase_seconds`,
 `elapsed_seconds` and nullable `download_throughput`. Directory signatures,
 in-memory listing reuse, HTML hits/misses and cache bypasses remain distinct.
+`listing_fetches` remains the logical listing GET count. `listing_get_seconds`,
+`directory_signature_head_calls`, `directory_signature_head_seconds` and
+`directory_signatures_from_get` expose directory request work separately.
+Request times use `perf_counter()` around the connection-manager call, including
+failures, retries and pacing within that call. Counts exclude additional
+transport redirect/retry attempts. Text uses per-sync deltas; JSON retains
+collector totals for these keys.
+
+At the start of `get_remote_files()`, clear `DirectoryScanner.fresh_listing_headers`.
+Populate it only after a current GET returns HTTP 200 and the listing parses
+successfully; discard the URL's previous entry before a new fetch. Signature
+collection prefers a nonempty ETag, then Last-Modified from this map, otherwise
+it uses the existing HEAD path. Parsed/HTML cache hits from an earlier discovery
+cannot provide current GET proof. Directory validators never substitute for a
+child file's freshness check. Listing failures still mark the scan incomplete
+and prevent obsolete-file cleanup and signature-cache publication.
+
 Test repeated syncs, async fallback, HTTP skips, failed publication and both
 backends when changing reporting. No release-version labels belong in usage
 descriptions.

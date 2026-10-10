@@ -816,10 +816,30 @@ adds <code>metrics.run</code> with explicit outcomes, selection
 coverage, status, reasons, <code>phase_seconds</code>,
 <code>elapsed_seconds</code> and nullable
 <code>download_throughput</code>. Directory signatures, in-memory
-listing reuse, HTML hits/misses and cache bypasses remain distinct. Test
-repeated syncs, async fallback, HTTP skips, failed publication and both
-backends when changing reporting. No release-version labels belong in
-usage descriptions.</p>
+listing reuse, HTML hits/misses and cache bypasses remain distinct.
+<code>listing_fetches</code> remains the logical listing GET count.
+<code>listing_get_seconds</code>,
+<code>directory_signature_head_calls</code>,
+<code>directory_signature_head_seconds</code> and
+<code>directory_signatures_from_get</code> expose directory request work
+separately. Request times use <code>perf_counter()</code> around the
+connection-manager call, including failures, retries and pacing within
+that call. Counts exclude additional transport redirect/retry attempts.
+Text uses per-sync deltas; JSON retains collector totals for these
+keys.</p>
+<p>At the start of <code>get_remote_files()</code>, clear
+<code>DirectoryScanner.fresh_listing_headers</code>. Populate it only
+after a current GET returns HTTP 200 and the listing parses
+successfully; discard the URL's previous entry before a new fetch.
+Signature collection prefers a nonempty ETag, then Last-Modified from
+this map, otherwise it uses the existing HEAD path. Parsed/HTML cache
+hits from an earlier discovery cannot provide current GET proof.
+Directory validators never substitute for a child file's freshness
+check. Listing failures still mark the scan incomplete and prevent
+obsolete-file cleanup and signature-cache publication.</p>
+<p>Test repeated syncs, async fallback, HTTP skips, failed publication
+and both backends when changing reporting. No release-version labels
+belong in usage descriptions.</p>
 <p><code>MirrorURL</code> is a context manager — use
 <code>with MirrorURL(cfg) as mirror:</code> so
 <code>__exit__</code>/<code>cleanup</code> tears down pools, async

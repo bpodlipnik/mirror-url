@@ -13,7 +13,7 @@ from collections import deque
 from datetime import datetime
 from pathlib import Path
 from threading import RLock
-from typing import TYPE_CHECKING, Any, Dict
+from typing import TYPE_CHECKING, Any, Dict, Literal
 
 from ._version import __version__
 from .constants import ADAPTIVE_START_CONCURRENCY
@@ -49,6 +49,10 @@ class MetricsCollector:
             "html_cache_misses": 0,
             "rget_list_used": False,
             "parse_time_seconds": 0,
+            "listing_get_seconds": 0.0,
+            "directory_signature_head_calls": 0,
+            "directory_signature_head_seconds": 0.0,
+            "directory_signatures_from_get": 0,
             "errors": [],
             "etag_matches": 0,
             "etag_mismatches": 0,
@@ -171,6 +175,12 @@ class MetricsCollector:
         with self._times_lock:
             self._request_times.append(duration)
 
+    def add_directory_request_time(self, method: Literal["GET", "HEAD"], duration: float) -> None:
+        """Sum logical directory request durations, including failed calls."""
+        key = "listing_get_seconds" if method == "GET" else "directory_signature_head_seconds"
+        with self.lock:
+            self.metrics[key] += duration
+
     def add_download_time(self, duration: float) -> None:
         """Add download time to metrics - THREAD SAFE"""
         with self._times_lock:
@@ -291,6 +301,10 @@ class MetricsCollector:
                 "parse_time_seconds",
                 "directory_signatures_loaded",
                 "listing_fetches",
+                "listing_get_seconds",
+                "directory_signature_head_calls",
+                "directory_signature_head_seconds",
+                "directory_signatures_from_get",
                 "cache_head_requests_saved",
                 "etag_matches",
                 "etag_mismatches",
@@ -416,7 +430,15 @@ class MetricsCollector:
         lines.append(
             f"{prefix}  Directory signatures loaded: {summary.get('directory_signatures_loaded', 0)}"
         )
-        lines.append(f"{prefix}  Listing fetch calls: {summary.get('listing_fetches', 0)}")
+        lines.extend(
+            [
+                f"{prefix}  Directory listing GET calls: {summary.get('listing_fetches', 0)} "
+                f"({summary['listing_get_seconds']:.3f}s sum)",
+                f"{prefix}  Directory signature HEAD calls: {summary['directory_signature_head_calls']} "
+                f"({summary['directory_signature_head_seconds']:.3f}s sum)",
+                f"{prefix}  Directory signatures reused from fresh GET: {summary['directory_signatures_from_get']}",
+            ]
+        )
         if summary["cache_head_requests_saved"] > 0:
             lines.append(f"{prefix}  HEAD requests saved: {summary['cache_head_requests_saved']}")
         lines.append(f"{prefix}  Cache signatures: {summary['cache_signatures']}")

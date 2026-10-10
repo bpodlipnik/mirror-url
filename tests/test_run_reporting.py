@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from concurrent.futures import ThreadPoolExecutor
-from threading import Barrier
+from threading import Barrier, local
 
 import httpx
 import pytest
@@ -248,8 +248,14 @@ def test_concurrent_listing_durations_remain_independent_and_retain_json_samples
     scanner, client = _make_scanner({})
     request = client.request
     barrier = Barrier(2)
-    times = iter([0.0, 1.0, 5.0, 6.0])
-    monkeypatch.setattr("mirror_url.scanner.time.perf_counter", lambda: next(times))
+    clocks = local()
+
+    def clock():
+        if not hasattr(clocks, "times"):
+            clocks.times = iter([0.0, 1.0, 4.0, 5.0])
+        return next(clocks.times)
+
+    monkeypatch.setattr("mirror_url.scanner.time.perf_counter", clock)
 
     def overlapping_request(*args, **kwargs):
         barrier.wait(timeout=5)
@@ -263,6 +269,7 @@ def test_concurrent_listing_durations_remain_independent_and_retain_json_samples
     assert len(summary["parse_times"]) == 2
     assert sum(summary["parse_times"]) == summary["parse_time_seconds"] == 10
     assert summary["listing_fetches"] == 2
+    assert summary["listing_get_seconds"] == 6
 
 
 @pytest.mark.integration
