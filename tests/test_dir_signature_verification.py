@@ -10,6 +10,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from mirror_url._core.compare import CompareMixin
+from mirror_url.run_report import RunReport
 
 
 class _FakeMetrics:
@@ -17,6 +18,7 @@ class _FakeMetrics:
 
     def __init__(self):
         self.counts: dict[str, int] = {}
+        self.run_report = RunReport()
 
     def increment(self, name: str) -> None:
         self.counts[name] = self.counts.get(name, 0) + 1

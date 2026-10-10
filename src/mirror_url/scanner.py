@@ -90,9 +90,19 @@ class DirectoryScanner:
         cache_allowed = (
             self.config.cache_html and not self.config.no_cache and not self.config.refresh_cache
         )
+        if not cache_allowed:
+            reason = (
+                "no_cache"
+                if getattr(self.config, "no_cache", False)
+                else "refresh"
+                if getattr(self.config, "refresh_cache", False)
+                else "disabled"
+            )
+            self.metrics.increment("html_cache_bypass_" + reason)
         cached = self.parse_cache.get(url) if cache_allowed else None
         if cached:
             self.metrics.increment("cache_hits")
+            self.metrics.increment("parsed_listing_reuses")
             return cached
 
         cached_result = self.mirror.cache_manager.get_html_cache(url) if cache_allowed else None
@@ -145,10 +155,11 @@ class DirectoryScanner:
         files = []
         subdirs = []
 
+        scan_start = time.perf_counter()
         try:
-            self.metrics.start_parse_timer()
             start = time.time()
 
+            self.metrics.increment("listing_fetches")
             response = self.client.request(url, method="GET", timeout=30)
             self.metrics.add_request_time(time.time() - start)
 
@@ -163,7 +174,6 @@ class DirectoryScanner:
             )
 
             if response.status_code != 200:
-                self.metrics.stop_parse_timer()
                 logging.debug(
                     f"Directory scan returned {response.status_code}: {sanitize_url_for_log(url)}"
                 )
@@ -247,7 +257,6 @@ class DirectoryScanner:
                     if self.mirror.matches_filter(full_url):
                         files.append(full_url)
 
-            self.metrics.stop_parse_timer()
             self.metrics.increment("directories_processed")
             self.metrics.increment("directories_scanned_sequential")
 
@@ -259,15 +268,18 @@ class DirectoryScanner:
         except ParsingError:
             # Already-classified scan failure (e.g. non-200). Re-raise so the
             # caller does not cache an empty result.
-            self.metrics.stop_parse_timer()
             raise
         except Exception as e:
-            self.metrics.stop_parse_timer()
             logging.error(f"Error scanning {sanitize_url_for_log(url)}: {e}")
             self.metrics.add_error(str(e), "directory_scan")
             # FIX: surface the failure instead of returning ([], []), which
             # would be cached as an authoritative empty directory.
             raise ParsingError(f"Scan failed for {url}: {e}") from e
+        finally:
+            # Sum per-call work, including network wait. Do not describe this
+            # as CPU parsing time or use a shared timer across scan workers.
+            duration = time.perf_counter() - scan_start
+            self.metrics.add_parse_time(duration)
 
     def get_parse_stats(self) -> Dict[str, Any]:
         """Get parser statistics"""

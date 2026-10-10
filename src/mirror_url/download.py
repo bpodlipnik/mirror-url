@@ -684,6 +684,7 @@ class ParallelDownloadManager:
             try:
                 self.metrics.increment("chunk_assemblies")
                 if self.mirror:
+                    self.metrics.run_report.record_publication(download.url)
                     self.mirror.files_processed.increment(1)
                     self.mirror.total_downloaded_size.add(download.file_size)
                     if hasattr(self.mirror, "cache_manager") and (
@@ -1006,6 +1007,7 @@ class ParallelDownloadManager:
             try:
                 self.metrics.increment("chunk_assemblies")
                 if self.mirror:
+                    self.metrics.run_report.record_publication(download.url)
                     self.mirror.files_processed.increment(1)
                     self.mirror.total_downloaded_size.add(file_size)
                     if hasattr(self.mirror, "cache_manager") and (

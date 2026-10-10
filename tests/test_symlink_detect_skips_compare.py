@@ -28,6 +28,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from mirror_url._core.report import ReportMixin
+from mirror_url.metrics import MetricsCollector
 
 
 class _SpyCalled(Exception):
@@ -54,15 +55,8 @@ class _StubMirror(ReportMixin):
             dir_suffix=None,
             progress_bar=False,
         )
-        self.metrics = SimpleNamespace(
-            metrics={
-                "files_downloaded": 0,
-                "files_skipped": 0,
-                "files_failed": 0,
-                "symlinks_detected": symlinks_detected,
-            },
-            add_error=lambda *a, **kw: None,
-        )
+        self.metrics = MetricsCollector()
+        self.metrics.metrics["symlinks_detected"] = symlinks_detected
         self.multi_progress = SimpleNamespace(add_level=lambda *a, **kw: None)
         self.files_processed = SimpleNamespace(value=lambda: 0)
         self.files_skipped = SimpleNamespace(value=lambda: 0)

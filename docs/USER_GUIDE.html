@@ -1866,15 +1866,46 @@ not make the heuristic a definitive detector.</p>
 <hr />
 <h2 id="monitoring-and-metrics">Monitoring and metrics</h2>
 <ul>
-<li><p><strong>Metrics summary.</strong> A run logs a
-<code>METRICS SUMMARY</code> block at INFO level (files
-downloaded/skipped/failed, bytes, speed, cache hit rates, ETag stats,
-etc.). <code>--stats</code> is accepted for backward compatibility but
-currently has no effect; the summary is emitted in full on the normal
-completed-sync path. Early exits such as quick mode and connection
-failures have shorter summaries.</p></li>
+<li><p><strong>Run summary.</strong> A normal mirror sync logs one
+<code>SUMMARY</code> block at INFO level, including its result and any
+download, scan or cleanup failure. File outcomes distinguish existing
+files checked and current, freshness checks skipped, missing files
+downloaded, changed files downloaded, and downloads made because
+freshness could not be established. Other skips include HTTP resources
+that became unavailable; they are not described as current. Download
+counts record successful publication, rather than queued or failed
+transfers.</p>
+<p>With <code>--check-files</code>, the summary reports how many
+configured paths were discovered within scope and how many selected
+existing files were checked. A selected missing file downloads normally.
+Unmatched selectors can be absent or outside the configured discovery
+scope; they do not trigger extra discovery. Selected current files and
+files needing replacement have a short decision message. A metadata
+failure is reported as uncertain freshness, not as proof of a remote
+change. DEBUG logs include returned freshness headers.</p>
+<p>Discovery, metadata, download preparation, downloads and cleanup have
+separate elapsed times. <strong>Download throughput</strong> divides
+newly transferred bytes by the download phase's wall-clock duration,
+including concurrent transfers, retries, pacing and publication. It is
+<code>n/a</code> when nothing was published. <strong>Total
+duration</strong> covers <code>sync()</code> after manager setup;
+initial construction and final shutdown are outside that interval.
+Listing fetch/parse work includes network wait and is a sum of
+individual operations, not CPU parsing time.</p>
+<p>Cache reporting separates directory signatures loaded, in-memory
+parsed listing reuse, HTML-listing hits/misses and bypass reasons.
+Listing fetch calls count scanner fetch operations; transport
+redirects/retries can make additional requests. <code>--stats</code> is
+accepted for backward compatibility and has no effect. Quick mode,
+connection failures and discovery-only surveys have shorter
+summaries.</p></li>
 <li><p><strong><code>--metrics-json FILE</code></strong> writes the full
-metrics summary to JSON (skipped in <code>--dry-run</code>).</p></li>
+metrics summary to JSON (skipped in <code>--dry-run</code>). Its
+<code>metrics.run</code> object contains the per-sync outcomes, result,
+phase timings and <code>download_throughput</code> (<code>null</code>
+when unavailable). Existing top-level metric keys remain available;
+<code>download_speed</code> is the older average over the collector's
+lifetime, not the new download-phase throughput.</p></li>
 <li><p><strong><code>--progress-bar</code></strong> shows a live tqdm
 bar (requires the <code>progress</code> extra).</p></li>
 <li><p><strong>Health/metrics HTTP endpoints.</strong> Setting

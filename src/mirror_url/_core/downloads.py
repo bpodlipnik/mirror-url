@@ -233,6 +233,7 @@ class DownloadMixin(MirrorHost):
 
                     # FIX v3.0.6: Update counters using atomic methods
                     downloaded_bytes = size - bytes_already
+                    self.metrics.run_report.record_publication(remote_url)
                     self.files_processed.increment(1)  # Atomic increment
                     self.total_downloaded_size.add(downloaded_bytes)  # Atomic add
                     self.metrics.increment("files_downloaded")
