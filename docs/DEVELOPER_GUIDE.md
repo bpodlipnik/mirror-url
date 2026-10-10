@@ -416,6 +416,12 @@ A full mirror run is driven by `ReportMixin.sync()`. The high-level path:
    signatures never validate child file contents. When `async_metadata` is
    enabled and there are more than 80 remote files, HEAD checks can use the
    async manager; smaller batches, dry runs, and fallback paths use sync checks.
+   With `missing_files`, absent files remain download candidates. Existing
+   files skip checking unless `MirrorConfig.check_file_selected()` matches their
+   once-decoded path relative to `base_url`. Sync/async comparisons, adaptive
+   profiling and async warm-up use the same selection policy. Suffixes and local
+   filename sanitization never redefine the selection root; discovery, filtering
+   and cleanup retain their existing scope.
 5. **Download (`DownloadMixin` → `download.py`).** Missing/changed files are
    fetched. `ParallelDownloadManager.auto_select_method` (or an explicit
    `DownloadMethod`) picks sequential vs. streaming-parallel vs.
@@ -588,6 +594,14 @@ required URL/path values to come from explicit arguments before validating
 its final merged model. Benchmark mode uses the same merge precedence.
 `load_config_from_args()` maps an already populated argparse namespace; it does
 not read `args.config` or implement the CLI's explicit-override detection.
+
+`check_files` (next release) is a list of literal remote paths relative to
+`base_url`. Its field validator resolves explicit `@` UTF-8 list files from the
+current working directory, validates paths, rejects nested lists and preserves
+ordered unique entries. Models carry resolved paths, so per-suffix reconstruction
+does not reread list files. CLI inputs replace YAML/JSON inputs only when explicit.
+The option is mirror-only and does not change the `verify_content`/`missing_files`
+conflict or the normal freshness policy.
 
 Model bounds can raise pydantic `ValidationError`; cross-field/URL checks can
 raise `ConfigError`. `extra="forbid"` rejects unknown fields. Environment

@@ -91,7 +91,6 @@
       color: #606060;
     }
     code {
-      white-space: pre-wrap;
       font-family: Menlo, Monaco, Consolas, 'Lucida Console', monospace;
       font-size: 85%;
       margin: 0;
@@ -155,6 +154,7 @@
     #TOC a:not(:hover) {
       text-decoration: none;
     }
+    code{white-space: pre-wrap;}
     span.smallcaps{font-variant: small-caps;}
     div.columns{display: flex; gap: min(4vw, 1.5em);}
     div.column{flex: auto; overflow-x: auto;}
@@ -750,7 +750,14 @@ matching local size/mtime/ctime metadata, and directory signatures never
 validate child file contents. When <code>async_metadata</code> is
 enabled and there are more than 80 remote files, HEAD checks can use the
 async manager; smaller batches, dry runs, and fallback paths use sync
-checks.</li>
+checks. With <code>missing_files</code>, absent files remain download
+candidates. Existing files skip checking unless
+<code>MirrorConfig.check_file_selected()</code> matches their
+once-decoded path relative to <code>base_url</code>. Sync/async
+comparisons, adaptive profiling and async warm-up use the same selection
+policy. Suffixes and local filename sanitization never redefine the
+selection root; discovery, filtering and cleanup retain their existing
+scope.</li>
 <li><strong>Download (<code>DownloadMixin</code> →
 <code>download.py</code>).</strong> Missing/changed files are fetched.
 <code>ParallelDownloadManager.auto_select_method</code> (or an explicit
@@ -942,6 +949,15 @@ mode uses the same merge precedence.
 <code>load_config_from_args()</code> maps an already populated argparse
 namespace; it does not read <code>args.config</code> or implement the
 CLI's explicit-override detection.</p>
+<p><code>check_files</code> (next release) is a list of literal remote
+paths relative to <code>base_url</code>. Its field validator resolves
+explicit <code>@</code> UTF-8 list files from the current working
+directory, validates paths, rejects nested lists and preserves ordered
+unique entries. Models carry resolved paths, so per-suffix
+reconstruction does not reread list files. CLI inputs replace YAML/JSON
+inputs only when explicit. The option is mirror-only and does not change
+the <code>verify_content</code>/<code>missing_files</code> conflict or
+the normal freshness policy.</p>
 <p>Model bounds can raise pydantic <code>ValidationError</code>;
 cross-field/URL checks can raise <code>ConfigError</code>.
 <code>extra="forbid"</code> rejects unknown fields. Environment

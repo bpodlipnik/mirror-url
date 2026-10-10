@@ -12,6 +12,7 @@ import logging
 import threading
 import time
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, as_completed, wait
+from itertools import islice
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
 
@@ -302,7 +303,12 @@ class ReportMixin(MirrorHost):
             if use_async:
                 # ========== WARM UP ASYNC CONNECTIONS ==========
                 if self.config.connection_pool_prewarm:
-                    sample_urls = remote_files[:20] if remote_files else []
+                    sample_urls = list(
+                        islice(
+                            (url for url in remote_files if self._should_check_existing_file(url)),
+                            20,
+                        )
+                    )
                     if sample_urls:
                         logging.info(f"{prefix}🔥 Pre-warming async connections")
 

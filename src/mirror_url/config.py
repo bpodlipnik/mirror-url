@@ -17,7 +17,7 @@ import shutil
 from pathlib import Path
 from re import error as re_error
 from typing import Any, Dict, List, Literal, Optional, Tuple
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse, urlsplit
 
 import yaml
 from pydantic import (
@@ -67,7 +67,7 @@ from .constants import (
 )
 from .enums import CleanupPolicy, ScanMode
 from .exceptions import ConfigError
-from .utils import trim_url
+from .utils import _relative_url_path, trim_url
 
 
 def expand_env_vars(config_dict: Dict[str, Any]) -> Dict[str, Any]:
@@ -161,6 +161,61 @@ def validate_config_file(config_path: Path) -> Tuple[bool, Optional[str]]:
         return False, f"Config load error: {e}"
 
 
+def _check_file_path(value: str) -> str:
+    """Validate a literal remote file path relative to the configured base URL."""
+    value = value.strip()
+    try:
+        scheme = urlsplit(value).scheme
+    except ValueError as error:
+        raise ConfigError(f"Invalid check_files path: {value!r}") from error
+    if (
+        not value
+        or value.startswith("/")
+        or "\\" in value
+        or any(ord(char) < 32 or ord(char) == 127 for char in value)
+        or scheme
+        or any(part in ("", ".", "..") for part in value.split("/"))
+        or _relative_url_path(
+            "https://check-files.invalid/" + quote(value, safe="/"),
+            "https://check-files.invalid/",
+        )
+        != value
+    ):
+        raise ConfigError(f"check_files requires file paths relative to --url: {value!r}")
+    return value
+
+
+def _expand_check_files(values: List[str]) -> List[str]:
+    """Resolve explicit @UTF-8 list files once, retaining ordered unique paths."""
+    if not isinstance(values, list) or any(not isinstance(value, str) for value in values):
+        raise ConfigError("check_files requires a list of file paths")
+    paths = []
+    for value in values:
+        value = value.strip()
+        if not value.startswith("@"):
+            paths.append(_check_file_path(value))
+            continue
+        filename = value[1:]
+        if not filename:
+            raise ConfigError("check_files @list requires a local filename")
+        try:
+            lines = Path(filename).read_text(encoding="utf-8-sig").splitlines()
+        except (OSError, UnicodeError) as error:
+            raise ConfigError(f"Cannot read check_files list {filename!r}: {error}") from error
+        entries = [
+            line.strip() for line in lines if line.strip() and not line.lstrip().startswith("#")
+        ]
+        if not entries:
+            raise ConfigError(f"check_files list {filename!r} contains no file paths")
+        for line in entries:
+            if line.startswith("@"):
+                raise ConfigError(
+                    f"Nested @lists are not supported in check_files list {filename!r}"
+                )
+            paths.append(_check_file_path(line))
+    return list(dict.fromkeys(paths))
+
+
 class MirrorConfig(BaseModel):
     """Configuration for MirrorURL with Pydantic v2 validation and parallel downloads"""
 
@@ -192,6 +247,7 @@ class MirrorConfig(BaseModel):
     cache_max_age: int = Field(default=DEFAULT_CACHE_MAX_AGE_DAYS, ge=0, le=MAX_CACHE_AGE_DAYS)
     no_etag: bool = False
     missing_files: bool = False
+    check_files: List[str] = Field(default_factory=list)
     verify_content: bool = False
     list_dirs: bool = False
     list_dirs_n: int = 0
@@ -366,6 +422,15 @@ class MirrorConfig(BaseModel):
             return v.strip("/")
         return v
 
+    @field_validator("check_files")
+    @classmethod
+    def resolve_check_files(cls, values: List[str]) -> List[str]:
+        return _expand_check_files(values)
+
+    def check_file_selected(self, remote_url: str) -> bool:
+        """Match decoded remote paths, independently of suffixes or local sanitization."""
+        return _relative_url_path(remote_url, self.base_url) in self.check_files
+
     @model_validator(mode="after")
     def warn_unused_fields(self) -> MirrorConfig:
         """Warn (once per field per process) when a no-op option is set to a non-default.
@@ -447,6 +512,7 @@ class MirrorConfig(BaseModel):
                 or self.streaming_parallel
                 or self.auto_concurrency
                 or self.missing_files
+                or self.check_files
             ):
                 raise ConfigError("download mode uses exact URLs and whole-file streaming")
         elif self.url_list is not None or self.download_url is not None or self.overwrite:
@@ -794,6 +860,7 @@ def load_config_from_args(args: argparse.Namespace, silent: bool = False) -> Mir
         "cache_max_age": args.cache_max_age,
         "no_etag": getattr(args, "no_etag", False),
         "missing_files": getattr(args, "missing_files", False),
+        "check_files": getattr(args, "check_files", []),
         "verify_content": getattr(args, "verify_content", False),
         "list_dirs": getattr(args, "list_dirs", None) is not None,
         "list_dirs_n": getattr(args, "list_dirs", None) or 0,

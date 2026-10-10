@@ -442,7 +442,11 @@ The most commonly used options:
 </tr>
 <tr>
 <td nowrap><samp>--missing-files</samp></td>
-<td>Skip per-file freshness checks for files that already exist locally — only download what's absent. Much faster on large, largely-static datasets, but won't detect a file that changed in place on the server under the same name. Pair with occasional full runs (without this flag) to still catch in-place changes.</td>
+<td>Download missing files and skip freshness checks for existing files, except paths selected by <code>--check-files</code>. Unselected in-place changes will be missed; use occasional full runs when needed.</td>
+</tr>
+<tr>
+<td nowrap><samp>--check-files PATH [PATH ...]</samp></td>
+<td>Next release: with <code>--missing-files</code>, check selected existing files for updates. Exact, case-sensitive paths relative to <code>--url</code>, including any suffix. Use <code>@FILE</code> for a UTF-8 list, one path per line. Does not expand discovery scope.</td>
 </tr>
 <tr>
 <td nowrap><samp>--quick</samp></td>
@@ -1084,6 +1088,68 @@ auto-concurrency require HTTPX, and existing partials are preserved.
   `--dir-suffix` is used.
 - **`--dir-suffix`** restricts mirroring to one or more subpaths under the base
   URL and mirrors each in turn.
+- **`--check-files PATH [PATH ...]`** (next release) selects existing files
+  for normal freshness checks when combined with `--missing-files`. Missing
+  files anywhere in the mirroring scope still download; other existing files
+  skip freshness checks. A selected file downloads again only when the normal
+  ETag/size/time policy reports it stale. Without `--missing-files`, normal
+  freshness checking still applies to every existing file in scope.
+
+  Selectors are **exact, case-sensitive remote paths relative to `--url`**,
+  written with `/`. They include the suffix, even with multiple `--dir-suffix`
+  values. They are not local destination paths or patterns. Use literal decoded
+  filenames (quote arguments containing spaces); URL escaping and local filename
+  mapping do not change the selected remote identity. Absolute paths, URLs,
+  traversal and empty path components are rejected.
+
+  ```bash
+  mirror-url --url https://sohoftp.nascom.nasa.gov/sdb/ \
+    --dest-path /data/sdb --log-path /data/logs/sdb \
+    --dir-suffix soho/gen soho/lasco/monthly \
+    --missing-files \
+    --check-files soho/gen/file1 soho/gen/file2 soho/lasco/monthly/file3
+  ```
+
+  `soho/gen/file1` refers to `/sdb/soho/gen/file1`. Removing `--dir-suffix`
+  expands mirroring to the base URL's tree but leaves each selector's meaning
+  unchanged. Selection never expands the configured suffix, depth, file-filter
+  or directory-exclusion scope. Paths absent from the discovered selection do
+  not trigger a separate download or cleanup action. Existing cleanup policies
+  still determine how obsolete local files are handled.
+
+  For a local input list, use the explicit `@` prefix:
+
+  ```bash
+  --missing-files --check-files @check-files.txt
+  ```
+
+  ```text
+  # Paths relative to --url
+  soho/gen/file1
+  soho/gen/file2
+  soho/lasco/monthly/file3
+  ```
+
+  The list is UTF-8 (an optional BOM is accepted), with one path per line.
+  Blank lines and lines beginning with `#` after whitespace are ignored;
+  surrounding whitespace is trimmed. Nested `@` lists, unreadable lists,
+  invalid paths and lists with no paths are rejected. The list filename is
+  relative to the current working directory, or can be an absolute local path.
+  `--check-files check-files.txt` instead selects a remote file of that name.
+  Direct paths and `@` lists can be mixed, or the flag repeated; duplicates
+  are removed. YAML/JSON configuration uses the same inputs:
+
+  ```yaml
+  missing_files: true
+  check_files:
+    - soho/gen/file1
+    - soho/lasco/monthly/file3
+    # Alternatively: - '@check-files.txt'
+  ```
+
+  An explicit CLI list replaces a configured list. Both HTTPX and aiohttp
+  mirroring honor the selection; known-URL `--mode download` rejects it.
+  `--verify-content` remains incompatible with `--missing-files`.
 - **`--max-depth`** counts directory levels below the target root (depth 0);
   files in its immediate child directories are eligible at depth 1. The
   crawler stays within the configured host/path. Duplicate file URLs are
@@ -1392,9 +1458,9 @@ fetching the remote listing.
 - `--no-cache`: bypass those caches; existing files are still checked. With
   `--verify-content`, unavailable receipts require downloading existing files.
 - `--no-etag`: use size/time rather than file ETags for freshness checks.
-- `--missing-files`: download only absent files. Existing files are not checked
-  for freshness, so in-place remote changes will be missed. Use occasional
-  normal runs when those changes matter.
+- `--missing-files`: download absent files and skip existing files, except
+  paths selected by `--check-files` (next release). Unselected in-place changes
+  will be missed. Use occasional normal runs when those changes matter.
   It cannot be combined with `--verify-content`.
 - `--quick`: refresh an existing JSON cache's expiry timestamp, without scanning
   or downloading. It does not verify that local or remote files are current and
