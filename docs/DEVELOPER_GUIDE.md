@@ -11,7 +11,7 @@ If you only want to *use* MirrorURL (install, CLI, config, Python API), read
 repeats the essentials so you can work from it alone.
 
 - **Package:** `mirror_url` (src-layout under `src/`)
-- **Version:** 3.2.0
+- **Version:** 3.3.0
 - **Python:** 3.10 or newer; CI tests Python 3.10–3.14
 - **Runtime deps:** `httpx[http2]` (including `h2`), `pydantic` v2, `PyYAML`, `portalocker` 3.x (optional: `stringzilla`,
   `lxml`, `tqdm`, `psutil`, `aiohttp`)
@@ -305,15 +305,55 @@ MirrorURL` is unchanged for callers.
 
 **Responsibilities and key methods per mixin:**
 
-| Mixin (`_core/…`) | Responsibility | Representative methods |
-|---|---|---|
-| `_MirrorBase` (`_base.py`) | Construction, shared state, lifecycle, logging, connection bring-up, the on-disk caches, disk-space checks | `__init__`, `__enter__`/`__exit__`, `cleanup`, `setup_logging`, `test_connection`, `_warm_up_connections`, `check_disk_space`, `install_signal_handlers` |
-| `UrlMixin` (`urls.py`) | URL scheme/scope validation, path extraction | `_validate_url_scheme`, `_is_url_within_scope`, `_is_within_target_scope`, `_is_dir_excluded`, `_get_target_base_url`, `_parse_url_cached`, `_get_filename_fast` |
-| `ScanMixin` (`scan.py`) | Remote discovery, filtering, symlink tracking | `get_remote_files`, `_discover_directories_bfs`, `matches_filter`, `get_directory_signature`, `is_symlink`/`record_symlink`, `_get_local_path_from_url` |
-| `CompareMixin` (`compare.py`) | "Is the local copy up to date?" — local identity plus remote size/timestamp/ETag, sync and async | `file_exists_and_up_to_date`, `_check_files_sync`, `_check_files_async`, `_comparison_metadata`, `_response_is_current`, `get_remote_timestamp`, `get_directory_size` |
-| `DownloadMixin` (`downloads.py`) | Per-file download orchestration (delegates to the `download.py` engines) | `download_file_with_resume`, `_download_file_single` |
-| `CleanupMixin` (`cleanup.py`) | Removing/moving local files no longer present remotely | `clean_obsolete`, `_scan_local_tree`, `_cleanup_path_selected` |
-| `ReportMixin` (`report.py`) | The top-level `sync()` driver, summaries, benchmarking | `sync`, `_print_early_exit_summary`, `benchmark` |
+<!-- HTML tables keep the first column on one line in GitHub.
+     Use samp for first-column code: GitHub wraps code inside nowrap cells. -->
+
+<table>
+<thead>
+<tr>
+<th scope="col" nowrap>Mixin (<samp>_core/…</samp>)</th>
+<th scope="col">Responsibility</th>
+<th scope="col">Representative methods</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td nowrap><samp>_MirrorBase</samp> (<samp>_base.py</samp>)</td>
+<td>Construction, shared state, lifecycle, logging, connection bring-up, the on-disk caches, disk-space checks</td>
+<td><code>__init__</code>, <code>__enter__</code>/<code>__exit__</code>, <code>cleanup</code>, <code>setup_logging</code>, <code>test_connection</code>, <code>_warm_up_connections</code>, <code>check_disk_space</code>, <code>install_signal_handlers</code></td>
+</tr>
+<tr>
+<td nowrap><samp>UrlMixin</samp> (<samp>urls.py</samp>)</td>
+<td>URL scheme/scope validation, path extraction</td>
+<td><code>_validate_url_scheme</code>, <code>_is_url_within_scope</code>, <code>_is_within_target_scope</code>, <code>_is_dir_excluded</code>, <code>_get_target_base_url</code>, <code>_parse_url_cached</code>, <code>_get_filename_fast</code></td>
+</tr>
+<tr>
+<td nowrap><samp>ScanMixin</samp> (<samp>scan.py</samp>)</td>
+<td>Remote discovery, filtering, symlink tracking</td>
+<td><code>get_remote_files</code>, <code>_discover_directories_bfs</code>, <code>matches_filter</code>, <code>get_directory_signature</code>, <code>is_symlink</code>/<code>record_symlink</code>, <code>_get_local_path_from_url</code></td>
+</tr>
+<tr>
+<td nowrap><samp>CompareMixin</samp> (<samp>compare.py</samp>)</td>
+<td>"Is the local copy up to date?" — local identity plus remote size/timestamp/ETag, sync and async</td>
+<td><code>file_exists_and_up_to_date</code>, <code>_check_files_sync</code>, <code>_check_files_async</code>, <code>_comparison_metadata</code>, <code>_response_is_current</code>, <code>get_remote_timestamp</code>, <code>get_directory_size</code></td>
+</tr>
+<tr>
+<td nowrap><samp>DownloadMixin</samp> (<samp>downloads.py</samp>)</td>
+<td>Per-file download orchestration (delegates to the <code>download.py</code> engines)</td>
+<td><code>download_file_with_resume</code>, <code>_download_file_single</code></td>
+</tr>
+<tr>
+<td nowrap><samp>CleanupMixin</samp> (<samp>cleanup.py</samp>)</td>
+<td>Removing/moving local files no longer present remotely</td>
+<td><code>clean_obsolete</code>, <code>_scan_local_tree</code>, <code>_cleanup_path_selected</code></td>
+</tr>
+<tr>
+<td nowrap><samp>ReportMixin</samp> (<samp>report.py</samp>)</td>
+<td>The top-level <code>sync()</code> driver, summaries, benchmarking</td>
+<td><code>sync</code>, <code>_print_early_exit_summary</code>, <code>benchmark</code></td>
+</tr>
+</tbody>
+</table>
 
 **Working rule:** when you add a method to `MirrorURL`, put it in the mixin whose
 responsibility it matches, and keep shared attributes initialized in
@@ -365,8 +405,7 @@ A full mirror run is driven by `ReportMixin.sync()`. The high-level path:
    `False`: no file in the affected suffix is downloaded, and obsolete-file
    cleanup is not reached. Discovery-only listing modes bypass this check.
    Lossy-name, reserved-state and unsafe-path rejection remain in place.
-   Probe checks also run during dry-run preflight. The 3.2.0 behavior
-   differs from 3.1.79's unconditional case-fold collision rejection.
+   Probe checks also run during dry-run preflight.
    The [User Guide](./USER_GUIDE.md#filename-collisions-and-download-behavior)
    documents the NASA pair and the storage and preflight requirements for
    preserving both original files. Directory exclusion reduces the mirrored
@@ -377,6 +416,12 @@ A full mirror run is driven by `ReportMixin.sync()`. The high-level path:
    signatures never validate child file contents. When `async_metadata` is
    enabled and there are more than 80 remote files, HEAD checks can use the
    async manager; smaller batches, dry runs, and fallback paths use sync checks.
+   With `missing_files`, absent files remain download candidates. Existing
+   files skip checking unless `MirrorConfig.check_file_selected()` matches their
+   once-decoded path relative to `base_url`. Sync/async comparisons, adaptive
+   profiling and async warm-up use the same selection policy. Suffixes and local
+   filename sanitization never redefine the selection root; discovery, filtering
+   and cleanup retain their existing scope.
 5. **Download (`DownloadMixin` → `download.py`).** Missing/changed files are
    fetched. `ParallelDownloadManager.auto_select_method` (or an explicit
    `DownloadMethod`) picks sequential vs. streaming-parallel vs.
@@ -402,9 +447,22 @@ A full mirror run is driven by `ReportMixin.sync()`. The high-level path:
 
 ## Runtime guarantees and compatibility
 
-These invariants are part of the current implementation, regardless of which
-release introduced them:
+These invariants are part of the current implementation:
 
+- **URL identity:** discovery, mapping, exclusions and cleanup share
+  `utils._relative_url_path()`: parse with `urlsplit`, validate origin and
+  traversal, and decode path identity once. Repeated decoding only detects
+  traversal; query/fragment text never becomes a local filename. Directory
+  classification uses the parsed path, and BFS deduplicates directory aliases
+  independently of query strings. URL decode errors reject the request.
+- **Local paths:** construction validates the selected destination before
+  starting managers or resolving local symlinks away. The fixed macOS `/var`,
+  `/tmp` and `/etc` aliases are accepted; user destination/suffix symlinks are
+  rejected, and descendant/leaf symlinks block mapping. Remote-path preflight
+  rejects truncation, control-character removal and reserved-name rewriting
+  before downloads. Cooperative locks coordinate participating MirrorURL
+  processes; local path checks do not isolate the filesystem from external
+  writers changing the tree.
 - **Publication:** whole-file partials use an owned `.mirror-url-state/` below
   the target directory; final assembly and streaming staging stay on the
   destination filesystem. Verification precedes `os.replace`, so failures
@@ -419,7 +477,12 @@ release introduced them:
 - **Cleanup:** walk the local tree once, preserve excluded/depth-limited and
   skipped-symlink paths, local symlinks, and reserved state. Incomplete scans
   suppress obsolete-file actions. A complete empty scan may clean the selected
-  local files. MOVE failures preserve their source and do not become deletion.
+  local files. Unsafe expected paths fail the run and suppress cleanup. MOVE
+  checks archive destinations before creating parents and again after selecting
+  a collision name; symlinked archives and occupied timestamp names fail while
+  preserving source/archive bytes. Directory inspection and removal exceptions
+  contribute to cleanup failure metrics and fail the sync. MOVE failures
+  preserve their source and do not become deletion.
 - **Response ownership:** streamed sync requests keep their coordinator lease
   until the body/response is closed. Always close responses on success, error,
   cancellation, and retry paths.
@@ -477,13 +540,20 @@ precedence tests. Keep those observable contracts intact during refactoring.
 
 ## The configuration system
 
-The 3.2.0 transfer configuration adds `mode` (`mirror` or `download`),
+Transfer configuration includes `mode` (`mirror` or `download`),
 `backend` (`httpx` or `aiohttp`), `url_list`, `overwrite` and
 `requests_per_second`. The default rate remains 20 requests/second with 50 ms
 minimum spacing. `effective_request_interval` is the maximum of both limits;
 zero for both explicitly requests unpaced traffic. Neither option changes
 security policy. CLI overrides use the existing explicit-argument precedence
 rules for YAML/JSON too.
+
+The single-URL shortcut uses `download_url` as an alternative to
+`url_list`. `--mode download FILE_URL` supplies the parent URL, current working
+directory and a destination-specific system temporary log folder only for
+omitted target fields. Explicit scope/paths win. CLI source selection clears
+the other configured source; the model and transfer entry point reject two
+sources or no source. Standalone models still require all three target fields.
 
 `transfers.py` owns the shared async whole-file pipeline. Its backend adapters
 provide raw bytes and response headers; the controller owns redirects, a
@@ -495,7 +565,9 @@ original hostname for Host and TLS. aiohttp requests retain encoded URL paths,
 use HTTP/1.1 and disable implicit redirects, decompression, cookies and proxies.
 
 `download_url_list(MirrorConfig(mode="download", ...))` takes destination/log
-ownership before creating state. Receipts are namespaced by the scoped base URL
+ownership before creating state. It consumes either `url_list` or one
+`download_url` through the same plan, backend, scratch and publication path.
+Receipts are namespaced by the scoped base URL
 under `.mirror-url-state`, and existing payloads require a matching receipt or
 explicit overwrite. It never calls the scanner or metadata freshness layer.
 `ReportMixin.sync()` uses the same pipeline for `backend="aiohttp"` after its
@@ -523,13 +595,23 @@ its final merged model. Benchmark mode uses the same merge precedence.
 `load_config_from_args()` maps an already populated argparse namespace; it does
 not read `args.config` or implement the CLI's explicit-override detection.
 
+`check_files` is a list of literal remote paths relative to
+`base_url`. Its field validator resolves explicit `@` UTF-8 list files from the
+current working directory, validates paths, rejects nested lists and preserves
+ordered unique entries. Models carry resolved paths, so per-suffix reconstruction
+does not reread list files. CLI inputs replace YAML/JSON inputs only when explicit.
+The option is mirror-only and does not change the `verify_content`/`missing_files`
+conflict or the normal freshness policy.
+
 Model bounds can raise pydantic `ValidationError`; cross-field/URL checks can
 raise `ConfigError`. `extra="forbid"` rejects unknown fields. Environment
 expansion leaves unset `${VAR}` placeholders intact. Logging handler setup is
 controlled by CLI logging flags, rather than config-file verbosity fields.
 For listing modes, CLI-only runs supply scratch paths and a shallow directory
 depth; config-file runs still require URL/destination/log fields and use their
-model/file depth unless explicitly overridden.
+model/file depth unless explicitly overridden. Library/config-file listing
+modes are validated, and an explicit CLI listing choice disables the opposing
+file mode.
 
 ---
 
@@ -542,7 +624,14 @@ convenience. Both accept a `test_mode` flag that relaxes the guard; this is how
 integration tests hit a local server (see [Testing](#testing)). Note the flag is
 not wired from `MirrorConfig` and should remain test-only. Existing HTTP tests
 install scoped `monkeypatch` transport bypasses or replace the fixture's pooled
-client; they need no new production configuration flag.
+client; they need no new production configuration flag. DNS validation
+classifies every returned answer, including IPv6 link-local addresses, and
+rejects mixed public/non-public results. URL decode exceptions reject requests.
+
+**Directory parsing (`parsing.py`).** Lightweight-parser selection when lxml
+is unavailable is independent of the lxml-failure fallback flag. Disabling
+`fast_parsing_fallback` does not require lxml to be installed. Scanner HTML
+statistics read the live `CacheManager` cache.
 
 **Circuit breakers (`circuit_breaker.py`).** `CircuitBreakerManager` keeps one
 breaker per domain, created lazily via `get_breaker(domain)`. State transitions
@@ -561,6 +650,9 @@ The standalone `submit_to_shared_pool()` helper rechecks its condition after
 every wakeup and rejects submission during shutdown. Completion includes failed
 and cancelled jobs; each contributes once to the failure count. Its `queue_size`
 argument is accepted for compatibility and does not bound pending submissions.
+`use_shared_thread_pool` enables the coordinator's chunk pool; file transfers
+and metadata comparisons retain separate executors. The ordinary chunk path
+reuses the raw executor and acquires its own coordinator leases.
 
 **Async path (`async_connection.py`).** `AdaptiveAsyncManager` tunes its
 concurrency from measured RTT, throughput, and error rate; `AsyncTaskManager`
@@ -923,68 +1015,94 @@ Preserve these constraints when extending or refactoring the current code.
 
 ## Quick "where do I find…" map
 
-| I want to change… | Go to |
-|---|---|
-| A tuning default or limit | `constants.py` |
-| An error type | `exceptions.py` (+ `__init__.py` if public) |
-| A run-mode / state enum | `enums.py` |
-| A config field | `config.py` (`MirrorConfig`; `ConfigSchema` is its alias) + `cli.py` |
-| URL scope/validation logic | `_core/urls.py` |
-| How the remote tree is discovered | `_core/scan.py` (+ `parsing.py`) |
-| "Is the file up to date?" logic | `_core/compare.py` |
-| How a file is actually downloaded | `_core/downloads.py` → `download.py` |
-| Range validation / resume metadata | `download_integrity.py` |
-| Loop binding / live async admission | `async_primitives.py` |
-| Persistent throttled-domain knowledge | `domain_health.py` |
-| Obsolete-file cleanup behavior | `_core/cleanup.py` |
-| The top-level run / summary | `_core/report.py` (`sync()`) |
-| Construction / shared state / logging | `_core/_base.py` |
-| The on-disk cache format/lifecycle | `cache.py` (filename in `_core/_base.py`) |
-| SSRF / network security boundary | `transport.py`, `security.py` |
-| Throttling / retries / breakers | `rate_limiter.py`, `connection.py`, `circuit_breaker.py` |
-| CLI flags / entry point | `cli.py`, `__main__.py` |
-| The version number | `_version.py` **and** `pyproject.toml` |
+<table>
+<thead>
+<tr>
+<th scope="col" nowrap>I want to change…</th>
+<th scope="col">Go to</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td nowrap>A tuning default or limit</td>
+<td><code>constants.py</code></td>
+</tr>
+<tr>
+<td nowrap>An error type</td>
+<td><code>exceptions.py</code> (+ <code>__init__.py</code> if public)</td>
+</tr>
+<tr>
+<td nowrap>A run-mode / state enum</td>
+<td><code>enums.py</code></td>
+</tr>
+<tr>
+<td nowrap>A config field</td>
+<td><code>config.py</code> (<code>MirrorConfig</code>; <code>ConfigSchema</code> is its alias) + <code>cli.py</code></td>
+</tr>
+<tr>
+<td nowrap>URL scope/validation logic</td>
+<td><code>_core/urls.py</code></td>
+</tr>
+<tr>
+<td nowrap>How the remote tree is discovered</td>
+<td><code>_core/scan.py</code> (+ <code>parsing.py</code>)</td>
+</tr>
+<tr>
+<td nowrap>"Is the file up to date?" logic</td>
+<td><code>_core/compare.py</code></td>
+</tr>
+<tr>
+<td nowrap>How a file is actually downloaded</td>
+<td><code>_core/downloads.py</code> → <code>download.py</code></td>
+</tr>
+<tr>
+<td nowrap>Range validation / resume metadata</td>
+<td><code>download_integrity.py</code></td>
+</tr>
+<tr>
+<td nowrap>Loop binding / live async admission</td>
+<td><code>async_primitives.py</code></td>
+</tr>
+<tr>
+<td nowrap>Persistent throttled-domain knowledge</td>
+<td><code>domain_health.py</code></td>
+</tr>
+<tr>
+<td nowrap>Obsolete-file cleanup behavior</td>
+<td><code>_core/cleanup.py</code></td>
+</tr>
+<tr>
+<td nowrap>The top-level run / summary</td>
+<td><code>_core/report.py</code> (<code>sync()</code>)</td>
+</tr>
+<tr>
+<td nowrap>Construction / shared state / logging</td>
+<td><code>_core/_base.py</code></td>
+</tr>
+<tr>
+<td nowrap>The on-disk cache format/lifecycle</td>
+<td><code>cache.py</code> (filename in <code>_core/_base.py</code>)</td>
+</tr>
+<tr>
+<td nowrap>SSRF / network security boundary</td>
+<td><code>transport.py</code>, <code>security.py</code></td>
+</tr>
+<tr>
+<td nowrap>Throttling / retries / breakers</td>
+<td><code>rate_limiter.py</code>, <code>connection.py</code>, <code>circuit_breaker.py</code></td>
+</tr>
+<tr>
+<td nowrap>CLI flags / entry point</td>
+<td><code>cli.py</code>, <code>__main__.py</code></td>
+</tr>
+<tr>
+<td nowrap>The version number</td>
+<td><code>_version.py</code> <strong>and</strong> <code>pyproject.toml</code></td>
+</tr>
+</tbody>
+</table>
 
 ---
 
-*This guide describes the architecture as of version 3.2.0. When you change the
+*This guide describes the architecture as of version 3.3.0. When you change the
 structure, update this document in the same PR.*
-
-## Release 3.1.78 behavior
-
-Discovery, mapping, exclusions and cleanup share `utils._relative_url_path()`:
-parse with `urlsplit`, validate origin and traversal, and decode path identity
-once. Repeated decoding only detects traversal; query/fragment text never becomes
-a local filename. Directory classification uses the parsed path. BFS deduplicates
-directory aliases independently of query strings. Cleanup reuses the mapper and
-fails closed if any expected path is unsafe.
-
-The constructor validates the selected destination before starting managers or
-resolving local symlinks away. The fixed macOS `/var`, `/tmp` and `/etc` aliases
-are accepted; user destination/suffix symlinks are rejected. Descendant and leaf
-symlinks still block mapping. Library/config-file listing modes are validated,
-and an explicit CLI listing choice disables the opposing file mode.
-
-Lightweight-parser selection without lxml is independent of the lxml-failure
-fallback flag. Shared-pool submissions recheck admission after wakeup, stop on
-shutdown, and count each failed/cancelled completion once. The ordinary chunk
-path reuses the raw executor and acquires its own coordinator leases.
-Unreachable async dry-run/404 branches, orphaned private helpers and the empty
-scanner HTML cache were removed. Scanner HTML statistics now read the live
-CacheManager cache. Public compatibility fields and framework hooks remain.
-Local path checks assume the destination tree is not concurrently mutated by
-another process; they do not provide filesystem isolation against such a process.
-
-## Release 3.1.79 behavior
-
-Remote-path preflight rejects mappings that change the once-decoded filename,
-including truncation, control-character removal and reserved-name rewriting,
-before any download. Archive destinations are checked before creating parents
-and again after selecting a collision name. Existing timestamp names and
-symlinked archive paths fail the move while preserving source/archive bytes.
-Directory inspection and removal exceptions contribute to cleanup failure
-metrics, which fail the sync run.
-
-DNS validation classifies every returned answer, including IPv6 link-local
-addresses. URL decode exceptions reject the request. The safety coverage and
-mutation gates and native CI lanes described above are release requirements.

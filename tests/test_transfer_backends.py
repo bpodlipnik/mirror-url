@@ -747,3 +747,272 @@ def test_timestamp_handle_identity_checked_before_mutation(tmp_path, origin, bac
     assert outside.read_bytes() == b"unrelated content" and _identity(outside) == outside_identity
     assert not timestamp_calls
     assert_no_scratch(config.dest_path)
+
+
+def test_cli_direct_url_defaults_to_current_directory(
+    tmp_path, origin, backend, monkeypatch, capsys
+):
+    target = tmp_path / "current"
+    target.mkdir()
+    unrelated = target / "keep.txt"
+    unrelated.write_bytes(b"original unrelated bytes")
+    monkeypatch.chdir(target)
+    monkeypatch.setattr(cli.tempfile, "gettempdir", lambda: str(tmp_path / "temp"))
+    name = "aspiics_pb_l3_20260901T010909_307060570001_v03.fits"
+    url = origin.base + "nested/" + name + "?token=abc%2fdef"
+    payload = b"FITS payload\x00" * 1024
+    origin.routes["/root/nested/" + name + "?token=abc%2fdef"] = (
+        200,
+        {"ETag": '"direct"'},
+        payload,
+    )
+    argv = ["mirror-url", "--mode", "download", url]
+    if backend == "aiohttp":
+        argv.extend(["--backend", backend])
+    monkeypatch.setattr("sys.argv", argv)
+    cli.main()
+    result = json.loads(capsys.readouterr().out)
+    assert result["success"] and result["files_downloaded"] == 1
+    assert (target / name).read_bytes() == payload
+    assert unrelated.read_bytes() == b"original unrelated bytes"
+    assert [(request[0], request[1]) for request in origin.requests] == [
+        ("GET", "/root/nested/" + name + "?token=abc%2fdef")
+    ]
+    receipts = json.loads(Path(result["receipts"]).read_text())
+    assert receipts["scope"] == origin.base + "nested/"
+    assert receipts["files"][str(target / name)]["url"] == url
+    logs = list((tmp_path / "temp").glob("mirror-url-download-*/download_*.log"))
+    assert len(logs) == 1
+    assert not list(target.glob("download_*.log"))
+    assert_no_scratch(target)
+
+
+def test_direct_url_uses_explicit_scope_paths_and_receipts(tmp_path, origin, backend):
+    url = origin.base + "nested/literal%2520name?query=kept"
+    origin.routes["/root/nested/literal%2520name?query=kept"] = (200, {}, b"direct bytes")
+    config = job(tmp_path, origin, backend, url_list=None, download_url=" \u00a0" + url + "\u00a0 ")
+    assert config.download_url == url
+    result = download_url_list(config)
+    local = config.dest_path / "nested/literal%20name"
+    assert result["success"] and local.read_bytes() == b"direct bytes"
+    receipt = json.loads(Path(result["receipts"]).read_text())["files"][str(local)]
+    assert receipt["sha256"] == hashlib.sha256(b"direct bytes").hexdigest()
+    original_identity = _identity(local)
+    origin.routes["/root/nested/literal%2520name?query=kept"] = (
+        200,
+        {"Content-Length": "100", "Connection": "close"},
+        b"truncated",
+    )
+    failed = download_url_list(config)
+    assert not failed["success"]
+    assert local.read_bytes() == b"direct bytes" and _identity(local) == original_identity
+    assert all(request[0] == "GET" for request in origin.requests)
+    assert_no_scratch(config.dest_path)
+
+
+def test_cli_direct_url_honors_explicit_targets(tmp_path, origin, monkeypatch, capsys):
+    destination, logs = tmp_path / "destination", tmp_path / "logs"
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "mirror-url",
+            "--mode",
+            "download",
+            origin.base + "nested/a",
+            "--url",
+            origin.base,
+            "--dest-path",
+            str(destination),
+            "--log-path",
+            str(logs),
+        ],
+    )
+    cli.main()
+    assert json.loads(capsys.readouterr().out)["success"]
+    assert (destination / "nested/a").read_bytes() == b"bytes"
+    assert len(list(logs.glob("download_*.log"))) == 1
+
+
+@pytest.mark.parametrize("source", ["positional", "list", "config-direct"])
+def test_cli_direct_url_config_source_precedence(tmp_path, origin, source, monkeypatch, capsys):
+    config = job(tmp_path, origin)
+    path = tmp_path / "job.json"
+    values = config.model_dump(mode="json")
+    argv = ["mirror-url", "--config", str(path)]
+    expected = "a"
+    if source == "positional":
+        argv.append(origin.base + "b")
+        expected = "b"
+    else:
+        values.update(url_list=None, download_url=origin.base + "b")
+        if source == "list":
+            argv.extend(["--url-list", str(config.url_list)])
+        else:
+            expected = "b"
+    path.write_text(json.dumps(values))
+    monkeypatch.setattr("sys.argv", argv)
+    cli.main()
+    assert json.loads(capsys.readouterr().out)["success"]
+    assert (config.dest_path / expected).read_bytes() == b"bytes"
+    assert [(request[0], request[1]) for request in origin.requests] == [
+        ("GET", "/root/" + expected)
+    ]
+
+
+def test_cli_config_direct_url_can_use_shortcut_defaults(tmp_path, origin, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(cli.tempfile, "gettempdir", lambda: str(tmp_path / "temp"))
+    path = tmp_path / "direct.json"
+    path.write_text(json.dumps({"mode": "download", "download_url": origin.base + "a"}))
+    monkeypatch.setattr("sys.argv", ["mirror-url", "--config", str(path)])
+    cli.main()
+    assert json.loads(capsys.readouterr().out)["success"]
+    assert (tmp_path / "a").read_bytes() == b"bytes"
+
+
+@pytest.mark.parametrize(
+    "argv, message",
+    [
+        (["https://files.example/a"], "requires --mode download"),
+        (
+            ["--mode", "download", "https://files.example/a", "--url-list", "urls.txt"],
+            "mutually exclusive",
+        ),
+        (["--mode", "download", "ftp://files.example/a"], "absolute HTTP(S) file URL"),
+        (["--mode", "download", "https://files.example/"], "must name a file"),
+        (["--mode", "download", "https://files.example"], "must name a file"),
+        (["--mode", "download", "https://[invalid/a"], "Invalid IPv6 URL"),
+        (["--mode", "download", " "], "nonempty string"),
+    ],
+)
+def test_cli_rejects_invalid_direct_input_before_writes(
+    tmp_path, argv, message, monkeypatch, capsys
+):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("sys.argv", ["mirror-url", *argv])
+    with pytest.raises(SystemExit) as error:
+        cli.main()
+    assert error.value.code == 2 and message in capsys.readouterr().err
+    assert not list(tmp_path.iterdir())
+
+
+@pytest.mark.parametrize("direct_url", ["", 123, ["https://files.example/a"]])
+def test_cli_rejects_invalid_config_direct_input(tmp_path, direct_url, monkeypatch, capsys):
+    path = tmp_path / "direct.json"
+    path.write_text(json.dumps({"mode": "download", "download_url": direct_url}))
+    monkeypatch.setattr("sys.argv", ["mirror-url", "--config", str(path)])
+    with pytest.raises(SystemExit) as error:
+        cli.main()
+    assert error.value.code == 2 and "nonempty string" in capsys.readouterr().err
+    assert list(tmp_path.iterdir()) == [path]
+
+
+@pytest.mark.parametrize("unsafe", ["../outside", "%2e%2e/outside", ".mirror-url-state/a"])
+def test_direct_url_retains_path_and_scope_guards(tmp_path, origin, unsafe):
+    config = job(tmp_path, origin, url_list=None, download_url=origin.base + unsafe)
+    with pytest.raises((SecurityError, URLScopeError, ValueError)):
+        download_url_list(config)
+    assert not origin.requests
+    assert not config.dest_path.exists()
+
+
+def test_direct_url_refuses_unrelated_existing_file(tmp_path, origin):
+    config = job(tmp_path, origin, url_list=None, download_url=origin.base + "a")
+    config.dest_path.mkdir()
+    local = config.dest_path / "a"
+    local.write_bytes(b"user file")
+    before = _identity(local)
+    with pytest.raises(ValueError, match="receipt|overwrite"):
+        download_url_list(config)
+    assert local.read_bytes() == b"user file" and _identity(local) == before
+    assert not origin.requests
+
+
+def test_cli_direct_url_keeps_explicit_scope_restriction(tmp_path, origin, monkeypatch, capsys):
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "mirror-url",
+            "--mode",
+            "download",
+            origin.base + "outside/a",
+            "--url",
+            origin.base + "selected/",
+            "--dest-path",
+            str(tmp_path / "dest"),
+            "--log-path",
+            str(tmp_path / "logs"),
+        ],
+    )
+    with pytest.raises(SystemExit) as error:
+        cli.main()
+    assert error.value.code == 1 and "outside" in capsys.readouterr().err
+    assert not origin.requests and not (tmp_path / "dest/a").exists()
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        {"download_url": "https://files.example/root/a"},
+        {"mode": "download", "download_url": ""},
+        {"mode": "download", "download_url": "a", "url_list": Path("urls")},
+    ],
+)
+def test_direct_url_config_rejects_conflicting_sources(tmp_path, options):
+    with pytest.raises(ConfigError):
+        MirrorConfig(
+            base_url="https://files.example/root", dest_path=tmp_path, log_path=tmp_path, **options
+        )
+
+
+@pytest.mark.parametrize("change", [{"download_url": "a"}, {"mode": "mirror"}, {"url_list": None}])
+def test_download_runtime_rejects_mutated_source_config(tmp_path, origin, change):
+    config = job(tmp_path, origin)
+    for key, value in change.items():
+        object.__setattr__(config, key, value)
+    with pytest.raises(ConfigError, match="exactly one URL source"):
+        download_url_list(config)
+    assert not origin.requests
+
+
+def test_selected_updates_and_failure_preservation_on_both_backends(
+    tmp_path, origin, backend, monkeypatch
+):
+    values = job(tmp_path, origin, backend).model_dump()
+    values.update(
+        mode="mirror",
+        url_list=None,
+        verify_content=False,
+        missing_files=True,
+        check_files=["nested/a"],
+        async_metadata=False,
+        connection_pool_prewarm=False,
+    )
+    config = MirrorConfig(**values)
+    for name in ["nested/a", "nested/b", "nested/missing"]:
+        origin.routes["/root/" + name] = (200, {"ETag": '"old"'}, b"original")
+    with MirrorURL(config) as mirror:
+        monkeypatch.setattr(
+            mirror,
+            "get_remote_files",
+            lambda: [origin.base + name for name in ["nested/a", "nested/b", "nested/missing"]],
+        )
+        assert mirror.sync()
+        local = config.dest_path / "nested/a"
+        origin.routes["/root/nested/a"] = (200, {"ETag": '"new"'}, b"MODIFIED")
+        origin.routes["/root/nested/b"] = (200, {"ETag": '"new"'}, b"MODIFIED")
+        (config.dest_path / "nested/missing").unlink()
+        origin.requests.clear()
+        assert mirror.sync()
+        assert local.read_bytes() == b"MODIFIED"
+        assert (config.dest_path / "nested/b").read_bytes() == b"original"
+        assert (config.dest_path / "nested/missing").read_bytes() == b"original"
+        assert not any(path == "/root/nested/b" for _, path, _, _ in origin.requests)
+        metadata = mirror.cache_manager.get_file_metadata(local)
+        assert metadata["etag"] == '"new"'
+        assert metadata["size"] == len(b"MODIFIED")
+        origin.routes["/root/nested/a"] = (503, {}, b"")
+        assert not mirror.sync()
+        assert local.read_bytes() == b"MODIFIED"
+        assert mirror.cache_manager.get_file_metadata(local) == metadata
+        assert_no_scratch(config.dest_path)

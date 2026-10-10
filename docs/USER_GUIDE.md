@@ -1,12 +1,14 @@
 # MirrorURL — User Guide
 
-MirrorURL is a security-hardened command-line tool and Python library for
-mirroring files behind an HTTP(S) **directory listing** to local disk. It walks
-the remote directory tree, decides which files are new or changed, and downloads
-them efficiently — with adaptive concurrency, resumable/parallel downloads,
-integrity checks, incremental caching, and an SSRF-hardened transport layer.
+MirrorURL is a command-line tool and Python library for mirroring and
+incrementally syncing public HTTP(S) directory trees to local disk. It walks
+HTML **directory listings**, decides which files are new or changed, and
+downloads them with adaptive concurrency, resumable/parallel downloads,
+integrity checks and incremental caching. It also supports direct file URLs
+and exact URL lists without directory discovery. URL-scope, private-network
+and filesystem protections guard discovery and transfers.
 
-- **Version:** 3.2.0
+- **Version:** 3.3.0
 - **Python:** 3.10 or newer; CI tests Python 3.10–3.14
 - **License:** MIT
 
@@ -15,6 +17,7 @@ integrity checks, incremental caching, and an SSRF-hardened transport layer.
 ## Table of contents
 
 - [What it does](#what-it-does)
+- [Who it is for](#who-it-is-for)
 - [Requirements](#requirements)
 - [Installation](#installation)
 - [Quick start](#quick-start)
@@ -58,6 +61,24 @@ incremental runs, and strong SSRF/path-traversal protections.
 
 ---
 
+## Who it is for
+
+MirrorURL is for people and organizations that regularly need to maintain
+local copies of files published over public HTTP(S):
+
+- Researchers maintaining local copies of scientific data archives.
+- Organizations downloading bulk files from public directory indexes.
+- Maintainers of software, package, artifact and documentation mirrors.
+- Sysadmins and data engineers maintaining local datasets.
+- Public-data preservation communities.
+- Users moving from `wget --mirror`, `lftp mirror` or custom scripts.
+
+Scientific mission archives used in the examples illustrate workflows that
+also apply to these other sources. Recursive mirroring requires an HTML
+directory index; direct file and URL-list downloads do not require a listing.
+
+---
+
 ## Requirements
 
 - **Python 3.10 or newer.**
@@ -85,21 +106,21 @@ From a checkout of the repository on a build machine:
 
 ```bash
 pip install build
-python -m build          # produces dist/mirror_url-3.2.0-py3-none-any.whl
+python -m build          # produces dist/mirror_url-3.3.0-py3-none-any.whl
 ```
 
 Copy the wheel to the target server and install it:
 
 ```bash
 python3 -m venv /opt/mirror-url
-/opt/mirror-url/bin/pip install /tmp/mirror_url-3.2.0-py3-none-any.whl
+/opt/mirror-url/bin/pip install /tmp/mirror_url-3.3.0-py3-none-any.whl
 /opt/mirror-url/bin/mirror-url --help
 ```
 
 To include the optional speed extras:
 
 ```bash
-/opt/mirror-url/bin/pip install "/tmp/mirror_url-3.2.0-py3-none-any.whl[fast]"
+/opt/mirror-url/bin/pip install "/tmp/mirror_url-3.3.0-py3-none-any.whl[fast]"
 ```
 
 Available extras: `fast` (stringzilla + lxml), `progress` (tqdm),
@@ -108,24 +129,24 @@ Available extras: `fast` (stringzilla + lxml), `progress` (tqdm),
 ### From a Git repository
 
 ```bash
-pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.2.0"
+pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.3.0"
 # private repo over SSH:
-pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.2.0"
+pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.3.0"
 ```
 
 ### As an isolated CLI with pipx
 
 ```bash
-pipx install /tmp/mirror_url-3.2.0-py3-none-any.whl
-# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.2.0"
+pipx install /tmp/mirror_url-3.3.0-py3-none-any.whl
+# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.3.0"
 ```
 
 ### With Docker
 
 ```dockerfile
 FROM python:3.12-slim
-COPY dist/mirror_url-3.2.0-py3-none-any.whl /tmp/
-RUN pip install --no-cache-dir "/tmp/mirror_url-3.2.0-py3-none-any.whl[fast]"
+COPY dist/mirror_url-3.3.0-py3-none-any.whl /tmp/
+RUN pip install --no-cache-dir "/tmp/mirror_url-3.3.0-py3-none-any.whl[fast]"
 ENTRYPOINT ["mirror-url"]
 ```
 
@@ -171,137 +192,471 @@ mirror-url --config mirror.yaml
 ## Command-line usage
 
 Either supply `--url`, `--dest-path`, and `--log-path`, **or** point at a config
-file with `--config`. Run `mirror-url --help` for the complete, authoritative
-list of options. The most commonly used options:
+file with `--config`. You can also use
+`mirror-url --mode download FILE_URL` with shortcut defaults, described under
+[known-URL downloads](#known-url-downloads).
+Run `mirror-url --help` for the complete, authoritative list of options.
+The most commonly used options:
 
 > `--list-dirs` and `--list-files` are exceptions: since they only discover
 > and print the remote tree and never download or delete anything, neither
 > requires `--dest-path` or `--log-path` when using `--url` without `--config`.
-> A config-file run still requires `base_url`, `dest_path`, and `log_path`.
+> Config-file listing and mirror runs still require `base_url`, `dest_path`, and `log_path`.
 > See their entries in "Filtering and scope" below.
 
 ### Targets
 
-| Option | Description |
-|---|---|
-| `--url URL` | Base URL to mirror (required unless `--config` is used). |
-| `--dest-path DIR` | Local destination directory. |
-| `--log-path DIR` | Directory for logs and the cache file. |
-| `--config FILE` | YAML or JSON configuration file (see below). |
-| `--mode mirror\|download` | Normal mirroring (default) or the exact list in `--url-list`. |
-| `--url-list FILE` | One absolute file URL per line, for download mode. Blank lines and lines beginning with `#` are ignored. |
-| `--overwrite` | Allow replacing regular, owned local files without a matching URL-list receipt; download mode only. |
-| `--dir-suffix S [S ...]` | Mirror one or more subpaths under the base URL (e.g. `L1/v1 L2/v2`). |
+<!-- HTML tables keep the first column on one line in GitHub.
+     Use samp for first-column code: GitHub wraps code inside nowrap cells. -->
+
+<table>
+<thead>
+<tr>
+<th scope="col" nowrap>Option</th>
+<th scope="col">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td nowrap><samp>--url URL</samp></td>
+<td>Base URL to mirror. For a direct file URL in download mode, defaults to that URL's parent directory.</td>
+</tr>
+<tr>
+<td nowrap><samp>--dest-path DIR</samp></td>
+<td>Local destination directory. A direct file URL defaults to the current directory.</td>
+</tr>
+<tr>
+<td nowrap><samp>--log-path DIR</samp></td>
+<td>Directory for logs and the cache file. A direct file URL defaults to a destination-specific folder under the system temporary directory.</td>
+</tr>
+<tr>
+<td nowrap><samp>--config FILE</samp></td>
+<td>YAML or JSON configuration file (see below).</td>
+</tr>
+<tr>
+<td nowrap><samp>--mode mirror|download</samp></td>
+<td>Normal mirroring (default) or exact known URLs from <code>--url-list</code> or one positional <code>FILE_URL</code>.</td>
+</tr>
+<tr>
+<td nowrap><samp>FILE_URL</samp></td>
+<td>One absolute file URL, for download mode. Cannot be combined with <code>--url-list</code>.</td>
+</tr>
+<tr>
+<td nowrap><samp>--url-list FILE</samp></td>
+<td>One absolute file URL per line, for download mode. Blank lines and lines beginning with <code>#</code> are ignored.</td>
+</tr>
+<tr>
+<td nowrap><samp>--overwrite</samp></td>
+<td>Allow replacing regular, owned local files without a matching URL-list receipt; download mode only.</td>
+</tr>
+<tr>
+<td nowrap><samp>--dir-suffix S [S ...]</samp></td>
+<td>Mirror one or more subpaths under the base URL (e.g. <code>L1/v1 L2/v2</code>).</td>
+</tr>
+</tbody>
+</table>
 
 ### Download method
 
-| Option | Description |
-|---|---|
-| *(default)* | Auto-select the best method at runtime. |
-| `--sequential-downloads` | Download one file at a time; metadata and size probes may still run concurrently. |
-| `--parallel-downloads` | Parallel chunks via temp files, verified before assembly. |
-| `--streaming-parallel` | Parallel chunks written into a staging file, then atomically published. |
-| `--max-concurrent-downloads N` | Max files downloaded at once (default 10). |
-| `--concurrency N` | Alias for `--max-concurrent-downloads`; range 1–50. |
-| `--backend httpx\|aiohttp` | HTTPX is the default. aiohttp requires the optional extra and uses HTTP/1.1 whole-file streaming. Normal mirroring keeps discovery and freshness checks with either backend. |
-| `--max-chunks N` | Max chunks per file (default 8). |
-| `--min-chunk-size MB` | Minimum chunk size in MB (default 10). |
-| `--auto-concurrency` | Tune parallel concurrency from measured throughput. |
-| `--bandwidth-limit MB/S` | Cap total download bandwidth. |
-| `--max-parallel-chunks N` | Max chunks in flight across *all* files at once (default 50; `--max-chunks` above caps chunks *per file*). |
-| `--chunk-assembly-dir DIR` | Parent for an owned, destination-specific chunk workspace (defaults to `.mirror-url-state/chunks/` in the target). Assembly and streaming staging use reserved target state on the destination filesystem. |
-| `--chunk-timeout-multiplier MULT` | *Currently has no effect* (accepted for backward compatibility). Chunk requests use fixed multiples of `--timeout`. |
+<table>
+<thead>
+<tr>
+<th scope="col" nowrap>Option</th>
+<th scope="col">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td nowrap><em>(default)</em></td>
+<td>Auto-select the best method at runtime.</td>
+</tr>
+<tr>
+<td nowrap><samp>--sequential-downloads</samp></td>
+<td>Download one file at a time; metadata and size probes may still run concurrently.</td>
+</tr>
+<tr>
+<td nowrap><samp>--parallel-downloads</samp></td>
+<td>Parallel chunks via temp files, verified before assembly.</td>
+</tr>
+<tr>
+<td nowrap><samp>--streaming-parallel</samp></td>
+<td>Parallel chunks written into a staging file, then atomically published.</td>
+</tr>
+<tr>
+<td nowrap><samp>--max-concurrent-downloads N</samp></td>
+<td>Max files downloaded at once (default 10).</td>
+</tr>
+<tr>
+<td nowrap><samp>--concurrency N</samp></td>
+<td>Alias for <code>--max-concurrent-downloads</code>; range 1–50.</td>
+</tr>
+<tr>
+<td nowrap><samp>--backend httpx|aiohttp</samp></td>
+<td>HTTPX is the default. aiohttp requires the optional extra and uses HTTP/1.1 whole-file streaming. Normal mirroring keeps discovery and freshness checks with either backend.</td>
+</tr>
+<tr>
+<td nowrap><samp>--max-chunks N</samp></td>
+<td>Max chunks per file (default 8).</td>
+</tr>
+<tr>
+<td nowrap><samp>--min-chunk-size MB</samp></td>
+<td>Minimum chunk size in MB (default 10).</td>
+</tr>
+<tr>
+<td nowrap><samp>--auto-concurrency</samp></td>
+<td>Tune parallel concurrency from measured throughput.</td>
+</tr>
+<tr>
+<td nowrap><samp>--bandwidth-limit MB/S</samp></td>
+<td>Cap total download bandwidth.</td>
+</tr>
+<tr>
+<td nowrap><samp>--max-parallel-chunks N</samp></td>
+<td>Max chunks in flight across <em>all</em> files at once (default 50; <code>--max-chunks</code> above caps chunks <em>per file</em>).</td>
+</tr>
+<tr>
+<td nowrap><samp>--chunk-assembly-dir DIR</samp></td>
+<td>Parent for an owned, destination-specific chunk workspace (defaults to <code>.mirror-url-state/chunks/</code> in the target). Assembly and streaming staging use reserved target state on the destination filesystem.</td>
+</tr>
+<tr>
+<td nowrap><samp>--chunk-timeout-multiplier MULT</samp></td>
+<td><em>Currently has no effect</em> (accepted for backward compatibility). Chunk requests use fixed multiples of <code>--timeout</code>.</td>
+</tr>
+</tbody>
+</table>
 
 ### Performance and networking
 
-| Option | Description |
-|---|---|
-| `--workers N` | Sync worker threads (default 8). |
-| `--async-workers N` | Async metadata-check admission limit (default 50). Normal sync uses async checks only for more than 80 remote files; smaller runs and dry runs use sync checks. |
-| `--no-async-metadata` | Disable async metadata checks (use on throttled servers). |
-| `--timeout SECS` | Base request timeout (default 30; range 3–300). Some request paths use fixed limits or multiples of this value, so this is not a whole-run deadline. |
-| `--max-retries N` | Connection-request retry budget (default 3). Chunk retries also have their own fixed budget. |
-| `--retry-delay SECS` | Base delay for retry backoff (default 2). |
-| `--requests-per-second N` | Request ceiling (default 20; zero removes this ceiling). |
-| `--request-delay SECS` | Minimum request spacing (default 0.05; range 0–1.0). Effective spacing is the larger of this value and `1 / requests_per_second`. Set both controls to zero for unpaced transfers. |
-| `--trusted-server` | Relax chunk concurrency and rate-scaling limits; `--request-delay` still controls pacing (default 50 ms). |
-| `--no-http2` | Disable HTTP/2. |
-| `--no-http2-pipelining` | *Currently has no effect* (accepted for backward compatibility); the HTTP/2 client does not read this setting. |
-| `--no-connection-pool-prewarm` | Don't pre-warm connection pools at startup. |
-| `--no-circuit-breaker` | Disable the circuit breaker everywhere it is used: per-domain for metadata/scan requests and for chunked file downloads. |
-| `--no-circuit-breaker-downloads` | *Currently has no effect* (accepted for backward compatibility). Use `--no-circuit-breaker` to disable the download circuit breaker. |
-| `--adaptive-start-concurrency N` | Starting async metadata concurrency (default 5), bounded by `--async-workers` and the adaptive maximum of 50. |
-| `--adaptive-error-threshold RATE` | Error-rate threshold (0–1, default 0.05) for adaptive metadata fallback; moderate errors also reduce concurrency. |
-| `--no-adaptive-async` | Disable adaptive async concurrency; use a fixed `--async-workers` count. |
+<table>
+<thead>
+<tr>
+<th scope="col" nowrap>Option</th>
+<th scope="col">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td nowrap><samp>--workers N</samp></td>
+<td>Sync worker threads (default 8).</td>
+</tr>
+<tr>
+<td nowrap><samp>--async-workers N</samp></td>
+<td>Async metadata-check admission limit (default 50). Normal sync uses async checks only for more than 80 remote files; smaller runs and dry runs use sync checks.</td>
+</tr>
+<tr>
+<td nowrap><samp>--no-async-metadata</samp></td>
+<td>Disable async metadata checks (use on throttled servers).</td>
+</tr>
+<tr>
+<td nowrap><samp>--timeout SECS</samp></td>
+<td>Base request timeout (default 30; range 3–300). Some request paths use fixed limits or multiples of this value, so this is not a whole-run deadline.</td>
+</tr>
+<tr>
+<td nowrap><samp>--max-retries N</samp></td>
+<td>Connection-request retry budget (default 3). Chunk retries also have their own fixed budget.</td>
+</tr>
+<tr>
+<td nowrap><samp>--retry-delay SECS</samp></td>
+<td>Base delay for retry backoff (default 2).</td>
+</tr>
+<tr>
+<td nowrap><samp>--requests-per-second N</samp></td>
+<td>Request ceiling (default 20; zero removes this ceiling).</td>
+</tr>
+<tr>
+<td nowrap><samp>--request-delay SECS</samp></td>
+<td>Minimum request spacing (default 0.05; range 0–1.0). Effective spacing is the larger of this value and <code>1 / requests_per_second</code>. Set both controls to zero for unpaced transfers.</td>
+</tr>
+<tr>
+<td nowrap><samp>--trusted-server</samp></td>
+<td>Relax chunk concurrency and rate-scaling limits; <code>--request-delay</code> still controls pacing (default 50 ms).</td>
+</tr>
+<tr>
+<td nowrap><samp>--no-http2</samp></td>
+<td>Disable HTTP/2.</td>
+</tr>
+<tr>
+<td nowrap><samp>--no-http2-pipelining</samp></td>
+<td><em>Currently has no effect</em> (accepted for backward compatibility); the HTTP/2 client does not read this setting.</td>
+</tr>
+<tr>
+<td nowrap><samp>--no-connection-pool-prewarm</samp></td>
+<td>Don't pre-warm connection pools at startup.</td>
+</tr>
+<tr>
+<td nowrap><samp>--no-circuit-breaker</samp></td>
+<td>Disable the circuit breaker everywhere it is used: per-domain for metadata/scan requests and for chunked file downloads.</td>
+</tr>
+<tr>
+<td nowrap><samp>--no-circuit-breaker-downloads</samp></td>
+<td><em>Currently has no effect</em> (accepted for backward compatibility). Use <code>--no-circuit-breaker</code> to disable the download circuit breaker.</td>
+</tr>
+<tr>
+<td nowrap><samp>--adaptive-start-concurrency N</samp></td>
+<td>Starting async metadata concurrency (default 5), bounded by <code>--async-workers</code> and the adaptive maximum of 50.</td>
+</tr>
+<tr>
+<td nowrap><samp>--adaptive-error-threshold RATE</samp></td>
+<td>Error-rate threshold (0–1, default 0.05) for adaptive metadata fallback; moderate errors also reduce concurrency.</td>
+</tr>
+<tr>
+<td nowrap><samp>--no-adaptive-async</samp></td>
+<td>Disable adaptive async concurrency; use a fixed <code>--async-workers</code> count.</td>
+</tr>
+</tbody>
+</table>
 
 ### Caching
 
-| Option | Description |
-|---|---|
-| `--no-cache` | Bypass saved metadata and parsed-listing caches; existing files are still checked for freshness. |
-| `--refresh-cache` | Force a full cache refresh this run. |
-| `--cache-max-age DAYS` | Max cache age before auto-refresh (default 7). |
-| `--no-etag` | Disable ETag-based change detection. |
-| `--verify-content` | Verify existing local files against saved SHA-256 receipts before checking remote freshness. Hash completed downloads before publication. Default: disabled; incompatible with `--missing-files`. |
-| `--no-verify-content` | Disable content verification, including when enabled in a config file. |
-| `--missing-files` | Skip per-file freshness checks for files that already exist locally — only download what's absent. Much faster on large, largely-static datasets, but won't detect a file that changed in place on the server under the same name. Pair with occasional full runs (without this flag) to still catch in-place changes. |
-| `--quick` | Quick mode: refresh the cache timestamp only. |
-| `--no-cache-html` | Disable caching of parsed HTML directory listings (HTML caching is on by default). |
-| `--html-cache-max-age HOURS` | Max age of cached HTML listings before a re-fetch (default 24). |
-| `--hash-algorithm {md5,sha256,blake2b}` | Hash used for directory/cache signatures (default `md5`); downloaded file contents are not compared with a remote cryptographic digest. |
-| `--no-rget-list` | *Currently has no effect* (accepted for backward compatibility): `RGET-LIST` files are not used for directory discovery. |
-| `--force-rget-list` | *Currently has no effect* (accepted for backward compatibility). |
-| `--rget-list-max-age DAYS` | *Currently has no effect* (accepted for backward compatibility). |
-| `--no-content-hash` | Currently has no effect on file freshness checks. |
+<table>
+<thead>
+<tr>
+<th scope="col" nowrap>Option</th>
+<th scope="col">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td nowrap><samp>--no-cache</samp></td>
+<td>Bypass saved metadata and parsed-listing caches; existing files are still checked for freshness.</td>
+</tr>
+<tr>
+<td nowrap><samp>--refresh-cache</samp></td>
+<td>Force a full cache refresh this run.</td>
+</tr>
+<tr>
+<td nowrap><samp>--cache-max-age DAYS</samp></td>
+<td>Max cache age before auto-refresh (default 7).</td>
+</tr>
+<tr>
+<td nowrap><samp>--no-etag</samp></td>
+<td>Disable ETag-based change detection.</td>
+</tr>
+<tr>
+<td nowrap><samp>--verify-content</samp></td>
+<td>Verify existing local files against saved SHA-256 receipts before checking remote freshness. Hash completed downloads before publication. Default: disabled; incompatible with <code>--missing-files</code>.</td>
+</tr>
+<tr>
+<td nowrap><samp>--no-verify-content</samp></td>
+<td>Disable content verification, including when enabled in a config file.</td>
+</tr>
+<tr>
+<td nowrap><samp>--missing-files</samp></td>
+<td>Download missing files and skip freshness checks for existing files, except paths selected by <code>--check-files</code>. Unselected in-place changes will be missed; use occasional full runs when needed.</td>
+</tr>
+<tr>
+<td nowrap><samp>--check-files PATH [PATH ...]</samp></td>
+<td>With <code>--missing-files</code>, check selected existing files for updates. Exact, case-sensitive paths relative to <code>--url</code>, including any suffix. Use <code>@FILE</code> for a UTF-8 list, one path per line. Does not expand discovery scope.</td>
+</tr>
+<tr>
+<td nowrap><samp>--quick</samp></td>
+<td>Quick mode: refresh the cache timestamp only.</td>
+</tr>
+<tr>
+<td nowrap><samp>--no-cache-html</samp></td>
+<td>Disable caching of parsed HTML directory listings (HTML caching is on by default).</td>
+</tr>
+<tr>
+<td nowrap><samp>--html-cache-max-age HOURS</samp></td>
+<td>Max age of cached HTML listings before a re-fetch (default 24).</td>
+</tr>
+<tr>
+<td nowrap><samp>--hash-algorithm {md5,sha256,blake2b}</samp></td>
+<td>Hash used for directory/cache signatures (default <code>md5</code>); downloaded file contents are not compared with a remote cryptographic digest.</td>
+</tr>
+<tr>
+<td nowrap><samp>--no-rget-list</samp></td>
+<td><em>Currently has no effect</em> (accepted for backward compatibility): <code>RGET-LIST</code> files are not used for directory discovery.</td>
+</tr>
+<tr>
+<td nowrap><samp>--force-rget-list</samp></td>
+<td><em>Currently has no effect</em> (accepted for backward compatibility).</td>
+</tr>
+<tr>
+<td nowrap><samp>--rget-list-max-age DAYS</samp></td>
+<td><em>Currently has no effect</em> (accepted for backward compatibility).</td>
+</tr>
+<tr>
+<td nowrap><samp>--no-content-hash</samp></td>
+<td>Currently has no effect on file freshness checks.</td>
+</tr>
+</tbody>
+</table>
 
 ### Filtering and scope
 
-| Option | Description |
-|---|---|
-| `--filter P [P ...]` | Only download matching files. Patterns can be extensions (`.fits`), plain substrings (`_fe_`), or regexes (`'2024.*\.fits$'`). Matching is case-insensitive and patterns are OR'd. |
-| `--exclude-dir D [D ...]` | Skip directories, each matched as an exact path relative to `--url` (not a suffix at any depth — see "Filtering and scope" below). |
-| `--max-depth N` | Maximum directory recursion depth (default 50; CLI-only `--list-dirs` defaults to 1). With a config file, its `max_depth` or the model default of 50 applies unless explicitly overridden. |
-| `--scan-mode {adaptive,sequential,parallel,async}` | Accepted for compatibility; directory discovery and parsing currently use sequential scanning regardless of this value. Async workers apply to file metadata checks. |
-| `--parallel-threshold N` | *Currently has no effect* (accepted for backward compatibility); the value is parsed but not used to choose a scan strategy. |
-| `--max-filename-len N` | Maximum local filename length (default 255). Sync rejects filenames that would require truncation or sanitization, including Windows reserved names, before downloading. Distinct URLs mapping to the same local name are also rejected; use a larger limit or a narrower scope. |
-| `--download-queue-size N` | Accepted for compatibility; the current sync pipeline collects the full remote file list and does not enqueue downloads through the bounded queue. |
-| `--max-symlink-depth N` | With `--handle-symlinks`, how many symlink hops deep to follow before stopping (default 10). |
-| `--list-dirs [N]` | Discover and print the directory tree under `--url`/`--dir-suffix`, then exit — no file scanning, freshness checks, or downloads/deletes. Respects `--exclude-dir`/`--max-depth` (without `--config`, defaults to `1` — the current folder's immediate children only; config-file runs use the file/model depth unless `--max-depth` is explicit); `--filter` doesn't apply (files only). With `N`, shows only the last `N` directories overall, sorted **lexicographically by relative path** (a name sort, not a true timestamp sort), with the root (`.`) excluded from that ranking. Always followed by a `# Directories N/total` summary line, including unrestricted runs (`N == total`). Without `--config`, doesn't require `--dest-path`/`--log-path`. |
-| `--list-files [N]` | Discover and print files under `--url`/`--dir-suffix`, then exit — no freshness checks or downloads/deletes. Respects `--exclude-dir`/`--max-depth`/`--filter`. With `N`, shows only the last `N` files *per directory*, sorted **lexicographically by filename** (a name sort, not a true timestamp sort — see "Filtering and scope" below). Without `--config`, doesn't require `--dest-path`/`--log-path`. |
+<table>
+<thead>
+<tr>
+<th scope="col" nowrap>Option</th>
+<th scope="col">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td nowrap><samp>--filter P [P ...]</samp></td>
+<td>Only download matching files. Patterns can be extensions (<code>.fits</code>), plain substrings (<code>_fe_</code>), or regexes (<code>'2024.*\.fits$'</code>). Matching is case-insensitive and patterns are OR'd.</td>
+</tr>
+<tr>
+<td nowrap><samp>--exclude-dir D [D ...]</samp></td>
+<td>Skip directories, each matched as an exact path relative to <code>--url</code> (not a suffix at any depth — see "Filtering and scope" below).</td>
+</tr>
+<tr>
+<td nowrap><samp>--max-depth N</samp></td>
+<td>Maximum directory recursion depth (default 50; CLI-only <code>--list-dirs</code> defaults to 1). With a config file, its <code>max_depth</code> or the model default of 50 applies unless explicitly overridden.</td>
+</tr>
+<tr>
+<td nowrap><samp>--scan-mode {adaptive,sequential,parallel,async}</samp></td>
+<td>Accepted for compatibility; directory discovery and parsing currently use sequential scanning regardless of this value. Async workers apply to file metadata checks.</td>
+</tr>
+<tr>
+<td nowrap><samp>--parallel-threshold N</samp></td>
+<td><em>Currently has no effect</em> (accepted for backward compatibility); the value is parsed but not used to choose a scan strategy.</td>
+</tr>
+<tr>
+<td nowrap><samp>--max-filename-len N</samp></td>
+<td>Maximum local filename length (default 255). Sync rejects filenames that would require truncation or sanitization, including Windows reserved names, before downloading. Distinct URLs mapping to the same local name are also rejected; use a larger limit or a narrower scope.</td>
+</tr>
+<tr>
+<td nowrap><samp>--download-queue-size N</samp></td>
+<td>Accepted for compatibility; the current sync pipeline collects the full remote file list and does not enqueue downloads through the bounded queue.</td>
+</tr>
+<tr>
+<td nowrap><samp>--max-symlink-depth N</samp></td>
+<td>With <code>--handle-symlinks</code>, how many symlink hops deep to follow before stopping (default 10).</td>
+</tr>
+<tr>
+<td nowrap><samp>--list-dirs [N]</samp></td>
+<td>Discover and print the directory tree under <code>--url</code>/<code>--dir-suffix</code>, then exit — no file scanning, freshness checks, or downloads/deletes. Respects <code>--exclude-dir</code>/<code>--max-depth</code> (without <code>--config</code>, defaults to <code>1</code> — the current folder's immediate children only; config-file runs use the file/model depth unless <code>--max-depth</code> is explicit); <code>--filter</code> doesn't apply (files only). With <code>N</code>, shows only the last <code>N</code> directories overall, sorted <strong>lexicographically by relative path</strong> (a name sort, not a true timestamp sort), with the root (<code>.</code>) excluded from that ranking. Always followed by a <code># Directories N/total</code> summary line, including unrestricted runs (<code>N == total</code>). Without <code>--config</code>, doesn't require <code>--dest-path</code>/<code>--log-path</code>.</td>
+</tr>
+<tr>
+<td nowrap><samp>--list-files [N]</samp></td>
+<td>Discover and print files under <code>--url</code>/<code>--dir-suffix</code>, then exit — no freshness checks or downloads/deletes. Respects <code>--exclude-dir</code>/<code>--max-depth</code>/<code>--filter</code>. With <code>N</code>, shows only the last <code>N</code> files <em>per directory</em>, sorted <strong>lexicographically by filename</strong> (a name sort, not a true timestamp sort — see "Filtering and scope" below). Without <code>--config</code>, doesn't require <code>--dest-path</code>/<code>--log-path</code>.</td>
+</tr>
+</tbody>
+</table>
 
 ### Cleanup of obsolete local files
 
-| Option | Description |
-|---|---|
-| `--cleanup safe` | **Default.** Preserve obsolete local files; changed files can still be replaced. |
-| `--cleanup preview` | Report obsolete-file actions without moving/deleting those files; downloads still run. Add `--dry-run` to prevent mirrored-file changes. |
-| `--cleanup move` | Move obsolete files into the sibling `<dest>_obsolete/` folder. |
-| `--cleanup delete` | Delete obsolete files. |
-| `--confirm-delete` | Require interactive confirmation (delete mode). |
-| `--dry-run` | Simulate the whole run without downloading or deleting. |
+<table>
+<thead>
+<tr>
+<th scope="col" nowrap>Option</th>
+<th scope="col">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td nowrap><samp>--cleanup safe</samp></td>
+<td><strong>Default.</strong> Preserve obsolete local files; changed files can still be replaced.</td>
+</tr>
+<tr>
+<td nowrap><samp>--cleanup preview</samp></td>
+<td>Report obsolete-file actions without moving/deleting those files; downloads still run. Add <code>--dry-run</code> to prevent mirrored-file changes.</td>
+</tr>
+<tr>
+<td nowrap><samp>--cleanup move</samp></td>
+<td>Move obsolete files into the sibling <code>&lt;dest&gt;_obsolete/</code> folder.</td>
+</tr>
+<tr>
+<td nowrap><samp>--cleanup delete</samp></td>
+<td>Delete obsolete files.</td>
+</tr>
+<tr>
+<td nowrap><samp>--confirm-delete</samp></td>
+<td>Require interactive confirmation (delete mode).</td>
+</tr>
+<tr>
+<td nowrap><samp>--dry-run</samp></td>
+<td>Simulate the whole run without downloading or deleting.</td>
+</tr>
+</tbody>
+</table>
 
 ### Output and diagnostics
 
-| Option | Description |
-|---|---|
-| `--progress-bar` | Show a tqdm progress bar (needs the `progress` extra). |
-| `--stats` | Accepted for compatibility; does not change the normal completed-sync metrics summary. Quick mode and other early exits use shorter summaries. |
-| `--metrics-json FILE` | Export run metrics to a JSON file. |
-| `--log-file NAME` | Custom base name for the run's log file, replacing the default `mirror_url` prefix. See below for the exact filename format. |
-| `--verbose` / `--debug` | More logging. |
-| `--quiet` | Warnings and errors only. |
-| `--health-check-port N` | Local health/metrics server port (default 8080). The server starts only when `--metrics-json` is set and the run is not a dry run. |
-| `--print-logs` | Echo run logs to the console as well as the log file. |
-| `--version` | Print version and exit. |
-| `--no-adaptive-batch-processing` | Accepted for compatibility; the adaptive batch processor is not used by the current sync pipeline. |
-| `--initial-batch-size N` | Accepted for compatibility; currently does not change sync batching. |
-| `--max-batch-size N` | Accepted for compatibility; currently does not change sync batching. |
-| `--target-batch-time SECS` | Accepted for compatibility; currently does not change sync batching. |
-| `--memory-cache-size N` | Sets the memory threshold of the optional disk-backed tracking component, which the current sync pipeline does not populate. The active metadata-cache capacities are constants; this option does not bound the remote file list. |
-| `--disk-cache-dir DIR` | Configures cache/tracking components; does not spill the current sync pipeline's full remote file list to disk. |
-| `--no-fast-parsing-fallback` | Disables fallback after an lxml failure; large listings or installations without lxml still select the lightweight HTML parser. |
-| `--fs-cache-ttl SECS` | Configures the standalone filesystem cache; freshness checks in the current pipeline use filesystem stats directly. |
-| `--benchmark` | Run a built-in performance benchmark instead of a normal sync. |
+<table>
+<thead>
+<tr>
+<th scope="col" nowrap>Option</th>
+<th scope="col">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td nowrap><samp>--progress-bar</samp></td>
+<td>Show a tqdm progress bar (needs the <code>progress</code> extra).</td>
+</tr>
+<tr>
+<td nowrap><samp>--stats</samp></td>
+<td>Accepted for compatibility; does not change the normal completed-sync metrics summary. Quick mode and other early exits use shorter summaries.</td>
+</tr>
+<tr>
+<td nowrap><samp>--metrics-json FILE</samp></td>
+<td>Export run metrics to a JSON file.</td>
+</tr>
+<tr>
+<td nowrap><samp>--log-file NAME</samp></td>
+<td>Custom base name for the run's log file, replacing the default <code>mirror_url</code> prefix. See below for the exact filename format.</td>
+</tr>
+<tr>
+<td nowrap><samp>--verbose</samp> / <samp>--debug</samp></td>
+<td>More logging.</td>
+</tr>
+<tr>
+<td nowrap><samp>--quiet</samp></td>
+<td>Warnings and errors only.</td>
+</tr>
+<tr>
+<td nowrap><samp>--health-check-port N</samp></td>
+<td>Local health/metrics server port (default 8080). The server starts only when <code>--metrics-json</code> is set and the run is not a dry run.</td>
+</tr>
+<tr>
+<td nowrap><samp>--print-logs</samp></td>
+<td>Echo run logs to the console as well as the log file.</td>
+</tr>
+<tr>
+<td nowrap><samp>--version</samp></td>
+<td>Print version and exit.</td>
+</tr>
+<tr>
+<td nowrap><samp>--no-adaptive-batch-processing</samp></td>
+<td>Accepted for compatibility; the adaptive batch processor is not used by the current sync pipeline.</td>
+</tr>
+<tr>
+<td nowrap><samp>--initial-batch-size N</samp></td>
+<td>Accepted for compatibility; currently does not change sync batching.</td>
+</tr>
+<tr>
+<td nowrap><samp>--max-batch-size N</samp></td>
+<td>Accepted for compatibility; currently does not change sync batching.</td>
+</tr>
+<tr>
+<td nowrap><samp>--target-batch-time SECS</samp></td>
+<td>Accepted for compatibility; currently does not change sync batching.</td>
+</tr>
+<tr>
+<td nowrap><samp>--memory-cache-size N</samp></td>
+<td>Sets the memory threshold of the optional disk-backed tracking component, which the current sync pipeline does not populate. The active metadata-cache capacities are constants; this option does not bound the remote file list.</td>
+</tr>
+<tr>
+<td nowrap><samp>--disk-cache-dir DIR</samp></td>
+<td>Configures cache/tracking components; does not spill the current sync pipeline's full remote file list to disk.</td>
+</tr>
+<tr>
+<td nowrap><samp>--no-fast-parsing-fallback</samp></td>
+<td>Disables fallback after an lxml failure; large listings or installations without lxml still select the lightweight HTML parser.</td>
+</tr>
+<tr>
+<td nowrap><samp>--fs-cache-ttl SECS</samp></td>
+<td>Configures the standalone filesystem cache; freshness checks in the current pipeline use filesystem stats directly.</td>
+</tr>
+<tr>
+<td nowrap><samp>--benchmark</samp></td>
+<td>Run a built-in performance benchmark instead of a normal sync.</td>
+</tr>
+</tbody>
+</table>
 
 Without `--log-file`, each `--dir-suffix` gets its own log file named
 `mirror_url_<suffix>_<timestamp>.log`. With `--log-file NAME`, the filename
@@ -381,7 +736,10 @@ command line overrides the same setting in the file — including a flag whose
 value happens to equal its own default (e.g. `--workers 8` overrides a file's
 `workers: 4` even though 8 is also the built-in default). A flag you don't
 type is left alone at whatever the file says. Only `base_url`, `dest_path`,
-and `log_path` are required for a config-file run, including listing modes.
+and `log_path` are required for mirror/listing config runs. Direct download
+configs can use the CLI shortcut defaults described under
+[known-URL downloads](#known-url-downloads). Standalone config validation still
+requires explicit target fields.
 Unknown keys are rejected. `dir_suffix` is one string in a config file; the
 CLI's `--dir-suffix` accepts several values. Logging controls such as
 `--print-logs`, `--quiet`, `--verbose`, `--debug`, and `--log-file` should be
@@ -476,12 +834,37 @@ Choose one of the three explicit modes, or omit the mode flags for automatic
 selection. Auto-selection considers file count and sizes, a disk-speed probe,
 an estimated network speed, and server Range support.
 
-| Mode | Flag | Behavior |
-|---|---|---|
-| **Sequential** | `--sequential-downloads` | Download one file at a time. Metadata and size probes may still run concurrently. |
-| **Traditional parallel** | `--parallel-downloads` | Download several files at once; eligible files use chunks stored in temporary files and verified before assembly. |
-| **Streaming parallel** | `--streaming-parallel` | Download several files at once; eligible chunks write to a pre-allocated staging file and publish after verification. |
-| **Auto** | *(default)* | Select sequential, traditional parallel, or streaming parallel for this run. |
+<table>
+<thead>
+<tr>
+<th scope="col" nowrap>Mode</th>
+<th scope="col" nowrap>Flag</th>
+<th scope="col">Behavior</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td nowrap><strong>Sequential</strong></td>
+<td nowrap><samp>--sequential-downloads</samp></td>
+<td>Download one file at a time. Metadata and size probes may still run concurrently.</td>
+</tr>
+<tr>
+<td nowrap><strong>Traditional parallel</strong></td>
+<td nowrap><samp>--parallel-downloads</samp></td>
+<td>Download several files at once; eligible files use chunks stored in temporary files and verified before assembly.</td>
+</tr>
+<tr>
+<td nowrap><strong>Streaming parallel</strong></td>
+<td nowrap><samp>--streaming-parallel</samp></td>
+<td>Download several files at once; eligible chunks write to a pre-allocated staging file and publish after verification.</td>
+</tr>
+<tr>
+<td nowrap><strong>Auto</strong></td>
+<td nowrap><em>(default)</em></td>
+<td>Select sequential, traditional parallel, or streaming parallel for this run.</td>
+</tr>
+</tbody>
+</table>
 
 `--max-concurrent-downloads` caps parallel files; `--max-chunks` caps chunks per
 file and `--max-parallel-chunks` caps chunk work across files. These are separate
@@ -549,7 +932,7 @@ ETags to verify that all bytes belong to the same remote representation.
 
 ### Concurrent runs and destination ownership
 
-The development checkout acquires cooperative OS locks before starting a
+MirrorURL acquires cooperative OS locks before starting a
 mirror. Overlapping destinations (including parent/child trees), shared cache
 or log files, configured chunk/disk cache directories, metrics files and MOVE
 archives reject a competing run with `DestinationLockError`; the CLI exits
@@ -567,19 +950,49 @@ hard kill. No stale PID file needs removal. Use `with MirrorURL(config)` or
 call `cleanup()` explicitly. Cleanup rejects new work; a writer still running
 after a shutdown timeout retains ownership until it stops.
 
-This protects cooperating new-version processes using the same account, home
-directory and local filesystem. Version 3.1.79 and older versions and other
-applications do not participate. Network filesystems, multiple hosts, mount
-aliases and external writers need separate coordination.
+This protects cooperating MirrorURL processes using the same account, home
+directory and local filesystem. Programs that do not participate in these
+locks can still modify the same tree. Network filesystems, multiple hosts,
+mount aliases and external writers need separate coordination.
 
 ---
 
 ## Known-URL downloads
 
-This mode is available from version 3.2.0. It downloads every URL in
-the list with a whole-file GET; it performs no discovery, HEAD freshness checks,
+URL-list mode downloads every selected URL
+with a whole-file GET; it performs no discovery, HEAD freshness checks,
 ETag reuse or ranged resume. It never deletes obsolete local files. Use normal
 mirror mode when you need incremental synchronization.
+
+### One file URL
+
+Use the direct shortcut to download one file:
+
+```bash
+mirror-url --mode download https://example.org/files/a.fits
+```
+
+Without `--url`, the file URL's parent directory becomes the allowed remote
+scope. The file keeps its original name and is downloaded into the current
+working directory. Logs go to `mirror-url-download-<destination-hash>` under
+the system temporary directory, outside the default destination. Use
+`--dest-path` and `--log-path` to choose persistent locations:
+
+```bash
+mirror-url --mode download https://example.org/files/a.fits \
+  --dest-path ./downloads --log-path ./logs --verify-content
+```
+
+An explicit `--url` sets the allowed scope and retains paths relative to that
+base. Query strings remain in the HTTP request but are excluded from the local
+filename. Supply exactly one positional URL or one `--url-list` file. Selecting
+one source explicitly on the CLI replaces the other source configured in
+YAML/JSON. The configuration field for the direct source is `download_url`.
+The CLI supplies the same shortcut defaults for a download config containing
+that field; standalone `MirrorConfig`/`validate_config_file()` still require
+explicit `base_url`, `dest_path` and `log_path`.
+
+### A URL list
 
 ```text
 # urls.txt
@@ -675,6 +1088,68 @@ auto-concurrency require HTTPX, and existing partials are preserved.
   `--dir-suffix` is used.
 - **`--dir-suffix`** restricts mirroring to one or more subpaths under the base
   URL and mirrors each in turn.
+- **`--check-files PATH [PATH ...]`** selects existing files
+  for normal freshness checks when combined with `--missing-files`. Missing
+  files anywhere in the mirroring scope still download; other existing files
+  skip freshness checks. A selected file downloads again only when the normal
+  ETag/size/time policy reports it stale. Without `--missing-files`, normal
+  freshness checking still applies to every existing file in scope.
+
+  Selectors are **exact, case-sensitive remote paths relative to `--url`**,
+  written with `/`. They include the suffix, even with multiple `--dir-suffix`
+  values. They are not local destination paths or patterns. Use literal decoded
+  filenames (quote arguments containing spaces); URL escaping and local filename
+  mapping do not change the selected remote identity. Absolute paths, URLs,
+  traversal and empty path components are rejected.
+
+  ```bash
+  mirror-url --url https://sohoftp.nascom.nasa.gov/sdb/ \
+    --dest-path /data/sdb --log-path /data/logs/sdb \
+    --dir-suffix soho/gen soho/lasco/monthly \
+    --missing-files \
+    --check-files soho/gen/file1 soho/gen/file2 soho/lasco/monthly/file3
+  ```
+
+  `soho/gen/file1` refers to `/sdb/soho/gen/file1`. Removing `--dir-suffix`
+  expands mirroring to the base URL's tree but leaves each selector's meaning
+  unchanged. Selection never expands the configured suffix, depth, file-filter
+  or directory-exclusion scope. Paths absent from the discovered selection do
+  not trigger a separate download or cleanup action. Existing cleanup policies
+  still determine how obsolete local files are handled.
+
+  For a local input list, use the explicit `@` prefix:
+
+  ```bash
+  --missing-files --check-files @check-files.txt
+  ```
+
+  ```text
+  # Paths relative to --url
+  soho/gen/file1
+  soho/gen/file2
+  soho/lasco/monthly/file3
+  ```
+
+  The list is UTF-8 (an optional BOM is accepted), with one path per line.
+  Blank lines and lines beginning with `#` after whitespace are ignored;
+  surrounding whitespace is trimmed. Nested `@` lists, unreadable lists,
+  invalid paths and lists with no paths are rejected. The list filename is
+  relative to the current working directory, or can be an absolute local path.
+  `--check-files check-files.txt` instead selects a remote file of that name.
+  Direct paths and `@` lists can be mixed, or the flag repeated; duplicates
+  are removed. YAML/JSON configuration uses the same inputs:
+
+  ```yaml
+  missing_files: true
+  check_files:
+    - soho/gen/file1
+    - soho/lasco/monthly/file3
+    # Alternatively: - '@check-files.txt'
+  ```
+
+  An explicit CLI list replaces a configured list. Both HTTPX and aiohttp
+  mirroring honor the selection; known-URL `--mode download` rejects it.
+  `--verify-content` remains incompatible with `--missing-files`.
 - **`--max-depth`** counts directory levels below the target root (depth 0);
   files in its immediate child directories are eligible at depth 1. The
   crawler stays within the configured host/path. Duplicate file URLs are
@@ -829,14 +1304,13 @@ store both names as separate files. A case-sensitive Linux filesystem or
 case-sensitive APFS volume can store both; an existing Linux mirror can
 therefore contain both originals.
 
-**Filesystem-aware behavior in 3.2.0:** MirrorURL checks the destination
+**Filesystem-aware behavior:** MirrorURL checks the destination
 when selected names differ only by case. On a confirmed case-sensitive
 destination, it downloads both files with their original capitalization and
 keeps their content receipts separate. On a case-insensitive destination, the
 pair fails preflight before any file payload in that suffix is downloaded.
 There is no option to choose whichever file arrives first or overwrite one
-with the other. The 3.1.79 preflight rejects selected case-only pairs on every
-filesystem; upgrade to 3.2.0 for filesystem-aware handling.
+with the other.
 
 The check also covers directory names such as `DAILY/one.pro` and
 `daily/two.pro`. If a requested filename already resolves to a differently
@@ -871,12 +1345,37 @@ remote subtree from the selected scope. Automatically renaming one file would
 also change the archive's original names and may break references between
 files. Neither behavior is a substitute for preserving both originals.
 
-| Selected scope | What is downloaded? | Result |
-|---|---|---|
-| Both case-distinct files are included on a confirmed case-sensitive destination, with the updated code | Both original files, plus other eligible files in the suffix | Separate filenames and receipts are preserved |
-| Both case-distinct files are included on a case-insensitive destination | No mirrored file payload from that suffix, including unrelated files | The suffix fails; neither conflicting file is chosen |
-| `stereo/secchi/idl/daily` is explicitly excluded | Only eligible missing/changed files outside that entire subtree | Sync can proceed if all remaining paths and checks pass |
-| A filter excludes both `.pro` files, for example `--filter .fits` | Only matching files in the remaining selection | Sync can proceed if no other mapping conflicts or failures occur |
+<table>
+<thead>
+<tr>
+<th scope="col" nowrap>Selected scope</th>
+<th scope="col">What is downloaded?</th>
+<th scope="col">Result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td nowrap>Case-sensitive destination</td>
+<td>With both case-distinct files included on a confirmed case-sensitive destination and the updated code, both originals and other eligible files in the suffix</td>
+<td>Separate filenames and receipts are preserved</td>
+</tr>
+<tr>
+<td nowrap>Case-insensitive destination</td>
+<td>With both case-distinct files included, no mirrored file payload from that suffix, including unrelated files</td>
+<td>The suffix fails; neither conflicting file is chosen</td>
+</tr>
+<tr>
+<td nowrap>Directory exclusion</td>
+<td>With <code>stereo/secchi/idl/daily</code> explicitly excluded, only eligible missing/changed files outside that entire subtree</td>
+<td>Sync can proceed if all remaining paths and checks pass</td>
+</tr>
+<tr>
+<td nowrap>File filter</td>
+<td>With both <code>.pro</code> files excluded, for example by <code>--filter .fits</code>, only matching files in the remaining selection</td>
+<td>Sync can proceed if no other mapping conflicts or failures occur</td>
+</tr>
+</tbody>
+</table>
 
 If a deliberately reduced scope is acceptable, directory exclusions are
 relative to `--url`: with the SolarSoft root URL, excluding
@@ -888,8 +1387,11 @@ Other mapping problems also fail preflight: Unicode-normalized name aliases,
 names that would be truncated or rewritten by sanitization, unsafe local paths,
 and collisions with reserved `.mirror-url-state` storage. A repeated identical
 remote URL is deduplicated; distinct URLs that collide are not deduplicated by
-content, even if their bytes happen to match. Case-insensitive `--filter`
-matching cannot select just one of the two example filenames by capitalization.
+content, even if their bytes happen to match. Control characters and Windows
+reserved names are rejected rather than rewritten. If the configured filename
+length limit is too small, increase `--max-filename-len` or narrow the selection.
+Case-insensitive `--filter` matching cannot select just one of the two example
+filenames by capitalization.
 
 For a multi-suffix CLI invocation, failure of one suffix does not roll back
 earlier successful suffixes. Other suffixes may still run, and the overall CLI
@@ -922,9 +1424,8 @@ contents are unchanged. Without usable file ETags, checks fall back to size and
 the server's `Last-Modified` header when available; changes that preserve those
 values can be missed. No remote cryptographic digest comparison is performed.
 
-The development checkout adds `--verify-content` (or `verify_content: true` in
-YAML) to detect local changes
-even when file sizes and timestamps still match. This mode saves a SHA-256
+Use `--verify-content` (or `verify_content: true` in YAML) to detect local
+changes even when file sizes and timestamps still match. This mode saves a SHA-256
 receipt of each completed staging file **before** atomic publication, then
 hashes existing local files before trusting freshness metadata. A missing,
 expired, malformed or mismatched receipt requires a new download. Enabling it
@@ -942,10 +1443,10 @@ the metadata-only async check/batch deadlines. Slow storage can lengthen a run.
 Content verification proves agreement with the saved local receipt. Remote
 freshness still depends on the server's HTTP validators, size and modification
 time; a remote change that preserves those values can be missed. This mode does
-not compare against a server-provided cryptographic checksum. Give each
-destination to one mirror process at a time and avoid external edits during a
-run: there is no interprocess destination lock, and arbitrary concurrent writes
-are outside the guarantee.
+not compare against a server-provided cryptographic checksum. Cooperative
+destination locks prevent overlap between participating MirrorURL processes,
+but do not isolate the filesystem from other writers. Avoid external edits
+during a run; see [Concurrent runs and destination ownership](#concurrent-runs-and-destination-ownership).
 
 Parsed HTML listings also have bounded **in-memory** caches. They are not
 restored from disk on a new process launch. `--html-cache-max-age` controls their
@@ -957,9 +1458,9 @@ fetching the remote listing.
 - `--no-cache`: bypass those caches; existing files are still checked. With
   `--verify-content`, unavailable receipts require downloading existing files.
 - `--no-etag`: use size/time rather than file ETags for freshness checks.
-- `--missing-files`: download only absent files. Existing files are not checked
-  for freshness, so in-place remote changes will be missed. Use occasional
-  normal runs when those changes matter.
+- `--missing-files`: download absent files and skip existing files, except
+  paths selected by `--check-files`. Unselected in-place changes
+  will be missed. Use occasional normal runs when those changes matter.
   It cannot be combined with `--verify-content`.
 - `--quick`: refresh an existing JSON cache's expiry timestamp, without scanning
   or downloading. It does not verify that local or remote files are current and
@@ -997,7 +1498,8 @@ Cleanup only acts within the current scan selection. Files excluded by
 filters, directory exclusions, depth limits, or skipped symlink subtrees are
 preserved, as are local symlinks and `.mirror-url-state/`. A complete empty scan can
 clean the selected local files; an incomplete scan skips cleanup and fails the
-run. Cleanup operation failures also fail the run.
+run. Directory inspection, removal and other cleanup operation failures also
+fail the run.
 If the MOVE archive cannot be created, cleanup stops; a failed move leaves
 the source in place and never falls back to deletion.
 MOVE also refuses symlinked archive paths and existing timestamp collision
@@ -1042,8 +1544,22 @@ MirrorURL ships with security protections **enabled by default**:
 > validation. There is no production option for mirroring private or local
 > servers.
 
+Discovery, local filename mapping and cleanup use the same validated,
+once-decoded URL paths. Equivalent percent-encoded roots are accepted; literal
+percent escapes and semicolons in filenames are preserved. Query parameters
+do not turn directory links into files. Invalid URL decoding or unsafe expected
+paths fail the run and suppress obsolete-file cleanup. DNS checks reject a
+response containing any non-public address, including a mix of public and
+link-local answers.
+
+Local symlinks in a selected destination root are rejected before managers
+start; leaf and descendant symlinks block file mapping. The fixed macOS `/var`,
+`/tmp` and `/etc` system aliases are accepted. Local path checks do not protect
+against another process changing the destination tree during a run.
+
 Symlink handling is off by default; see [Symlink handling](#symlink-handling)
-below for how it works and how to use it.
+below for how it works and how to use it. Remote directory-duplicate handling
+does not permit writes through local symlinks.
 
 ---
 
@@ -1067,12 +1583,32 @@ names, cannot detect a target outside the visited tree, and cannot identify
 individual file symlinks. Empty directories are excluded from matching. Review
 the reported paths before choosing exclusions or enabling automatic skipping.
 
-| Mode | Behavior with `--handle-symlinks` |
-|---|---|
-| `--symlink-mode detect` | Report possible duplicates and continue scanning. Implies `--dry-run`, so mirrored files are not downloaded or cleaned up. |
-| `--symlink-mode skip` | Skip detected duplicate subtrees; this is the default when handling is enabled. |
-| `--symlink-mode follow` | Mirror a detected duplicate only when its inferred target is inside the target scope and tracker limits allow it. |
-| `--symlink-mode treat-as-file` | Accepted for compatibility; behaves like `skip` for directory duplicates. |
+<table>
+<thead>
+<tr>
+<th scope="col" nowrap>Mode</th>
+<th scope="col">Behavior with <code>--handle-symlinks</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td nowrap><samp>--symlink-mode detect</samp></td>
+<td>Report possible duplicates and continue scanning. Implies <code>--dry-run</code>, so mirrored files are not downloaded or cleaned up.</td>
+</tr>
+<tr>
+<td nowrap><samp>--symlink-mode skip</samp></td>
+<td>Skip detected duplicate subtrees; this is the default when handling is enabled.</td>
+</tr>
+<tr>
+<td nowrap><samp>--symlink-mode follow</samp></td>
+<td>Mirror a detected duplicate only when its inferred target is inside the target scope and tracker limits allow it.</td>
+</tr>
+<tr>
+<td nowrap><samp>--symlink-mode treat-as-file</samp></td>
+<td>Accepted for compatibility; behaves like <code>skip</code> for directory duplicates.</td>
+</tr>
+</tbody>
+</table>
 
 Start with a survey:
 
@@ -1189,11 +1725,28 @@ validation API, where `model_validate` is preferred.
 
 ## Exit codes
 
-| Code | Meaning |
-|---|---|
-| `0` | The CLI finished without a recorded suffix failure, or handled a shutdown signal and completed cleanup. |
-| `1` | A recorded suffix/download/scan/cleanup failure, failed benchmark, or forced shutdown after the cleanup timeout. |
-| `2` | Command-line parsing or a configuration-file validation error reported by the argument parser. |
+<table>
+<thead>
+<tr>
+<th scope="col" nowrap>Code</th>
+<th scope="col">Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td nowrap><samp>0</samp></td>
+<td>The CLI finished without a recorded suffix failure, or handled a shutdown signal and completed cleanup.</td>
+</tr>
+<tr>
+<td nowrap><samp>1</samp></td>
+<td>A recorded suffix/download/scan/cleanup failure, failed benchmark, or forced shutdown after the cleanup timeout.</td>
+</tr>
+<tr>
+<td nowrap><samp>2</samp></td>
+<td>Command-line parsing or a configuration-file validation error reported by the argument parser.</td>
+</tr>
+</tbody>
+</table>
 
 The CLI currently exits `0` after graceful SIGINT/SIGTERM cleanup, even if the
 sync was interrupted. For scheduled jobs, review the completion summary when
@@ -1261,37 +1814,3 @@ state under `--dest-path`, and per-user domain-health metadata are left in
 place. Domain-health metadata lives under `$XDG_CACHE_HOME/mirror-url/`
 (or `~/.cache/mirror-url/`) on POSIX and under the local application-data
 `mirror-url/` directory on Windows. Remove these manually if desired.
-
-## Release 3.1.78 behavior
-
-Version 3.1.78 uses the same validated, once-decoded URL paths for discovery,
-local mapping and cleanup. Equivalent percent-encoded roots are accepted;
-literal percent escapes and semicolons in filenames are preserved. Directory
-links with query parameters are traversed as directories. Unsafe expected
-paths suppress obsolete-file cleanup and fail the run.
-
-Local symlinks in a selected destination root are rejected before manager
-startup; leaf and descendant symlinks block remote file mapping. The fixed
-macOS `/var`, `/tmp` and `/etc` system aliases are accepted. Remote duplicate
-directory handling does not authorize local symlink writes.
-
-CLI listing choices override the opposing config-file mode. Disabling lxml
-error fallback still permits lightweight-parser selection when lxml is absent.
-The standalone shared-pool submission helper rechecks its capacity after
-wakeup and counts failed or cancelled jobs once. `use_shared_thread_pool`
-enables the coordinator's chunk pool; file transfers and metadata comparisons
-retain their separate executors.
-Local path checks assume the destination tree is not concurrently mutated by
-another process; they do not provide filesystem isolation against such a process.
-
-## Release 3.1.79 behavior
-
-Sync now rejects filenames that would need truncation or sanitization before
-starting downloads. This includes control characters and Windows reserved
-names. Increase `--max-filename-len` or narrow the selection when the configured
-length limit is too small.
-
-MOVE cleanup rejects symlinked archive paths and occupied timestamp collision
-names, preserving the source and previous archives. Directory inspection or
-removal failures are reported as cleanup failures. The transport rejects mixed
-public and link-local DNS results, and URL decoding failures reject the request.

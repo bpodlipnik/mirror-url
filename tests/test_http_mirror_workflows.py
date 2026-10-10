@@ -340,3 +340,140 @@ def test_missing_files_mode_keeps_existing_content_and_only_downloads_absent_fil
         assert existing.read_bytes() == b"keep local"
         assert (mirror.target_dir / "missing.txt").read_bytes() == b"download me"
         assert not any(path == "existing.txt" for _, path, _ in remote.requests)
+
+
+@pytest.mark.parametrize("mode", ["sequential", "parallel", "streaming"])
+@pytest.mark.parametrize("suffixes", [[""], ["soho/gen", "soho/lasco/monthly"]])
+def test_selected_existing_files_refresh_and_other_existing_files_skip(
+    remote, config, mode, suffixes
+):
+    remote.files = {
+        "sdb/soho/gen/selected.bin": b"original",
+        "sdb/soho/gen/skipped.bin": b"original",
+        "sdb/soho/lasco/monthly/selected.bin": b"original",
+        "sdb/elsewhere/selected.bin": b"original",
+    }
+    config.base_url = remote.url + "sdb/"
+    config.cache_html = False
+    config.sequential_downloads = mode == "sequential"
+    config.parallel_downloads = mode == "parallel"
+    config.streaming_parallel = mode == "streaming"
+    selected = ["soho/gen/selected.bin", "soho/lasco/monthly/selected.bin"]
+    # Each suffix uses the same base-relative selectors and destination root.
+    for suffix in suffixes:
+        cfg = type(config)(
+            **{
+                **config.model_dump(),
+                "dir_suffix": suffix,
+                "missing_files": True,
+                "check_files": selected,
+            }
+        )
+        with MirrorURL(cfg) as mirror:
+            assert mirror.sync()
+            expected = {
+                path: body
+                for path, body in remote.files.items()
+                if not suffix or path.startswith("sdb/" + suffix + "/")
+            }
+            for path in expected:
+                remote.files[path] = b"MODIFIED"
+            remote.files["sdb/" + (suffix + "/" if suffix else "") + "missing.bin"] = b"new file"
+            remote.requests.clear()
+            assert mirror.sync()
+            for path in expected:
+                relative = path.removeprefix("sdb/")
+                local = cfg.dest_path / relative
+                assert local.read_bytes() == (b"MODIFIED" if relative in selected else b"original")
+                requests = [(method, name) for method, name, _ in remote.requests if name == path]
+                if relative in selected:
+                    assert ("HEAD", path) in requests
+                    assert ("GET", path) in requests
+                else:
+                    assert requests == []
+            missing = cfg.dest_path / (suffix or "") / "missing.bin"
+            assert missing.read_bytes() == b"new file"
+            assert not list(cfg.dest_path.rglob("*.part"))
+            assert not list(cfg.dest_path.rglob("work_*"))
+            remote.requests.clear()
+            assert mirror.sync()
+            assert not any(
+                method == "GET" and path in remote.files for method, path, _ in remote.requests
+            )
+            assert all(
+                path.removeprefix("sdb/") in selected
+                for method, path, _ in remote.requests
+                if method == "HEAD" and path in remote.files
+            )
+
+
+@pytest.mark.parametrize("adaptive", [False, True])
+@pytest.mark.parametrize("prewarm", [False, True])
+def test_async_selected_checks_and_profiling_never_probe_unselected_existing_files(
+    remote, config, adaptive, prewarm
+):
+    remote.files = {f"sub/file-{i:03d}.txt": b"original" for i in range(90)}
+    config.async_metadata = True
+    config.adaptive_async = adaptive
+    config.connection_pool_prewarm = prewarm
+    config.async_workers = config.adaptive_start_concurrency = 4
+    selected = ["sub/file-088.txt", "sub/file-089.txt"]
+    config.cache_html = False
+    cfg = type(config)(**{**config.model_dump(), "missing_files": True, "check_files": selected})
+    with MirrorURL(cfg) as mirror:
+        assert mirror.sync()
+        remote.files = dict.fromkeys(remote.files, b"MODIFIED")
+        remote.files["sub/new.txt"] = b"new file"
+        remote.requests.clear()
+        assert mirror.sync()
+        assert mirror.files_processed.value() == 3
+        for path in remote.files:
+            expected = (
+                b"new file"
+                if path == "sub/new.txt"
+                else b"MODIFIED"
+                if path in selected
+                else b"original"
+            )
+            assert (cfg.dest_path / path).read_bytes() == expected
+        assert not any(
+            path in remote.files and path not in selected + ["sub/new.txt"]
+            for _, path, _ in remote.requests
+        )
+        assert all(
+            path in selected + ["sub/new.txt"]
+            for method, path, _ in remote.requests
+            if method == "HEAD" and path in remote.files
+        )
+
+
+def test_check_files_without_missing_files_keeps_normal_freshness_checks(remote, config):
+    remote.files = {"a": b"old", "b": b"old"}
+    config.check_files = ["a"]
+    with MirrorURL(config) as mirror:
+        assert mirror.sync()
+        remote.files = {"a": b"new", "b": b"new"}
+        remote.requests.clear()
+        assert mirror.sync()
+        assert (config.dest_path / "a").read_bytes() == b"new"
+        assert (config.dest_path / "b").read_bytes() == b"new"
+        assert {
+            path for method, path, _ in remote.requests if method == "HEAD" and path in remote.files
+        } == {"a", "b"}
+
+
+def test_failed_selected_update_preserves_local_bytes_and_receipt(remote, config):
+    remote.files = {"selected.bin": b"old payload", "skipped.bin": b"unchanged"}
+    config.check_files = ["selected.bin"]
+    config.missing_files = True
+    with MirrorURL(config) as mirror:
+        assert mirror.sync()
+        local = config.dest_path / "selected.bin"
+        receipt = mirror.cache_manager.get_file_metadata(local)
+        remote.failures["selected.bin"] = 503
+        remote.requests.clear()
+        assert not mirror.sync()
+        assert local.read_bytes() == b"old payload"
+        assert mirror.cache_manager.get_file_metadata(local) == receipt
+        assert not any(path == "skipped.bin" for _, path, _ in remote.requests)
+        assert not list(config.dest_path.rglob("*.part"))

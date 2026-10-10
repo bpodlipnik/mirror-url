@@ -94,38 +94,170 @@ library / third-party deps), never sideways within a cycle and never upward.
 Each row maps a target module to the symbols moved into it and their **original
 line range** in `mirror_url.py`. Approx. sizes are the monolith line counts.
 
-| Module | Symbols (orig. lines) | ~LOC |
-|---|---|---|
-| `_version.py` | `__version__`, `__author__` (85–184) | ~5 |
-| `compat.py` | `Str`/`STRINGZILLA_AVAILABLE` (158–183), `TQDM_AVAILABLE` (184–189), `LXML_AVAILABLE` (190–196), `PSUTIL_AVAILABLE` (197–202) | ~50 |
-| `constants.py` | All `DEFAULT_*`/cache/scan/async/safety constants, `KNOWN_THROTTLED_DOMAINS`, `WINDOWS_RESERVED_NAMES` (97–360) | ~200 |
-| `exceptions.py` | `MirrorError` + 18 subclasses (365–452) | ~90 |
-| `enums.py` | `LogLevel`, `ScanMode`, `CleanupPolicy`, `DownloadPriority`, `CircuitBreakerState`, `MemoryPressure`, `ConcurrencyType`, `DownloadMethod` (453–505) | ~50 |
-| `models.py` | `DownloadTask` (506–524), `ServerProfile` (525–604), `HealthStatus` (605–617), `ChunkInfo` (618–636), `ParallelFileDownload` (637–659) | ~155 |
-| `decorators.py` | `retry_with_backoff` (660–719), `log_performance` (720–742) | ~85 |
-| `utils.py` | `exponential_backoff` (815–838), `_validate_and_sanitize_cache` (839–921), `format_duration` (922–947), `format_bytes` (948–969), `normalize_etag` (970–994), `safe_url_encode` (995–1017), `trim_url` (1018–1021), `sanitize_url_for_log` (1022–1063), `compute_file_hash` (1064–1088), `is_reserved_windows_filename` (1089–1107), `normalize_url_path` (1108–1154), `cleanup_log_files` (1944–1959) | ~430 |
-| `security.py` | `SymlinkTracker` (743–814), `SecurityValidator` (1155–1378), `PathSafety` (1656–1847), `FastURLValidator` (1848–1943) | ~580 |
-| `transport.py` | `SecureTransport` (1379–1524), `SecureAsyncTransport` (1525–1655) | ~280 |
-| `primitives.py` | `LRUCache` (1960–2161), `AtomicCounter` (2162–2259), `AtomicSize` (2260–2347) | ~390 |
-| `storage.py` | `FileSystemCache` (2348–2460), `DiskBackedSet` (2461–2950) | ~600 |
-| `parsing.py` | `AdaptiveBatchProcessor` (2951–3022), `extract_links_fast` (3023–3070), `should_use_fast_parser` (3071–3097) | ~150 |
-| `circuit_breaker.py` | `CircuitBreaker` (3098–3213), `AsyncCircuitBreaker` (3214–3340), `ChunkCircuitBreaker` (4161–4214), `CircuitBreakerManager` (8355–8416) | ~360 |
-| `rate_limiter.py` | `BandwidthLimiter` (3341–3399), `RateLimiter` (3918–4010), `PerIPRateLimiter` (4011–4085), `ChunkAwareRateLimiter` (4086–4160) | ~330 |
-| `queue.py` | `DownloadQueue` (3400–3522) | ~120 |
-| `metrics.py` | `MetricsCollector` (3523–3917) | ~395 |
-| `progress.py` | `ProgressTracker` (8637–8844), `MultiLevelProgress` (8845–8940) | ~305 |
-| `monitoring.py` | `MemoryMonitor` (8941–9031), `DiskSpaceManager` (9032–9125), `PerformanceMonitor` (9126–9203) | ~265 |
-| `connection.py` | `ConnectionPool` (5645–5991), `ConnectionManager` (6260–6689) | ~780 |
-| `async_connection.py` | `AsyncConnectionManager` (6690–7107), `AdaptiveAsyncManager` (7108–7748), `AsyncTaskManager` (7749–7941) | ~1250 |
-| `concurrency.py` | `UnifiedConcurrencyManager` (5992–6259) | ~270 |
-| `download.py` | `ParallelDownloadManager` (4215–5644), `PartialDownloadManager` (9204–9370) | ~1600 |
-| `scanner.py` | `DirectoryScanner` (8417–8636) | ~220 |
-| `health.py` | `HealthCheckHandler` (9371–9481), `HealthCheckServer` (9482–9537), `HealthChecker` (9655–9716) | ~225 |
-| `cache.py` | `CacheManager` (7942–8354) | ~415 |
-| `config.py` | `ConfigSchema` (9538–9577), `validate_config_file` (9578–9602), `expand_env_vars` (9603–9654), `MirrorConfig` (13439–13841), `load_config_from_args` (13842–13955) | ~600 |
-| `tuner.py` | `AutoConcurrencyTuner` (9717–9822) | ~106 |
-| `core.py` | `MirrorURL` (9823–13438) | ~3616 |
-| `cli.py` | `add_parallel_arguments` (13956–13992), `setup_shared_logging` (13993–14126), `main` (14127–15145) | ~1190 |
+<!-- HTML tables keep the first column on one line in GitHub.
+     Use samp for first-column code: GitHub wraps code inside nowrap cells. -->
+
+<table>
+<thead>
+<tr>
+<th scope="col" nowrap>Module</th>
+<th scope="col">Symbols (orig. lines)</th>
+<th scope="col">~LOC</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td nowrap><samp>_version.py</samp></td>
+<td><code>__version__</code>, <code>__author__</code> (85–184)</td>
+<td>~5</td>
+</tr>
+<tr>
+<td nowrap><samp>compat.py</samp></td>
+<td><code>Str</code>/<code>STRINGZILLA_AVAILABLE</code> (158–183), <code>TQDM_AVAILABLE</code> (184–189), <code>LXML_AVAILABLE</code> (190–196), <code>PSUTIL_AVAILABLE</code> (197–202)</td>
+<td>~50</td>
+</tr>
+<tr>
+<td nowrap><samp>constants.py</samp></td>
+<td>All <code>DEFAULT_*</code>/cache/scan/async/safety constants, <code>KNOWN_THROTTLED_DOMAINS</code>, <code>WINDOWS_RESERVED_NAMES</code> (97–360)</td>
+<td>~200</td>
+</tr>
+<tr>
+<td nowrap><samp>exceptions.py</samp></td>
+<td><code>MirrorError</code> + 18 subclasses (365–452)</td>
+<td>~90</td>
+</tr>
+<tr>
+<td nowrap><samp>enums.py</samp></td>
+<td><code>LogLevel</code>, <code>ScanMode</code>, <code>CleanupPolicy</code>, <code>DownloadPriority</code>, <code>CircuitBreakerState</code>, <code>MemoryPressure</code>, <code>ConcurrencyType</code>, <code>DownloadMethod</code> (453–505)</td>
+<td>~50</td>
+</tr>
+<tr>
+<td nowrap><samp>models.py</samp></td>
+<td><code>DownloadTask</code> (506–524), <code>ServerProfile</code> (525–604), <code>HealthStatus</code> (605–617), <code>ChunkInfo</code> (618–636), <code>ParallelFileDownload</code> (637–659)</td>
+<td>~155</td>
+</tr>
+<tr>
+<td nowrap><samp>decorators.py</samp></td>
+<td><code>retry_with_backoff</code> (660–719), <code>log_performance</code> (720–742)</td>
+<td>~85</td>
+</tr>
+<tr>
+<td nowrap><samp>utils.py</samp></td>
+<td><code>exponential_backoff</code> (815–838), <code>_validate_and_sanitize_cache</code> (839–921), <code>format_duration</code> (922–947), <code>format_bytes</code> (948–969), <code>normalize_etag</code> (970–994), <code>safe_url_encode</code> (995–1017), <code>trim_url</code> (1018–1021), <code>sanitize_url_for_log</code> (1022–1063), <code>compute_file_hash</code> (1064–1088), <code>is_reserved_windows_filename</code> (1089–1107), <code>normalize_url_path</code> (1108–1154), <code>cleanup_log_files</code> (1944–1959)</td>
+<td>~430</td>
+</tr>
+<tr>
+<td nowrap><samp>security.py</samp></td>
+<td><code>SymlinkTracker</code> (743–814), <code>SecurityValidator</code> (1155–1378), <code>PathSafety</code> (1656–1847), <code>FastURLValidator</code> (1848–1943)</td>
+<td>~580</td>
+</tr>
+<tr>
+<td nowrap><samp>transport.py</samp></td>
+<td><code>SecureTransport</code> (1379–1524), <code>SecureAsyncTransport</code> (1525–1655)</td>
+<td>~280</td>
+</tr>
+<tr>
+<td nowrap><samp>primitives.py</samp></td>
+<td><code>LRUCache</code> (1960–2161), <code>AtomicCounter</code> (2162–2259), <code>AtomicSize</code> (2260–2347)</td>
+<td>~390</td>
+</tr>
+<tr>
+<td nowrap><samp>storage.py</samp></td>
+<td><code>FileSystemCache</code> (2348–2460), <code>DiskBackedSet</code> (2461–2950)</td>
+<td>~600</td>
+</tr>
+<tr>
+<td nowrap><samp>parsing.py</samp></td>
+<td><code>AdaptiveBatchProcessor</code> (2951–3022), <code>extract_links_fast</code> (3023–3070), <code>should_use_fast_parser</code> (3071–3097)</td>
+<td>~150</td>
+</tr>
+<tr>
+<td nowrap><samp>circuit_breaker.py</samp></td>
+<td><code>CircuitBreaker</code> (3098–3213), <code>AsyncCircuitBreaker</code> (3214–3340), <code>ChunkCircuitBreaker</code> (4161–4214), <code>CircuitBreakerManager</code> (8355–8416)</td>
+<td>~360</td>
+</tr>
+<tr>
+<td nowrap><samp>rate_limiter.py</samp></td>
+<td><code>BandwidthLimiter</code> (3341–3399), <code>RateLimiter</code> (3918–4010), <code>PerIPRateLimiter</code> (4011–4085), <code>ChunkAwareRateLimiter</code> (4086–4160)</td>
+<td>~330</td>
+</tr>
+<tr>
+<td nowrap><samp>queue.py</samp></td>
+<td><code>DownloadQueue</code> (3400–3522)</td>
+<td>~120</td>
+</tr>
+<tr>
+<td nowrap><samp>metrics.py</samp></td>
+<td><code>MetricsCollector</code> (3523–3917)</td>
+<td>~395</td>
+</tr>
+<tr>
+<td nowrap><samp>progress.py</samp></td>
+<td><code>ProgressTracker</code> (8637–8844), <code>MultiLevelProgress</code> (8845–8940)</td>
+<td>~305</td>
+</tr>
+<tr>
+<td nowrap><samp>monitoring.py</samp></td>
+<td><code>MemoryMonitor</code> (8941–9031), <code>DiskSpaceManager</code> (9032–9125), <code>PerformanceMonitor</code> (9126–9203)</td>
+<td>~265</td>
+</tr>
+<tr>
+<td nowrap><samp>connection.py</samp></td>
+<td><code>ConnectionPool</code> (5645–5991), <code>ConnectionManager</code> (6260–6689)</td>
+<td>~780</td>
+</tr>
+<tr>
+<td nowrap><samp>async_connection.py</samp></td>
+<td><code>AsyncConnectionManager</code> (6690–7107), <code>AdaptiveAsyncManager</code> (7108–7748), <code>AsyncTaskManager</code> (7749–7941)</td>
+<td>~1250</td>
+</tr>
+<tr>
+<td nowrap><samp>concurrency.py</samp></td>
+<td><code>UnifiedConcurrencyManager</code> (5992–6259)</td>
+<td>~270</td>
+</tr>
+<tr>
+<td nowrap><samp>download.py</samp></td>
+<td><code>ParallelDownloadManager</code> (4215–5644), <code>PartialDownloadManager</code> (9204–9370)</td>
+<td>~1600</td>
+</tr>
+<tr>
+<td nowrap><samp>scanner.py</samp></td>
+<td><code>DirectoryScanner</code> (8417–8636)</td>
+<td>~220</td>
+</tr>
+<tr>
+<td nowrap><samp>health.py</samp></td>
+<td><code>HealthCheckHandler</code> (9371–9481), <code>HealthCheckServer</code> (9482–9537), <code>HealthChecker</code> (9655–9716)</td>
+<td>~225</td>
+</tr>
+<tr>
+<td nowrap><samp>cache.py</samp></td>
+<td><code>CacheManager</code> (7942–8354)</td>
+<td>~415</td>
+</tr>
+<tr>
+<td nowrap><samp>config.py</samp></td>
+<td><code>ConfigSchema</code> (9538–9577), <code>validate_config_file</code> (9578–9602), <code>expand_env_vars</code> (9603–9654), <code>MirrorConfig</code> (13439–13841), <code>load_config_from_args</code> (13842–13955)</td>
+<td>~600</td>
+</tr>
+<tr>
+<td nowrap><samp>tuner.py</samp></td>
+<td><code>AutoConcurrencyTuner</code> (9717–9822)</td>
+<td>~106</td>
+</tr>
+<tr>
+<td nowrap><samp>core.py</samp></td>
+<td><code>MirrorURL</code> (9823–13438)</td>
+<td>~3616</td>
+</tr>
+<tr>
+<td nowrap><samp>cli.py</samp></td>
+<td><code>add_parallel_arguments</code> (13956–13992), <code>setup_shared_logging</code> (13993–14126), <code>main</code> (14127–15145)</td>
+<td>~1190</td>
+</tr>
+</tbody>
+</table>
 
 ### 4.1 Breaking up the `MirrorURL` god-class (follow-up)
 

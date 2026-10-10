@@ -4,6 +4,48 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.0] - 2026-10-10
+
+### Added
+
+- Add `--check-files PATH [PATH ...]` and `check_files` configuration for
+  selected freshness checks alongside `--missing-files`. Missing files still
+  download; selected existing files use the normal ETag/size/time policy;
+  other existing files skip checking. Paths are exact and relative to `--url`,
+  including suffixes, and never expand discovery/filter/cleanup scope.
+- Accept explicit `@FILE` UTF-8 lists, inline paths or repeated flags. Ignore
+  blank/comment lines, deduplicate entries and reject malformed paths or lists.
+  Keep full freshness checks without `--missing-files` and reject the selection
+  in known-URL download mode. Restrict async warm-up and adaptive profiling to
+  selected paths, preserving updates and failure behavior on both backends.
+
+### Changed
+
+- Integrate current behavior into the guides and remove obsolete release-specific
+  appendices. Broaden the project description to cover public HTTP(S) mirrors
+  and exact file downloads as well as scientific data archives.
+
+## [3.2.1] - 2026-10-08
+
+### Added
+
+- Accept one positional file URL with `mirror-url --mode download FILE_URL`.
+  Infer its parent URL when `--url` is omitted, download into the current
+  directory when `--dest-path` is omitted, and store logs in a destination-specific
+  system temporary directory when `--log-path` is omitted. Explicit scope and
+  paths override these defaults. The shortcut uses the existing guarded HTTPX
+  or optional aiohttp pipeline, without discovery or freshness HEADs.
+- Add `download_url` as an alternative to `url_list` in download configuration.
+  Explicit CLI source selection overrides a configured source; supplying both
+  sources together is rejected. Preserve ownership receipts, unrelated files,
+  bounded retries, scope/path checks and atomic publication.
+
+### Changed
+
+- Keep documentation table labels on one line in GitHub and HTML guides,
+  including the Download modes flag column. Update the guides and CLI examples
+  for direct file downloads and their target defaults.
+
 ## [3.2.0] - 2026-10-08
 
 ### Changed

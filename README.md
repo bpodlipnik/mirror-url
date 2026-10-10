@@ -4,14 +4,31 @@
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](https://github.com/bpodlipnik/mirror-url/blob/main/LICENSE)
 
-Security-hardened remote directory mirroring tool. MirrorURL recursively
-discovers files behind an HTTP(S) directory listing and mirrors them locally
-with adaptive concurrency, resumable/partial downloads, integrity verification,
-and an SSRF-hardened transport layer.
+MirrorURL is a Python command-line tool and library for mirroring and
+incrementally syncing public HTTP(S) directory trees to local disk. It also
+downloads individual file URLs or exact URL lists, with resumable transfers,
+parallel downloads, caching and integrity checks. URL-scope, private-network
+and filesystem protections guard discovery and transfers.
 
-Version 3.2.0 adds `--verify-content`, destination locking, known-URL
-downloads, configurable request ceilings and an optional aiohttp backend.
-See [the 3.2.0 changelog](CHANGELOG.md#320---2026-10-08).
+Version 3.3.0 adds `--check-files` for selected freshness checks alongside
+`--missing-files`, using paths relative to `--url` or explicit `@FILE` lists.
+See [the 3.3.0 changelog](CHANGELOG.md#330---2026-10-10).
+
+## Who it is for
+
+MirrorURL is for people and organizations that regularly need to maintain
+local copies of files published over public HTTP(S):
+
+- Researchers maintaining local copies of scientific data archives.
+- Organizations downloading bulk files from public directory indexes.
+- Maintainers of software, package, artifact and documentation mirrors.
+- Sysadmins and data engineers maintaining local datasets.
+- Public-data preservation communities.
+- Users moving from `wget --mirror`, `lftp mirror` or custom scripts.
+
+Scientific mission archives used in the examples illustrate workflows that
+also apply to these other sources. Recursive mirroring requires an HTML
+directory index; direct file and URL-list downloads do not require a listing.
 
 ## Features
 
@@ -27,7 +44,8 @@ See [the 3.2.0 changelog](CHANGELOG.md#320---2026-10-08).
 - **Filename preflight** — preserve distinct original names on a confirmed case-sensitive destination; reject case collisions on a case-insensitive destination before downloads. Rewritten, unsafe and Unicode-aliased paths remain blocked; see [download behavior and preserving original names](docs/USER_GUIDE.md#filename-collisions-and-download-behavior).
 - **Operability** — metrics collection, multi-level progress, optional HTTP health-check server.
 - **Caching** — directory listings and file metadata; discovery currently keeps the remote file list in memory.
-- **Known-URL downloads** — `--mode download --url-list urls.txt` streams an exact list without discovery or freshness probes. Both HTTPX and optional aiohttp use the same destination, scope, staging and receipt checks.
+- **Known-URL downloads** — `--mode download FILE_URL` downloads one file, or `--mode download --url-list urls.txt` streams an exact list, without discovery or freshness probes. Both HTTPX and optional aiohttp use the same destination, scope, staging and receipt checks.
+- **Selected freshness checks** — combine `--missing-files` with `--check-files path1 path2` or `--check-files @list.txt` to refresh selected existing files while downloading all missing files in scope. Paths stay relative to `--url`, including any suffix.
 - **Explicit pacing** — `--requests-per-second` and `--request-delay` control the request budget independently of security checks.
 
 ## Installation
@@ -80,6 +98,20 @@ python -m mirror_url --mode download --backend aiohttp \
   --dest-path ./downloads --log-path ./logs --concurrency 20 \
   --requests-per-second 0 --request-delay 0 --verify-content
 ```
+
+Version 3.2.1 also accepts a single file URL directly:
+
+```bash
+mirror-url --mode download https://example.org/files/a.fits
+# Optional destination and log paths:
+mirror-url --mode download https://example.org/files/a.fits \
+  --dest-path ./downloads --log-path ./logs
+```
+
+The shortcut defaults to the current directory, with logs in a destination-specific
+system temporary folder. It infers the file URL's parent as the allowed remote
+scope; an explicit `--url` overrides that scope. Choose either a positional file
+URL or `--url-list`, and keep `--mode download` for both.
 
 `urls.txt` contains one absolute URL per line below the selected base URL.
 The two zero pacing values explicitly remove the default 20 requests/second
