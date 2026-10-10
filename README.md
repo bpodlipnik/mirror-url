@@ -10,9 +10,7 @@ downloads individual file URLs or exact URL lists, with resumable transfers,
 parallel downloads, caching and integrity checks. URL-scope, private-network
 and filesystem protections guard discovery and transfers.
 
-Version 3.3.0 adds `--check-files` for selected freshness checks alongside
-`--missing-files`, using paths relative to `--url` or explicit `@FILE` lists.
-See [the 3.3.0 changelog](CHANGELOG.md#330---2026-10-10).
+See [the changelog](CHANGELOG.md) for release notes.
 
 ## Who it is for
 
@@ -99,7 +97,7 @@ python -m mirror_url --mode download --backend aiohttp \
   --requests-per-second 0 --request-delay 0 --verify-content
 ```
 
-Version 3.2.1 also accepts a single file URL directly:
+For a single file URL:
 
 ```bash
 mirror-url --mode download https://example.org/files/a.fits

@@ -4,6 +4,23 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.1] - 2026-10-10
+
+### Fixed
+
+- Place `--check-files` beside `--missing-files` under Cache Options in CLI
+  help, matching the User Guide. Remove stale "next release" and availability
+  wording so the guide describes the current behavior.
+
+### Changed
+
+- Keep README usage descriptions independent of the release that introduced
+  each option, and update guide versions and installation examples to 3.3.1.
+- Upgrade the development Ruff pin, pre-commit hooks and contributor
+  documentation together to 0.16.10.
+- Verify profiling concurrency with a deterministic response barrier instead
+  of a machine-dependent elapsed-time threshold.
+
 ## [3.3.0] - 2026-10-10
 
 ### Added
