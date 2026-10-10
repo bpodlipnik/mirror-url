@@ -1651,9 +1651,16 @@ limit tracker behavior; they do not make the heuristic a definitive detector.
   wait and is a sum of individual operations, not CPU parsing time.
 
   Cache reporting separates directory signatures loaded, in-memory parsed
-  listing reuse, HTML-listing hits/misses and bypass reasons. Listing fetch calls
-  count scanner fetch operations; transport redirects/retries can make additional
-  requests. `--stats` is accepted for backward compatibility and has no effect.
+  listing reuse, HTML-listing hits/misses and bypass reasons. Directory listing
+  GET calls and directory signature HEAD calls have separate counts and summed
+  request times, including failed calls. A successfully parsed listing fetched
+  during this discovery supplies its ETag or Last-Modified directly, avoiding a
+  separate signature HEAD. Cached listings and fresh responses without either
+  validator still use HEAD. The summary counts these fresh GET signature reuses
+  separately. File freshness checks follow the configured policy regardless of
+  directory validators. Counts refer to logical calls; transport redirects and
+  retries can make additional HTTP requests. `--stats` is accepted for backward
+  compatibility and has no effect.
   Quick mode, connection failures and discovery-only surveys have shorter summaries.
 - **`--metrics-json FILE`** writes the full metrics summary to JSON (skipped in
   `--dry-run`). Its `metrics.run` object contains the per-sync outcomes, result,

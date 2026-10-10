@@ -25,7 +25,14 @@ pytestmark = pytest.mark.integration
 @contextmanager
 def local_archive(monkeypatch):
     state = SimpleNamespace(
-        files={}, listings={}, requests=[], failures={}, redirects={}, drops={}, etag=True
+        files={},
+        listings={},
+        requests=[],
+        failures={},
+        redirects={},
+        drops={},
+        etag=True,
+        directory_headers={},
     )
     lock = threading.Lock()
 
@@ -92,6 +99,8 @@ def local_archive(monkeypatch):
                         status, body = 206, body[start : end + 1]
             else:
                 status = 404
+            if "Content-Type" in headers:
+                headers.update(state.directory_headers)
             self.send_response(status)
             for name, value in headers.items():
                 self.send_header(name, value)
