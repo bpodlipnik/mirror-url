@@ -67,6 +67,9 @@ class DirectoryScanner:
         # Reset by get_remote_files before discovery. Only a successfully
         # parsed GET in that pass can supply a reusable directory signature.
         self.fresh_listing_headers: Dict[str, Tuple[Optional[str], Optional[str]]] = {}
+        # Headerless listings retain only their configured content digest,
+        # never the full HTML. These proofs have the same discovery lifetime.
+        self.fresh_listing_content_signatures: Dict[str, str] = {}
 
     def _maybe_cleanup_cache(self) -> None:
         """Periodically clean up cache"""
@@ -160,6 +163,7 @@ class DirectoryScanner:
 
         scan_start = time.perf_counter()
         self.fresh_listing_headers.pop(url, None)
+        self.fresh_listing_content_signatures.pop(url, None)
         try:
             start = time.time()
 
@@ -271,6 +275,11 @@ class DirectoryScanner:
             logging.debug(
                 f"Scan complete for {sanitize_url_for_log(url)}: {len(files)} files, {len(subdirs)} subdirs"
             )
+            if not any(self.dir_response_headers[url]):
+                content_hash = hashlib.new(
+                    self.config.hash_algorithm, document.encode("utf-8")
+                ).hexdigest()
+                self.fresh_listing_content_signatures[url] = f"content:{content_hash}"
             self.fresh_listing_headers[url] = self.dir_response_headers[url]
             return files, subdirs
 
