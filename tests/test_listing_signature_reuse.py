@@ -1,6 +1,8 @@
-"""Current discovery GET provenance, HEAD fallback and cleanup safety."""
+"""Current discovery GET provenance, content signatures and cleanup safety."""
 
 from __future__ import annotations
+
+import hashlib
 
 import httpx
 import pytest
@@ -20,22 +22,24 @@ def mirror(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "headers,expected,reuses,heads",
+    "headers,expected",
     [
-        ({"ETag": '"get"', "Last-Modified": "date"}, 'etag:"get"', 1, 0),
-        ({"Last-Modified": "date"}, "mtime:date", 1, 0),
-        ({}, 'etag:"head"', 0, 1),
-        ({"ETag": "", "Last-Modified": ""}, 'etag:"head"', 0, 1),
+        ({"ETag": '"get"', "Last-Modified": "date"}, 'etag:"get"'),
+        ({"Last-Modified": "date"}, "mtime:date"),
+        ({}, None),
+        ({"ETag": "", "Last-Modified": ""}, None),
     ],
 )
-def test_successful_get_signature_precedence_and_missing_validator_fallback(
-    mirror, headers, expected, reuses, heads
-):
+def test_successful_get_signature_precedence_and_headerless_content(mirror, headers, expected):
+    document = '<a href="keep.bin">keep</a>'
+    if expected is None:
+        expected = mirror.get_directory_signature(ROOT, html_content=document)
+
     def request(url, method="GET", **kwargs):
         return httpx.Response(
             200,
             headers=headers if method == "GET" else {"ETag": '"head"'},
-            content=b'<a href="keep.bin">keep</a>',
+            content=document.encode(),
         )
 
     mirror.connection_manager.request.side_effect = request
@@ -43,18 +47,27 @@ def test_successful_get_signature_precedence_and_missing_validator_fallback(
     assert mirror._scan_signatures == {ROOT: expected}
     summary = mirror.metrics.get_summary()
     assert summary["listing_fetches"] == 1
-    assert summary["directory_signatures_from_get"] == reuses
-    assert summary["directory_signature_head_calls"] == heads
+    assert summary["directory_signatures_from_get"] == 1
+    assert summary["directory_signature_head_calls"] == 0
+    assert not any(
+        call.kwargs.get("method") == "HEAD"
+        for call in mirror.connection_manager.request.call_args_list
+    )
+    assert bool(mirror.scanner.fresh_listing_content_signatures) == (not any(headers.values()))
     assert summary["listing_get_seconds"] >= 0
     assert not mirror.scan_incomplete
 
 
-def test_cached_listing_never_reuses_previous_discovery_get_headers(mirror):
+@pytest.mark.parametrize("proof", ["header", "content"])
+def test_cached_listing_never_reuses_previous_discovery_get_proof(mirror, proof):
     mirror.connection_manager.request.side_effect = lambda *args, **kw: httpx.Response(
-        200, headers={"ETag": '"old"'}, content=b'<a href="keep.bin">keep</a>'
+        200,
+        headers={"ETag": '"old"'} if proof == "header" else {},
+        content=b'<a href="keep.bin">keep</a>',
     )
     assert mirror.get_remote_files() == [ROOT + "keep.bin"]
-    assert mirror._scan_signatures == {ROOT: 'etag:"old"'}
+    old_signature = mirror._scan_signatures[ROOT]
+    assert old_signature.startswith("etag:" if proof == "header" else "content:")
     mirror.connection_manager.request.reset_mock()
     mirror.connection_manager.request.side_effect = lambda *args, **kw: httpx.Response(
         200, headers={"ETag": '"new"'}
@@ -63,10 +76,12 @@ def test_cached_listing_never_reuses_previous_discovery_get_headers(mirror):
     assert mirror._scan_signatures == {ROOT: 'etag:"new"'}
     mirror.connection_manager.request.assert_called_once_with(ROOT, method="HEAD", timeout=15)
     assert mirror.scanner.fresh_listing_headers == {}
+    assert mirror.scanner.fresh_listing_content_signatures == {}
 
 
 @pytest.mark.parametrize("failure", ["http", "parse", "network"])
-def test_failed_refetch_discards_get_proof_and_preserves_local_payload(mirror, failure):
+@pytest.mark.parametrize("proof", ["header", "content"])
+def test_failed_refetch_discards_get_proof_and_preserves_local_payload(mirror, failure, proof):
     mirror.config.no_cache = True
     keep = mirror.target_dir / "keep.bin"
     keep.write_bytes(b"must survive incomplete discovery")
@@ -79,7 +94,9 @@ def test_failed_refetch_discards_get_proof_and_preserves_local_payload(mirror, f
         get_calls += 1
         if get_calls == 1:
             return httpx.Response(
-                200, headers={"ETag": '"first"'}, content=b'<a href="keep.bin">keep</a>'
+                200,
+                headers={"ETag": '"first"'} if proof == "header" else {},
+                content=b'<a href="keep.bin">keep</a>',
             )
         if failure == "network":
             raise OSError("injected listing failure")
@@ -94,6 +111,7 @@ def test_failed_refetch_discards_get_proof_and_preserves_local_payload(mirror, f
     assert files == []
     assert mirror.scan_incomplete
     assert mirror.scanner.fresh_listing_headers == {}
+    assert mirror.scanner.fresh_listing_content_signatures == {}
     assert mirror._scan_signatures == {ROOT: 'etag:"head"'}
     mirror.clean_obsolete(set(files))
     assert keep.read_bytes() == b"must survive incomplete discovery"
@@ -102,6 +120,46 @@ def test_failed_refetch_discards_get_proof_and_preserves_local_payload(mirror, f
     assert summary["listing_fetches"] == 2
     assert summary["directory_signature_head_calls"] == 1
     assert summary["directory_signatures_from_get"] == 0
+
+
+@pytest.mark.parametrize("hash_algorithm", ["md5", "sha256"])
+def test_content_signature_tracks_complete_decoded_listing(mirror, hash_algorithm):
+    mirror.config.refresh_cache = True
+    mirror.config.hash_algorithm = hash_algorithm
+    document = '<a href="keep.bin">café</a>'
+
+    def request(url, method="GET", **kwargs):
+        assert method == "GET"
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "text/html; charset=iso-8859-1"},
+            content=document.encode("iso-8859-1"),
+        )
+
+    mirror.connection_manager.request.side_effect = request
+    assert mirror.get_remote_files() == [ROOT + "keep.bin"]
+    initial = mirror._scan_signatures[ROOT]
+    assert initial == "content:" + hashlib.new(hash_algorithm, document.encode("utf-8")).hexdigest()
+    assert mirror.get_remote_files() == [ROOT + "keep.bin"]
+    assert mirror._scan_signatures[ROOT] == initial
+    # The discovered paths stay the same; the complete listing text changes.
+    document += "<!-- changed listing -->"
+    assert mirror.get_remote_files() == [ROOT + "keep.bin"]
+    assert mirror._scan_signatures[ROOT] != initial
+    assert mirror._scan_signatures[ROOT] == mirror.get_directory_signature(
+        ROOT, html_content=document
+    )
+    assert mirror.metrics.get_summary()["directory_signature_head_calls"] == 0
+
+
+def test_successful_empty_headerless_listing_needs_no_signature_head(mirror):
+    mirror.connection_manager.request.side_effect = lambda *args, **kw: httpx.Response(
+        200, content=b""
+    )
+    assert mirror.get_remote_files() == []
+    assert mirror._scan_signatures == {ROOT: mirror.get_directory_signature(ROOT, html_content="")}
+    assert not mirror.scan_incomplete
+    assert mirror.metrics.get_summary()["directory_signature_head_calls"] == 0
 
 
 def test_directory_request_reporting_uses_current_sync_deltas():
@@ -127,9 +185,12 @@ def test_directory_request_reporting_uses_current_sync_deltas():
 
 
 @pytest.mark.integration
-def test_42_directory_discovery_reuses_successful_get_without_signature_head(remote, config):
+@pytest.mark.parametrize("validators", [True, False])
+def test_42_directory_discovery_reuses_successful_get_without_signature_head(
+    remote, config, validators
+):
     remote.files = {f"dir{index}/file": b"payload" for index in range(41)}
-    remote.directory_headers = {"ETag": '"listing"'}
+    remote.directory_headers = {"ETag": '"listing"'} if validators else {}
     with MirrorURL(config) as mirror:
         # Initial connection probing precedes the measured discovery pass.
         remote.requests.clear()
@@ -140,21 +201,28 @@ def test_42_directory_discovery_reuses_successful_get_without_signature_head(rem
         summary = mirror.metrics.get_summary()
         assert summary["listing_fetches"] == summary["directory_signatures_from_get"] == 42
         assert summary["directory_signature_head_calls"] == 0
+        assert all(
+            signature.startswith("etag:" if validators else "content:")
+            for signature in mirror._scan_signatures.values()
+        )
         assert not mirror.scan_incomplete
 
 
 @pytest.mark.integration
-def test_unchanged_directory_get_validator_does_not_hide_changed_child(remote, config):
+@pytest.mark.parametrize("validators", [True, False])
+def test_unchanged_directory_get_signature_does_not_hide_changed_child(remote, config, validators):
     remote.files = {"selected": b"first", "unchecked": b"keep"}
-    remote.directory_headers = {"ETag": '"unchanged-directory"'}
+    remote.directory_headers = {"ETag": '"unchanged-directory"'} if validators else {}
     config.cache_html = False
     config.missing_files = True
     config.check_files = ["selected"]
     with MirrorURL(config) as mirror:
         assert mirror.sync(), mirror.metrics.get_summary()
+        initial_signature = mirror._scan_signatures[remote.url]
         remote.files["selected"] = b"changed payload"
         remote.requests.clear()
         assert mirror.sync(), mirror.metrics.get_summary()
+        assert mirror._scan_signatures[remote.url] == initial_signature
         assert (config.dest_path / "selected").read_bytes() == b"changed payload"
         assert (config.dest_path / "unchecked").read_bytes() == b"keep"
         assert any(method == "HEAD" and path == "selected" for method, path, _ in remote.requests)
@@ -165,9 +233,12 @@ def test_unchanged_directory_get_validator_does_not_hide_changed_child(remote, c
 
 
 @pytest.mark.integration
-def test_failed_listing_with_validator_preserves_failed_subtree(remote, config):
+@pytest.mark.parametrize("validators", [True, False])
+def test_failed_listing_with_get_proof_preserves_failed_subtree(remote, config, validators):
     remote.files = {"flaky/keep": b"keep", "ok/keep": b"ok"}
-    remote.directory_headers = {"Last-Modified": "Wed, 30 Sep 2026 12:00:00 GMT"}
+    remote.directory_headers = (
+        {"Last-Modified": "Wed, 30 Sep 2026 12:00:00 GMT"} if validators else {}
+    )
     config.cache_html = False
     config.cleanup_policy = CleanupPolicy.DELETE
     with MirrorURL(config) as mirror:
@@ -178,3 +249,4 @@ def test_failed_listing_with_validator_preserves_failed_subtree(remote, config):
         assert (config.dest_path / "flaky/keep").read_bytes() == b"keep"
         assert (config.dest_path / "ok/keep").read_bytes() == b"ok"
         assert remote.url + "flaky/" not in mirror.scanner.fresh_listing_headers
+        assert remote.url + "flaky/" not in mirror.scanner.fresh_listing_content_signatures

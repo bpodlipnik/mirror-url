@@ -130,7 +130,7 @@ class ScanMixin(MirrorHost):
             return f"url:{url}:{int(time.time())}"
 
     def _get_listing_signature(self, url: str) -> str:
-        """Reuse this discovery's successful GET validators, with HEAD fallback."""
+        """Reuse this discovery's successful GET validators or content digest."""
         headers = self.scanner.fresh_listing_headers.get(trim_url(url))
         if headers is not None:
             last_modified, etag = headers
@@ -140,6 +140,10 @@ class ScanMixin(MirrorHost):
             if last_modified:
                 self.metrics.increment("directory_signatures_from_get")
                 return f"mtime:{last_modified}"
+        content_signature = self.scanner.fresh_listing_content_signatures.get(trim_url(url))
+        if content_signature:
+            self.metrics.increment("directory_signatures_from_get")
+            return content_signature
         return self.get_directory_signature(url)
 
     def is_symlink(
@@ -196,6 +200,7 @@ class ScanMixin(MirrorHost):
         # _discover_directories_bfs and CleanupMixin.clean_obsolete.
         self.scan_incomplete = False
         self.scanner.fresh_listing_headers = {}
+        self.scanner.fresh_listing_content_signatures = {}
 
         try:
             # NOTE: Both the dir_suffix/target case AND the root-level case go

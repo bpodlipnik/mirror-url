@@ -1897,15 +1897,18 @@ parsed listing reuse, HTML-listing hits/misses and bypass reasons.
 Directory listing GET calls and directory signature HEAD calls have
 separate counts and summed request times, including failed calls. A
 successfully parsed listing fetched during this discovery supplies its
-ETag or Last-Modified directly, avoiding a separate signature HEAD.
-Cached listings and fresh responses without either validator still use
-HEAD. The summary counts these fresh GET signature reuses separately.
-File freshness checks follow the configured policy regardless of
-directory validators. Counts refer to logical calls; transport redirects
-and retries can make additional HTTP requests. <code>--stats</code> is
-accepted for backward compatibility and has no effect. Quick mode,
-connection failures and discovery-only surveys have shorter
-summaries.</p></li>
+ETag or Last-Modified directly. If neither is supplied, MirrorURL hashes
+the fetched listing's complete decoded HTML with
+<code>--hash-algorithm</code>. Both paths avoid a separate signature
+HEAD. Listings served entirely from an earlier discovery's cache still
+use HEAD. The summary counts these fresh GET signature reuses
+separately, including content signatures. Directory content signatures
+do not verify child file contents. File freshness checks follow the
+configured policy regardless of directory signatures. Counts refer to
+logical calls; transport redirects and retries can make additional HTTP
+requests. <code>--stats</code> is accepted for backward compatibility
+and has no effect. Quick mode, connection failures and discovery-only
+surveys have shorter summaries.</p></li>
 <li><p><strong><code>--metrics-json FILE</code></strong> writes the full
 metrics summary to JSON (skipped in <code>--dry-run</code>). Its
 <code>metrics.run</code> object contains the per-sync outcomes, result,

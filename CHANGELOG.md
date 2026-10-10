@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Reuse a content signature from successfully parsed fresh directory listings
+  without ETag or Last-Modified, avoiding their redundant signature HEAD calls.
+  Hash the complete decoded HTML with the configured directory hash algorithm
+  and retain only the digest. Cached listings still use HEAD when no current
+  GET proof exists; selected-file freshness checks and incomplete-scan cleanup
+  protection remain in place.
+
 ## [3.3.3] - 2026-10-10
 
 ### Changed

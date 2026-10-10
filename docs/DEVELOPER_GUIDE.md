@@ -481,12 +481,17 @@ failures, retries and pacing within that call. Counts exclude additional
 transport redirect/retry attempts. Text uses per-sync deltas; JSON retains
 collector totals for these keys.
 
-At the start of `get_remote_files()`, clear `DirectoryScanner.fresh_listing_headers`.
-Populate it only after a current GET returns HTTP 200 and the listing parses
-successfully; discard the URL's previous entry before a new fetch. Signature
-collection prefers a nonempty ETag, then Last-Modified from this map, otherwise
-it uses the existing HEAD path. Parsed/HTML cache hits from an earlier discovery
-cannot provide current GET proof. Directory validators never substitute for a
+At the start of `get_remote_files()`, clear `DirectoryScanner.fresh_listing_headers`
+and `fresh_listing_content_signatures`. Populate these maps only after a current
+GET returns HTTP 200 and the listing parses successfully; discard both of the
+URL's previous entries before a new fetch. Signature collection prefers a
+nonempty ETag, then Last-Modified. Without either validator, store and reuse a
+`content:` digest of the complete decoded listing encoded as UTF-8, using
+`hash_algorithm`, consistent with `get_directory_signature(html_content=...)`.
+Retain the digest rather than the HTML. The existing HEAD path remains the
+fallback when no current successful GET proof exists, including parsed/HTML
+cache hits from an earlier discovery. `directory_signatures_from_get` counts
+both header and content reuse. Directory signatures never substitute for a
 child file's freshness check. Listing failures still mark the scan incomplete
 and prevent obsolete-file cleanup and signature-cache publication.
 
