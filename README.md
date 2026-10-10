@@ -156,7 +156,7 @@ python -m pip install -e ".[all,dev]"
 pre-commit install
 
 ruff check .                  # lint
-ruff format --check .         # format check (Ruff 0.16.8)
+ruff format --check .         # format check (Ruff 0.16.10)
 mypy                          # type-check the package
 pytest -m "not integration"   # fast test lane
 pytest                        # full suite (includes integration)

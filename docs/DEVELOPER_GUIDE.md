@@ -756,7 +756,7 @@ Add unit tests at its own layer with no higher-layer setup.
 - **Lint rule set:** ruff with `E, F, W, I, B, C4`. A few bugbear rules
   (`B007`) and `E501`/`B008` are ignored — see `pyproject.toml`.
   `B019` and `B904` are enforced; URL parsing is cached at module scope.
-- **Formatting:** Ruff 0.16.8 (`ruff format`, line length 100), matching CI and pre-commit.
+- **Formatting:** Ruff 0.16.10 (`ruff format`, line length 100), matching CI and pre-commit.
 - **Type-checking:** `mypy` is required in CI and must report zero errors. The
   settings remain lenient (`no_implicit_optional = false`, untyped definitions
   allowed, untyped bodies unchecked). This is not a strict-typing guarantee;

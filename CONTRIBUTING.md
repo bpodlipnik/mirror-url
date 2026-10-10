@@ -26,7 +26,7 @@ Run the same checks CI runs:
 
 ```bash
 ruff check .          # lint
-ruff format .         # formatting (Ruff 0.16.8)
+ruff format .         # formatting (Ruff 0.16.10)
 mypy                  # required type-check (zero errors)
 pytest                # full suite, including live HTTP integration
 ```
@@ -86,7 +86,7 @@ migration plan. Type-only references use `if TYPE_CHECKING:` to avoid cycles.
 
 ## Conventions
 
-- **Style/format:** Ruff 0.16.8, 100-column lines. Run `ruff format .` before
+- **Style/format:** Ruff 0.16.10, 100-column lines. Run `ruff format .` before
   committing; pre-commit will catch the rest.
 - **Lint rule set:** `E, F, W, I, B, C4`. `UP` (pyupgrade) and `SIM` are
   intentionally *off* — the package supports Python 3.10+ and retains classic
