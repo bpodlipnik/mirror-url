@@ -10,9 +10,9 @@ downloads individual file URLs or exact URL lists, with resumable transfers,
 parallel downloads, caching and integrity checks. URL-scope, private-network
 and filesystem protections guard discovery and transfers.
 
-Version 3.2.1 adds direct file URLs with `mirror-url --mode download FILE_URL`,
-using the same guarded HTTPX or optional aiohttp transfer pipeline as URL lists.
-See [the 3.2.1 changelog](CHANGELOG.md#321---2026-10-08).
+Version 3.3.0 adds `--check-files` for selected freshness checks alongside
+`--missing-files`, using paths relative to `--url` or explicit `@FILE` lists.
+See [the 3.3.0 changelog](CHANGELOG.md#330---2026-10-10).
 
 ## Who it is for
 
@@ -45,7 +45,7 @@ directory index; direct file and URL-list downloads do not require a listing.
 - **Operability** — metrics collection, multi-level progress, optional HTTP health-check server.
 - **Caching** — directory listings and file metadata; discovery currently keeps the remote file list in memory.
 - **Known-URL downloads** — `--mode download FILE_URL` downloads one file, or `--mode download --url-list urls.txt` streams an exact list, without discovery or freshness probes. Both HTTPX and optional aiohttp use the same destination, scope, staging and receipt checks.
-- **Selected freshness checks (next release)** — combine `--missing-files` with `--check-files path1 path2` or `--check-files @list.txt` to refresh selected existing files while downloading all missing files in scope. Paths stay relative to `--url`, including any suffix.
+- **Selected freshness checks** — combine `--missing-files` with `--check-files path1 path2` or `--check-files @list.txt` to refresh selected existing files while downloading all missing files in scope. Paths stay relative to `--url`, including any suffix.
 - **Explicit pacing** — `--requests-per-second` and `--request-delay` control the request budget independently of security checks.
 
 ## Installation

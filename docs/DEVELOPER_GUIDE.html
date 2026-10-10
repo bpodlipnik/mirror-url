@@ -282,7 +282,7 @@ repeats the essentials so you can work from it alone.</p>
 <ul>
 <li><strong>Package:</strong> <code>mirror_url</code> (src-layout under
 <code>src/</code>)</li>
-<li><strong>Version:</strong> 3.2.1</li>
+<li><strong>Version:</strong> 3.3.0</li>
 <li><strong>Python:</strong> 3.10 or newer; CI tests Python
 3.10–3.14</li>
 <li><strong>Runtime deps:</strong> <code>httpx[http2]</code> (including
@@ -949,15 +949,15 @@ mode uses the same merge precedence.
 <code>load_config_from_args()</code> maps an already populated argparse
 namespace; it does not read <code>args.config</code> or implement the
 CLI's explicit-override detection.</p>
-<p><code>check_files</code> (next release) is a list of literal remote
-paths relative to <code>base_url</code>. Its field validator resolves
-explicit <code>@</code> UTF-8 list files from the current working
-directory, validates paths, rejects nested lists and preserves ordered
-unique entries. Models carry resolved paths, so per-suffix
-reconstruction does not reread list files. CLI inputs replace YAML/JSON
-inputs only when explicit. The option is mirror-only and does not change
-the <code>verify_content</code>/<code>missing_files</code> conflict or
-the normal freshness policy.</p>
+<p><code>check_files</code> is a list of literal remote paths relative
+to <code>base_url</code>. Its field validator resolves explicit
+<code>@</code> UTF-8 list files from the current working directory,
+validates paths, rejects nested lists and preserves ordered unique
+entries. Models carry resolved paths, so per-suffix reconstruction does
+not reread list files. CLI inputs replace YAML/JSON inputs only when
+explicit. The option is mirror-only and does not change the
+<code>verify_content</code>/<code>missing_files</code> conflict or the
+normal freshness policy.</p>
 <p>Model bounds can raise pydantic <code>ValidationError</code>;
 cross-field/URL checks can raise <code>ConfigError</code>.
 <code>extra="forbid"</code> rejects unknown fields. Environment
@@ -1492,7 +1492,7 @@ refactoring nearby code.</li>
 </table>
 
 <hr />
-<p><em>This guide describes the architecture as of version 3.2.1. When
+<p><em>This guide describes the architecture as of version 3.3.0. When
 you change the structure, update this document in the same PR.</em></p>
 </body>
 </html>

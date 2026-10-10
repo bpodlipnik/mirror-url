@@ -11,7 +11,7 @@ If you only want to *use* MirrorURL (install, CLI, config, Python API), read
 repeats the essentials so you can work from it alone.
 
 - **Package:** `mirror_url` (src-layout under `src/`)
-- **Version:** 3.2.1
+- **Version:** 3.3.0
 - **Python:** 3.10 or newer; CI tests Python 3.10–3.14
 - **Runtime deps:** `httpx[http2]` (including `h2`), `pydantic` v2, `PyYAML`, `portalocker` 3.x (optional: `stringzilla`,
   `lxml`, `tqdm`, `psutil`, `aiohttp`)
@@ -595,7 +595,7 @@ its final merged model. Benchmark mode uses the same merge precedence.
 `load_config_from_args()` maps an already populated argparse namespace; it does
 not read `args.config` or implement the CLI's explicit-override detection.
 
-`check_files` (next release) is a list of literal remote paths relative to
+`check_files` is a list of literal remote paths relative to
 `base_url`. Its field validator resolves explicit `@` UTF-8 list files from the
 current working directory, validates paths, rejects nested lists and preserves
 ordered unique entries. Models carry resolved paths, so per-suffix reconstruction
@@ -1104,5 +1104,5 @@ Preserve these constraints when extending or refactoring the current code.
 
 ---
 
-*This guide describes the architecture as of version 3.2.1. When you change the
+*This guide describes the architecture as of version 3.3.0. When you change the
 structure, update this document in the same PR.*
