@@ -13,7 +13,7 @@ from concurrent.futures import Future
 from dataclasses import dataclass, field
 from pathlib import Path
 from threading import RLock
-from typing import Any, Deque, Dict, List, Optional
+from typing import Any, Callable, Deque, Dict, List, Optional
 
 from .constants import (
     ADAPTIVE_ERROR_THRESHOLD,
@@ -181,6 +181,7 @@ class ParallelFileDownload:
     chunks: List[ChunkInfo] = field(default_factory=list)
     temp_dir: Optional[Path] = None
     staging_path: Optional[Path] = None
+    assembly_path: Optional[Path] = None
     futures: List[Future] = field(default_factory=list)
     cleanup_deferred: bool = False
     start_time: float = field(default_factory=time.time)
@@ -190,6 +191,9 @@ class ParallelFileDownload:
     supports_range: bool = True
     server_etag: Optional[str] = None
     server_last_modified: Optional[float] = None
+    publish: Optional[Callable[[ParallelFileDownload, Path], Optional[str]]] = field(
+        default=None, repr=False, compare=False
+    )
     lock: RLock = field(default_factory=RLock)
 
 

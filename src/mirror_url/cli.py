@@ -199,10 +199,29 @@ def setup_shared_logging(
         logging.info(f"📊 Metrics: {eff.metrics_json}")
     if getattr(eff, "mode", None) == "download":
         logging.info("Destination: %s", eff.dest_path)
-        logging.info("Backend: %s (whole-file streaming)", eff.backend)
+        chunked = eff.parallel_downloads or eff.streaming_parallel
+        transfer = (
+            "streaming parallel chunks"
+            if eff.streaming_parallel
+            else "parallel chunks with temporary files"
+            if eff.parallel_downloads
+            else "whole-file streaming"
+        )
+        logging.info("Backend: %s (%s)", eff.backend, transfer)
         concurrency = 1 if eff.sequential_downloads else eff.max_concurrent_downloads
         logging.info("Max concurrent file downloads: %s", concurrency)
-        logging.info("Max connection retries: %s (restart whole file)", eff.max_retries)
+        logging.info(
+            "Max connection retries: %s (restart %s)",
+            eff.max_retries,
+            "chunk" if chunked else "whole file",
+        )
+        if chunked:
+            logging.info(
+                "Chunks: max %s per file, max %s active, minimum size %s MiB",
+                eff.max_chunks,
+                eff.max_parallel_chunks,
+                eff.min_chunk_size,
+            )
         rate = eff.requests_per_second
         logging.info(
             "Request spacing: %.1fms", max(1 / rate if rate else 0, eff.request_delay) * 1000
@@ -456,6 +475,8 @@ ARGUMENT SOURCES:
 
 DOWNLOAD AND INTEGRITY:
   Omit mode flags for auto-selection, or choose one download mode.
+  --mode download uses whole-file GETs by default; both parallel flags enable
+  eligible chunks with range-metadata HEAD probes and no discovery/freshness.
   Chunking needs a known size >= --min-chunk-size, Range support and a strong
   ETag. Exact ranges/lengths/ETags are checked before atomic publication.
   Whole-file partials can resume from an owned .mirror-url-state/ directory;
@@ -546,12 +567,12 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
     mode_group.add_argument(
         "--parallel-downloads",
         action="store_true",
-        help="Parallel files; eligible files use verified temporary chunks. Whole-file fallbacks can resume; chunks do not resume across runs",
+        help="HTTPX mirror/download: parallel files with verified temporary chunks. Mirror whole-file fallbacks can resume; chunks do not resume across runs",
     )
     mode_group.add_argument(
         "--streaming-parallel",
         action="store_true",
-        help="Parallel files; eligible chunks write to a staging file and publish atomically after verification",
+        help="HTTPX mirror/download: parallel files; eligible chunks write to a staging file and publish atomically after verification",
     )
     mode_group.add_argument(
         "--sequential-downloads",
@@ -1336,6 +1357,8 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
                 "Known-URL download: backend=%s, discovery and freshness checks omitted",
                 download_config.backend,
             )
+            if download_config.parallel_downloads or download_config.streaming_parallel:
+                logging.info("Range metadata probes enabled for parallel chunk downloads")
             report = RunReport()
             summary = download_url_list(download_config, run_report=report)
             run = report.snapshot(summary.get("bytes_downloaded", 0))

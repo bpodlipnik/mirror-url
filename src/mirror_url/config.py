@@ -505,16 +505,20 @@ class MirrorConfig(BaseModel):
                 raise ConfigError(
                     "Known-URL downloads never clean obsolete files; use cleanup=safe"
                 )
+            if self.chunk_assembly_dir is not None:
+                raise ConfigError(
+                    "download mode keeps chunk scratch inside the destination; omit chunk-assembly-dir"
+                )
             if (
                 self.exclude_dirs
                 or self.file_filters
-                or self.parallel_downloads
-                or self.streaming_parallel
                 or self.auto_concurrency
                 or self.missing_files
                 or self.check_files
             ):
-                raise ConfigError("download mode uses exact URLs and whole-file streaming")
+                raise ConfigError(
+                    "download mode uses exact URLs without discovery or freshness filters"
+                )
         elif self.url_list is not None or self.download_url is not None or self.overwrite:
             raise ConfigError("a direct URL, --url-list and --overwrite require --mode download")
         if self.backend == "aiohttp" and (
