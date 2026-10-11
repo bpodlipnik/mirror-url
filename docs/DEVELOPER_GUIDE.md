@@ -681,9 +681,17 @@ normal discovery and checks, then saves results through `CacheManager`.
 HTTPX remains the default mirror implementation, including ranged resume and
 chunks. The whole-file pipeline preserves those existing partials.
 
-`progress.DownloadProgress` observes this pipeline for visible known-URL
-runs, in the existing progress module alongside the mirror item tracker.
-Both use the same tqdm constructor; the base package requires `tqdm`, while
+`progress.DownloadProgress` observes both known-URL and mirror transfers.
+`ReportMixin.sync()` owns its context for the download phase and passes the
+same observer to aiohttp workers and HTTPX whole-file/ranged workers. Sequential
+body writes and concurrent chunk writes update received bytes before publication;
+chunk retries replace only their own range in the file position, while discarded
+traffic remains in aggregate received bytes. Retained resume bytes advance the
+file position without adding to this run's traffic or transfer rate. Chunk
+observations use the published destination name, independent of staging paths.
+The single metadata `ProgressTracker` clears before transfers start, and all
+transfer bars and the timer close before the summary. Both trackers use the
+same tqdm constructor; the base package requires `tqdm`, while
 the `progress` extra remains a compatibility alias. Renderer failures still
 degrade safely. Byte formatting uses the shared `utils.format_bytes()`;
 completion summaries follow mirror units and live byte progress uses IEC labels. One timer thread waits ten
@@ -703,8 +711,9 @@ stage changes and timer ticks refresh waiting/flushing/hashing displays. Unknown
 lengths have no percentage or ETA. Retry bars reset to byte zero, and all bars
 close on success, failure or exception. Renderer errors do not fail transfers.
 Periodic observations mark whether every active file has a visible bar.
-The shared CLI console handler's `ConsoleProgressFilter` suppresses those
-observations on stderr while the file handler retains them. Missing, failed or
+The shared console `ProgressConsoleHandler` writes ordinary messages through
+public `tqdm.write()` so logs do not overwrite active bars. Its
+`ConsoleProgressFilter` suppresses periodic observations on stderr while the file handler retains them. Missing, failed or
 disabled bars and receipt-saving without an active bar retain console updates;
 warnings and completion summaries always pass through the filter.
 

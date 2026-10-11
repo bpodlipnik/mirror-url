@@ -35,6 +35,7 @@ def local_archive(monkeypatch):
         etag=True,
         directory_headers={},
         directory_delay_seconds=0.0,
+        body_gate=None,
     )
     lock = threading.Lock()
 
@@ -114,7 +115,15 @@ def local_archive(monkeypatch):
                 with lock:
                     drop = state.drops.pop(path, None)
                 try:
-                    self.wfile.write(body if drop is None else body[:drop])
+                    if state.body_gate is not None and path in state.files and drop is None:
+                        first = min(len(body), 1024 * 1024)
+                        self.wfile.write(body[:first])
+                        self.wfile.flush()
+                        if not state.body_gate.wait(10):
+                            raise TimeoutError("Test body gate was not released")
+                        self.wfile.write(body[first:])
+                    else:
+                        self.wfile.write(body if drop is None else body[:drop])
                     self.wfile.flush()
                     if drop is not None:
                         self.connection.shutdown(socket.SHUT_RDWR)
@@ -136,6 +145,8 @@ def local_archive(monkeypatch):
     try:
         yield state
     finally:
+        if state.body_gate is not None:
+            state.body_gate.set()
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
@@ -286,7 +297,26 @@ def test_malformed_real_http_listing_cannot_trigger_cleanup(remote, config):
         assert victim.read_bytes() == b"preserve original bytes"
 
 
-def test_interrupted_http_body_is_resumed_with_range_and_strong_validator(remote, config):
+def test_interrupted_http_body_is_resumed_with_range_and_strong_validator(
+    remote, config, monkeypatch
+):
+    from mirror_url import progress as reporting
+    from test_transfer_reporting import RecordingBar
+
+    bars, observers = [], []
+    config.progress_bar = True
+    original_enter = reporting.DownloadProgress.__enter__
+
+    def enter(progress):
+        observers.append(progress)
+        return original_enter(progress)
+
+    def create(**settings):
+        bars.append(RecordingBar(**settings))
+        return bars[-1]
+
+    monkeypatch.setattr(reporting, "_create_progress_bar", create)
+    monkeypatch.setattr(reporting.DownloadProgress, "__enter__", enter)
     content = bytes(range(256)) * 4096
     remote.files = {"large.bin": content}
     remote.drops["large.bin"] = 256 * 1024
@@ -301,6 +331,11 @@ def test_interrupted_http_body_is_resumed_with_range_and_strong_validator(remote
         assert len(resumed) == 1
         assert resumed[0]["Range"].startswith("bytes=262144-")
         assert resumed[0]["If-Range"] == '"' + hashlib.sha256(content).hexdigest() + '"'
+        transfers = [bar for bar in bars if bar.settings["unit"] == "B"]
+        assert len(transfers) == 1 and transfers[0].closed
+        assert transfers[0].n == len(content)
+        assert observers[0].completed == 1 and observers[0].received_bytes == len(content)
+        assert observers[0].thread is not None and not observers[0].thread.is_alive()
 
 
 @pytest.mark.parametrize("kind", ["dry-run", "list-files", "list-dirs", "benchmark"])
@@ -490,3 +525,161 @@ def test_failed_selected_update_preserves_local_bytes_and_receipt(remote, config
         assert mirror.cache_manager.get_file_metadata(local) == receipt
         assert not any(path == "skipped.bin" for _, path, _ in remote.requests)
         assert not list(config.dest_path.rglob("*.part"))
+
+
+@pytest.mark.parametrize("mode", ["sequential", "parallel", "streaming", "aiohttp"])
+def test_mirror_bar_advances_during_body_and_closes_before_summary(
+    remote, config, mode, monkeypatch
+):
+    from mirror_url import progress as reporting
+    from test_transfer_reporting import RecordingBar
+
+    bars, observers, stages = [], [], []
+    received = threading.Event()
+    remote.body_gate = threading.Event()
+    content = bytes(range(256)) * 16384
+    remote.files = {"large.bin": content}
+    config.progress_bar = True
+    config.print_logs = True
+    config.sequential_downloads = mode in ("sequential", "aiohttp")
+    config.parallel_downloads = mode == "parallel"
+    config.streaming_parallel = mode == "streaming"
+    config.backend = "aiohttp" if mode == "aiohttp" else "httpx"
+    config.min_chunk_size_mb = 1
+    config.max_chunks_per_file = 2
+    config.verify_content = True
+    if mode == "aiohttp":
+        pytest.importorskip("aiohttp")
+        # Only the exact controlled origin bypasses the known-URL IP guard.
+        # HTTPX loopback uses the fixture's transport override above.
+        from mirror_url.security import SecurityValidator
+        from mirror_url.utils import url_within_scope
+
+        def fixture_scope(url, scope):
+            assert url.startswith(remote.url) and url_within_scope(url, scope)
+
+        def fixture_dns(host):
+            assert host == "127.0.0.1"
+            return host
+
+        monkeypatch.setattr("mirror_url.transfers.validate_url", fixture_scope)
+        monkeypatch.setattr(SecurityValidator, "resolve_and_validate_hostname", fixture_dns)
+    original_received = reporting.DownloadProgress.received
+    original_chunk = reporting.DownloadProgress.received_chunk
+    original_enter = reporting.DownloadProgress.__enter__
+    original_stage = reporting.DownloadProgress.stage
+
+    def create(**settings):
+        bars.append(RecordingBar(**settings))
+        return bars[-1]
+
+    def enter(progress):
+        observers.append(progress)
+        return original_enter(progress)
+
+    def observe(progress, path, size, expected):
+        original_received(progress, path, size, expected)
+        if 0 < size < expected:
+            received.set()
+
+    def observe_chunk(progress, path, chunk, size, expected):
+        original_chunk(progress, path, chunk, size, expected)
+        if 0 < size < expected:
+            received.set()
+
+    def stage(progress, path, name):
+        original_stage(progress, path, name)
+        stages.append(name)
+        if name == "hashing (SHA-256)":
+            assert progress.active[path].bar.n == len(content)
+            assert progress.completed == 0 and not progress.active[path].bar.closed
+            assert path.read_bytes() == b"old published contents"
+
+    monkeypatch.setattr(reporting, "_create_progress_bar", create)
+    monkeypatch.setattr(reporting.DownloadProgress, "stage", stage)
+    monkeypatch.setattr(reporting.DownloadProgress, "__enter__", enter)
+    monkeypatch.setattr(reporting.DownloadProgress, "received", observe)
+    monkeypatch.setattr(reporting.DownloadProgress, "received_chunk", observe_chunk)
+    with MirrorURL(config) as mirror:
+        final = mirror.target_dir / "large.bin"
+        final.write_bytes(b"old published contents")
+        original_report = mirror.metrics.report
+
+        def summary(*args, **kwargs):
+            assert all(bar.closed for bar in bars)
+            assert all(
+                observer.thread is not None and not observer.thread.is_alive()
+                for observer in observers
+            )
+            return original_report(*args, **kwargs)
+
+        monkeypatch.setattr(mirror.metrics, "report", summary)
+        results = []
+        worker = threading.Thread(target=lambda: results.append(mirror.sync()))
+        worker.start()
+        try:
+            assert received.wait(8), "No progress observation before the body gate released"
+            assert worker.is_alive()
+            assert final.read_bytes() == b"old published contents"
+            metadata = [bar for bar in bars if bar.settings["unit"] != "B"]
+            transfers = [bar for bar in bars if bar.settings["unit"] == "B"]
+            assert len(metadata) == len(transfers) == 1
+            assert metadata[0].closed and metadata[0].settings["leave"] is False
+            assert metadata[0].settings["desc"] == "files examined"
+            assert not transfers[0].closed
+            assert 0 < transfers[0].n < transfers[0].total == len(content)
+            assert transfers[0].settings["desc"] == "large.bin"
+            assert observers[0].completed == 0
+            assert mirror.files_processed.value() == 0
+        finally:
+            remote.body_gate.set()
+            worker.join(10)
+        assert not worker.is_alive() and results == [True]
+        assert final.read_bytes() == content
+        assert transfers[0].n == len(content) and transfers[0].closed
+        assert observers[0].completed == 1 and observers[0].failed == 0
+        assert observers[0].received_bytes == len(content)
+        assert {"flushing file", "hashing (SHA-256)", "publishing"} <= set(stages)
+        if mode == "parallel":
+            assert "assembling chunks" in stages
+        assert mirror._download_progress is None
+
+
+@pytest.mark.parametrize("fault", ["metadata", "body"])
+def test_mirror_reporting_releases_bars_on_failure(remote, config, monkeypatch, fault):
+    from mirror_url import progress as reporting
+    from test_transfer_reporting import RecordingBar
+
+    bars = []
+    remote.files = {"a.bin": b"body" * 65536}
+    config.progress_bar = True
+    config.max_retries = 0
+
+    def create(**settings):
+        bars.append(RecordingBar(**settings))
+        return bars[-1]
+
+    monkeypatch.setattr(reporting, "_create_progress_bar", create)
+    with MirrorURL(config) as mirror:
+        if fault == "metadata":
+
+            def fail(*args):
+                raise OSError("metadata failure")
+
+            monkeypatch.setattr(mirror, "_check_files_sync", fail)
+        else:
+            remote.drops = {"a.bin": 32768}
+        original_report = mirror.metrics.report
+
+        def summary(*args, **kwargs):
+            assert bars and all(bar.closed for bar in bars)
+            assert not any(
+                t.name == "mirror-url-download-progress" and t.is_alive()
+                for t in threading.enumerate()
+            )
+            return original_report(*args, **kwargs)
+
+        monkeypatch.setattr(mirror.metrics, "report", summary)
+        assert not mirror.sync()
+        assert mirror._download_progress is None
+        assert not (mirror.target_dir / "a.bin").exists()

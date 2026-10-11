@@ -442,3 +442,192 @@ def test_shared_terminal_renderer_handles_missing_import(monkeypatch):
 
     monkeypatch.setattr(builtins, "__import__", unavailable)
     assert report._create_progress_bar(total=1) is None
+
+
+def test_resumed_and_concurrent_chunk_progress_counts_only_new_traffic(tmp_path, monkeypatch):
+    monkeypatch.setattr(report, "_create_progress_bar", RecordingBar)
+    config = MirrorConfig(
+        base_url="https://files.example/", dest_path=tmp_path, log_path=tmp_path, progress_bar=True
+    )
+    with report.DownloadProgress(True, config) as progress:
+        path = tmp_path / "resume"
+        progress.begin(path)
+        progress.resume(path, 1024, 4096)
+        assert progress.received_bytes == 0
+        assert progress.active[path].bar.n == 1024
+        assert progress.active[path].bar.initial == 1024
+        progress.received(path, 2048, 4096)
+        assert progress.received_bytes == 1024
+        progress.finish(path, True)
+        path = tmp_path / "chunked"
+        progress.begin(path)
+        progress.received_chunk(path, 0, 1024, 4096)
+        progress.received_chunk(path, 1, 2048, 4096)
+        assert progress.active[path].bar.n == 3072
+        progress.received_chunk(path, 0, 0, 4096)
+        assert progress.active[path].bar.n == 2048
+        progress.received_chunk(path, 0, 2048, 4096)
+        assert progress.active[path].bar.n == 4096
+        assert progress.received_bytes == 6144
+        assert progress.completed == 1  # Receiving the body doesn't publish chunked.
+        progress.stage(path, "assembling chunks")
+        assert progress.active[path].bar.stage == "assembling chunks"
+        progress.finish(path, True)
+    assert progress.completed == 2
+    disabled = report.get_download_progress(None)
+    disabled.resume(path, 1, None)
+    disabled.received_chunk(None, 0, 1, 2)
+    assert not disabled.active and disabled.thread is None
+
+
+@pytest.mark.parametrize("quiet,broken", [(True, False), (False, False), (False, True)])
+def test_metadata_bar_closes_once_even_on_renderer_failure(tmp_path, monkeypatch, quiet, broken):
+    class Bar(RecordingBar):
+        closes = 0
+
+        def refresh(self):
+            if broken:
+                raise OSError("terminal unavailable")
+            super().refresh()
+
+        def close(self):
+            self.closes += 1
+            super().close()
+
+    bars = []
+
+    def create(**settings):
+        bars.append(Bar(**settings))
+        return bars[-1]
+
+    monkeypatch.setattr(report, "_create_progress_bar", create)
+    config = MirrorConfig(
+        base_url="https://files.example/",
+        dest_path=tmp_path,
+        log_path=tmp_path,
+        progress_bar=True,
+        quiet=quiet,
+    )
+    tracker = report.ProgressTracker(2, config=config)
+    tracker.update()
+    tracker.report_final()
+    tracker.close()
+    assert tracker.completed == 1 and tracker.tqdm_bar is None
+    if quiet:
+        assert not bars
+    else:
+        assert bars[0].n == 1 and bars[0].closed and bars[0].closes == 1
+        assert bars[0].settings["leave"] is False
+
+
+@pytest.mark.parametrize("available", [False, True])
+def test_console_logging_coordinates_with_renderer(monkeypatch, available):
+    import tqdm
+
+    monkeypatch.setattr(report, "TQDM_AVAILABLE", available)
+    writes = []
+    original = tqdm.tqdm.write
+
+    def write(message, **kwargs):
+        writes.append(message)
+        original(message, **kwargs)
+
+    monkeypatch.setattr(tqdm.tqdm, "write", write)
+    stream = io.StringIO()
+    handler = report.ProgressConsoleHandler(stream)
+    handler.setFormatter(logging.Formatter("[%(levelname)s] %(message)s"))
+    record = logging.LogRecord("test", logging.INFO, __file__, 1, "ordinary log", (), None)
+    handler.handle(record)
+    assert stream.getvalue() == "[INFO] ordinary log\n"
+    assert len(writes) == int(available)
+    record.progress_bar_active = True
+    handler.handle(record)
+    assert stream.getvalue().count("ordinary log") == 1
+
+
+def test_console_logging_falls_back_when_tqdm_write_fails(monkeypatch):
+    import tqdm
+
+    def fail(*args, **kwargs):
+        raise OSError("terminal renderer failed")
+
+    monkeypatch.setattr(tqdm.tqdm, "write", fail)
+    stream = io.StringIO()
+    handler = report.ProgressConsoleHandler(stream)
+    record = logging.LogRecord("test", logging.WARNING, __file__, 1, "retained warning", (), None)
+    handler.handle(record)
+    assert stream.getvalue() == "retained warning\n"
+
+
+def test_actual_tqdm_retry_resets_resumed_rate_baseline(tmp_path, monkeypatch):
+    from tqdm import tqdm
+
+    stream = io.StringIO()
+    monkeypatch.setattr(
+        report, "_create_progress_bar", lambda **settings: tqdm(file=stream, **settings)
+    )
+    config = MirrorConfig(
+        base_url="https://files.example/", dest_path=tmp_path, log_path=tmp_path, progress_bar=True
+    )
+    with report.DownloadProgress(False, config) as progress:
+        path = tmp_path / "resume"
+        progress.begin(path)
+        progress.resume(path, 1024, 4096)
+        progress.received(path, 2048, 4096)
+        bar = progress.active[path].bar
+        assert bar.format_dict["initial"] == 1024
+        progress.begin(path, "waiting for response")
+        assert bar.n == 0 and bar.format_dict["initial"] == 0
+        progress.received(path, 4096, 4096)
+        assert bar.n == 4096 and progress.received_bytes == 5120
+        progress.finish(path, True)
+
+
+def test_existing_console_adaptation_preserves_settings_and_custom_handlers():
+    stream = io.StringIO()
+    plain = logging.StreamHandler(stream)
+    plain.setLevel(logging.WARNING)
+    formatter = logging.Formatter("[%(levelname)s] %(message)s")
+    plain.setFormatter(formatter)
+    filter_ = logging.Filter("allowed")
+    plain.addFilter(filter_)
+    coordinated = report.ProgressConsoleHandler.adapt(plain)
+    assert isinstance(coordinated, report.ProgressConsoleHandler)
+    assert coordinated.stream is stream and coordinated.formatter is formatter
+    assert coordinated.level == logging.WARNING and filter_ in coordinated.filters
+    assert any(isinstance(f, report.ConsoleProgressFilter) for f in coordinated.filters)
+    assert report.ProgressConsoleHandler.adapt(coordinated) is coordinated
+
+    class CustomHandler(logging.StreamHandler):
+        pass
+
+    custom = CustomHandler(stream)
+    assert report.ProgressConsoleHandler.adapt(custom) is custom
+
+
+def test_metadata_ticks_keep_file_logs_without_duplicating_visible_bar(tmp_path, monkeypatch):
+    monkeypatch.setattr(report, "_create_progress_bar", RecordingBar)
+    config = MirrorConfig(
+        base_url="https://files.example/", dest_path=tmp_path, log_path=tmp_path, progress_bar=True
+    )
+    console, file_log = io.StringIO(), io.StringIO()
+    console_handler = report.ProgressConsoleHandler(console)
+    file_handler = logging.StreamHandler(file_log)
+    previous_level = logging.root.level
+    logging.root.setLevel(logging.INFO)
+    logging.root.addHandler(console_handler)
+    logging.root.addHandler(file_handler)
+    tracker = report.ProgressTracker(2, name="files examined", config=config)
+    monkeypatch.setattr(tracker, "_should_report", lambda: True)
+    try:
+        tracker.update()
+        assert "1/2 files examined" in file_log.getvalue()
+        assert "1/2 files examined" not in console.getvalue()
+        logging.warning("metadata warning")
+        assert "metadata warning" in console.getvalue()
+    finally:
+        tracker.close()
+        for handler in (console_handler, file_handler):
+            logging.root.removeHandler(handler)
+            handler.close()
+        logging.root.setLevel(previous_level)

@@ -23,7 +23,7 @@ from ..decorators import log_performance
 from ..destination_lock import destination_operation
 from ..enums import CleanupPolicy, DownloadMethod
 from ..metrics import log_run_completion
-from ..progress import ProgressTracker
+from ..progress import DownloadProgress, ProgressTracker
 from ..transfers import AsyncTransfers, TransferResult
 from ..utils import format_bytes, format_duration, sanitize_url_for_log
 
@@ -151,6 +151,7 @@ class ReportMixin(MirrorHost):
             ):
                 self.metrics.metrics[key] = 0
 
+        progress = None
         try:
             if self.config.quick:
                 logging.info(f"{prefix}Quick mode - updating cache timestamp")
@@ -248,9 +249,6 @@ class ReportMixin(MirrorHost):
                         use_tqdm=TQDM_AVAILABLE,
                         config=self.config,
                     )
-                    self.multi_progress.add_level(
-                        "files", len(remote_files), prefix, self.config.progress_bar, self.config
-                    )
                 else:
                     progress = None
 
@@ -298,9 +296,6 @@ class ReportMixin(MirrorHost):
                     name="files examined",
                     use_tqdm=TQDM_AVAILABLE,
                     config=self.config,
-                )
-                self.multi_progress.add_level(
-                    "files", len(remote_files), prefix, self.config.progress_bar, self.config
                 )
             else:
                 logging.info(f"{prefix}No files to check")
@@ -496,184 +491,213 @@ class ReportMixin(MirrorHost):
                 logging.info(
                     f"{prefix}Downloading {len(to_download)} files (approx {format_bytes(total_size)})"
                 )
-                self.multi_progress.add_level(
-                    "downloads", len(to_download), prefix, self.config.progress_bar, self.config
-                )
 
                 run.end_phase()
                 run.begin_phase("downloads")
-                # ========== DOWNLOAD EXECUTION ==========
-                if self.config.backend == "aiohttp":
-                    if (
-                        self.target_dir is None
-                        or self.scratch_manager is None
-                        or self.target_base_url is None
-                    ):
-                        raise ValueError(
-                            "Async transfers require owned destination and staging state"
-                        )
-                    transfers = AsyncTransfers(
-                        self.config, self.target_dir, self.target_base_url, self.scratch_manager
-                    )
-
-                    def published(result: TransferResult) -> None:
-                        mtime = (
-                            result.path.stat().st_mtime if result.mtime is None else result.mtime
-                        )
-                        self.cache_manager.save_file_metadata(
-                            result.path, result.etag, mtime, result.size, sha256=result.sha256
-                        )
-                        run.record_publication(result.url)
-                        self.files_processed.increment(1)
-                        self.total_downloaded_size.add(result.size)
-                        self.multi_progress.update("downloads")
-
-                    logging.info(
-                        "Using aiohttp whole-file streaming; existing partials are preserved"
-                    )
-                    results = asyncio.run(transfers.run(to_download, published))
-                    self.files_failed.increment(sum(not result.success for result in results))
-                    logging.info(
-                        "aiohttp transfer stages: pacing %.3fs, fsync %.3fs, hash %.3fs",
-                        transfers.pacer.wait_seconds,
-                        transfers.stage_seconds["fsync"],
-                        transfers.stage_seconds["hash"],
-                    )
-                elif self.config.sequential_downloads:
-                    # Sequential mode: simple loop
-                    for url, path in to_download:
-                        # FIX: Pass pre-fetched size to avoid redundant HEAD request
-                        pre_fetched_size = size_map.get(url, 0)
-                        success = self.download_file_with_resume(url, path, pre_fetched_size)
-                        if success:
-                            self.multi_progress.update("downloads")
-
-                elif self.config.parallel_downloads or self.config.streaming_parallel:
-                    # Parallel mode: ThreadPoolExecutor with size pass-through
-                    max_parallel = min(self.config.max_concurrent_downloads, len(to_download))
-
-                    # Auto-tune concurrency if enabled
-                    if self.auto_tuner:
-                        max_parallel = max(
-                            1,
-                            min(
-                                self.config.max_concurrent_downloads,
-                                self.auto_tuner.get_concurrency(),
-                            ),
-                        )
-                        logging.info(
-                            f"{prefix}🤖 Auto-tuning: using {max_parallel} parallel downloads"
-                        )
-
-                    logging.info(f"{prefix}🚀 Starting {max_parallel} parallel file downloads")
-                    start_time = time.time()
-                    downloaded_count = 0
-                    last_throughput_log = start_time
-
-                    with ThreadPoolExecutor(
-                        max_workers=max(1, self.config.max_concurrent_downloads)
-                    ) as executor:
-                        pending_items = iter(to_download)
-                        future_to_file: Dict[Future, Tuple[str, Path]] = {}
-                        exhausted = False
-                        while future_to_file or not exhausted:
-                            while not exhausted and len(future_to_file) < max_parallel:
-                                item = next(pending_items, None)
-                                if item is None:
-                                    exhausted = True
-                                    break
-                                url, path = item
-                                future = executor.submit(
-                                    self.download_file_with_resume, url, path, size_map.get(url, 0)
+                with DownloadProgress(
+                    self.config.print_logs and not self.config.quiet, self.config
+                ) as transfer_progress:
+                    transfer_progress.plan(len(to_download))
+                    self._download_progress = transfer_progress
+                    try:
+                        # ========== DOWNLOAD EXECUTION ==========
+                        if self.config.backend == "aiohttp":
+                            if (
+                                self.target_dir is None
+                                or self.scratch_manager is None
+                                or self.target_base_url is None
+                            ):
+                                raise ValueError(
+                                    "Async transfers require owned destination and staging state"
                                 )
-                                future_to_file[future] = item
-                            if not future_to_file:
-                                break
-                            done, _ = wait(future_to_file, return_when=FIRST_COMPLETED)
-                            for future in done:
-                                url, path = future_to_file.pop(future)
-                                try:
-                                    download_success = future.result(timeout=300)
-                                    downloaded_count += 1
-                                    if download_success:
-                                        self.multi_progress.update("downloads")
-                                    # else:
-                                    #    ⛔ DO NOT increment here. _download_file_single() already
-                                    #    increments files_failed before returning False. Doing so
-                                    #    would double-count every handled failure.
+                            transfers = AsyncTransfers(
+                                self.config,
+                                self.target_dir,
+                                self.target_base_url,
+                                self.scratch_manager,
+                                transfer_progress,
+                            )
 
-                                    # Auto-tune after every N downloads
-                                    if (
-                                        self.auto_tuner
-                                        and downloaded_count % AUTO_CONCURRENCY_SAMPLES == 0
-                                    ):
-                                        elapsed = time.time() - start_time
-                                        if elapsed > 0:
-                                            downloaded_bytes = self.total_downloaded_size.value()
-                                            throughput = (
-                                                downloaded_bytes / (1024 * 1024)
-                                            ) / elapsed
-                                            new_concurrency = self.auto_tuner.record_throughput(
-                                                max_parallel, throughput
-                                            )
-                                            if new_concurrency and new_concurrency != max_parallel:
-                                                remaining = len(to_download) - downloaded_count
-                                                if new_concurrency <= remaining:
-                                                    logging.info(
-                                                        f"{prefix}🤖 Adjusting concurrency: {max_parallel} → {new_concurrency} "
-                                                        f"(throughput: {throughput:.2f} MB/s after {downloaded_count} files)"
+                            def published(result: TransferResult) -> None:
+                                mtime = (
+                                    result.path.stat().st_mtime
+                                    if result.mtime is None
+                                    else result.mtime
+                                )
+                                self.cache_manager.save_file_metadata(
+                                    result.path,
+                                    result.etag,
+                                    mtime,
+                                    result.size,
+                                    sha256=result.sha256,
+                                )
+                                run.record_publication(result.url)
+                                self.files_processed.increment(1)
+                                self.total_downloaded_size.add(result.size)
+
+                            logging.info(
+                                "Using aiohttp whole-file streaming; existing partials are preserved"
+                            )
+                            results = asyncio.run(transfers.run(to_download, published))
+                            self.files_failed.increment(
+                                sum(not result.success for result in results)
+                            )
+                            logging.info(
+                                "aiohttp transfer stages: pacing %.3fs, fsync %.3fs, hash %.3fs",
+                                transfers.pacer.wait_seconds,
+                                transfers.stage_seconds["fsync"],
+                                transfers.stage_seconds["hash"],
+                            )
+                        elif self.config.sequential_downloads:
+                            # Sequential mode: simple loop
+                            for url, path in to_download:
+                                # FIX: Pass pre-fetched size to avoid redundant HEAD request
+                                pre_fetched_size = size_map.get(url, 0)
+                                self.download_file_with_resume(url, path, pre_fetched_size)
+
+                        elif self.config.parallel_downloads or self.config.streaming_parallel:
+                            # Parallel mode: ThreadPoolExecutor with size pass-through
+                            max_parallel = min(
+                                self.config.max_concurrent_downloads, len(to_download)
+                            )
+
+                            # Auto-tune concurrency if enabled
+                            if self.auto_tuner:
+                                max_parallel = max(
+                                    1,
+                                    min(
+                                        self.config.max_concurrent_downloads,
+                                        self.auto_tuner.get_concurrency(),
+                                    ),
+                                )
+                                logging.info(
+                                    f"{prefix}🤖 Auto-tuning: using {max_parallel} parallel downloads"
+                                )
+
+                            logging.info(
+                                f"{prefix}🚀 Starting {max_parallel} parallel file downloads"
+                            )
+                            start_time = time.time()
+                            downloaded_count = 0
+                            last_throughput_log = start_time
+
+                            with ThreadPoolExecutor(
+                                max_workers=max(1, self.config.max_concurrent_downloads)
+                            ) as executor:
+                                pending_items = iter(to_download)
+                                future_to_file: Dict[Future, Tuple[str, Path]] = {}
+                                exhausted = False
+                                while future_to_file or not exhausted:
+                                    while not exhausted and len(future_to_file) < max_parallel:
+                                        item = next(pending_items, None)
+                                        if item is None:
+                                            exhausted = True
+                                            break
+                                        url, path = item
+                                        future = executor.submit(
+                                            self.download_file_with_resume,
+                                            url,
+                                            path,
+                                            size_map.get(url, 0),
+                                        )
+                                        future_to_file[future] = item
+                                    if not future_to_file:
+                                        break
+                                    done, _ = wait(future_to_file, return_when=FIRST_COMPLETED)
+                                    for future in done:
+                                        url, path = future_to_file.pop(future)
+                                        try:
+                                            future.result(timeout=300)
+                                            downloaded_count += 1
+                                            #    ⛔ DO NOT increment here. _download_file_single() already
+                                            #    increments files_failed before returning False. Doing so
+                                            #    would double-count every handled failure.
+
+                                            # Auto-tune after every N downloads
+                                            if (
+                                                self.auto_tuner
+                                                and downloaded_count % AUTO_CONCURRENCY_SAMPLES == 0
+                                            ):
+                                                elapsed = time.time() - start_time
+                                                if elapsed > 0:
+                                                    downloaded_bytes = (
+                                                        self.total_downloaded_size.value()
                                                     )
-                                                    max_parallel = new_concurrency
+                                                    throughput = (
+                                                        downloaded_bytes / (1024 * 1024)
+                                                    ) / elapsed
+                                                    new_concurrency = (
+                                                        self.auto_tuner.record_throughput(
+                                                            max_parallel, throughput
+                                                        )
+                                                    )
+                                                    if (
+                                                        new_concurrency
+                                                        and new_concurrency != max_parallel
+                                                    ):
+                                                        remaining = (
+                                                            len(to_download) - downloaded_count
+                                                        )
+                                                        if new_concurrency <= remaining:
+                                                            logging.info(
+                                                                f"{prefix}🤖 Adjusting concurrency: {max_parallel} → {new_concurrency} "
+                                                                f"(throughput: {throughput:.2f} MB/s after {downloaded_count} files)"
+                                                            )
+                                                            max_parallel = new_concurrency
 
-                                    # Log throughput periodically
-                                    if time.time() - last_throughput_log > 10:
-                                        downloaded_bytes = self.total_downloaded_size.value()
-                                        elapsed = time.time() - start_time
-                                        throughput = (
-                                            (downloaded_bytes / (1024 * 1024)) / elapsed
-                                            if elapsed > 0
-                                            else 0
-                                        )
-                                        logging.info(
-                                            f"{prefix}📊 Throughput: {throughput:.2f} MB/s after {downloaded_count} files, "
-                                            f"concurrency={max_parallel}"
-                                        )
-                                        last_throughput_log = time.time()
+                                            # Log throughput periodically
+                                            if time.time() - last_throughput_log > 10:
+                                                downloaded_bytes = (
+                                                    self.total_downloaded_size.value()
+                                                )
+                                                elapsed = time.time() - start_time
+                                                throughput = (
+                                                    (downloaded_bytes / (1024 * 1024)) / elapsed
+                                                    if elapsed > 0
+                                                    else 0
+                                                )
+                                                logging.info(
+                                                    f"{prefix}📊 Throughput: {throughput:.2f} MB/s after {downloaded_count} files, "
+                                                    f"concurrency={max_parallel}"
+                                                )
+                                                last_throughput_log = time.time()
 
-                                except Exception as e:
-                                    # ⚠️ Only triggers on uncaught exceptions (e.g., exhausted
-                                    # connection retries that _download_file_single re-raises).
-                                    # Safe to increment here exactly once.
-                                    logging.error(f"Download failed for {url}: {e}")
-                                    self.files_failed.increment(1)
+                                        except Exception as e:
+                                            # ⚠️ Only triggers on uncaught exceptions (e.g., exhausted
+                                            # connection retries that _download_file_single re-raises).
+                                            # Safe to increment here exactly once.
+                                            logging.error(f"Download failed for {url}: {e}")
+                                            self.files_failed.increment(1)
 
-                    # Log final auto-tuning stats
-                    if self.auto_tuner:
-                        tuner_stats = self.auto_tuner.get_stats()
-                        self.metrics.metrics["auto_concurrency_enabled"] = True
-                        self.metrics.metrics["auto_concurrency_adjustments"] = tuner_stats[
-                            "adjustments"
-                        ]
-                        self.metrics.metrics["auto_concurrency_final"] = tuner_stats[
-                            "current_concurrency"
-                        ]
-                        self.metrics.metrics["auto_concurrency_start"] = tuner_stats[
-                            "start_concurrency"
-                        ]
-                        logging.info(
-                            f"{prefix}🤖 Auto-concurrency stats: {tuner_stats['adjustments']} adjustments, "
-                            f"final concurrency={tuner_stats['current_concurrency']}, "
-                            f"final throughput={tuner_stats['last_throughput']:.2f} MB/s"
-                        )
+                            # Log final auto-tuning stats
+                            if self.auto_tuner:
+                                tuner_stats = self.auto_tuner.get_stats()
+                                self.metrics.metrics["auto_concurrency_enabled"] = True
+                                self.metrics.metrics["auto_concurrency_adjustments"] = tuner_stats[
+                                    "adjustments"
+                                ]
+                                self.metrics.metrics["auto_concurrency_final"] = tuner_stats[
+                                    "current_concurrency"
+                                ]
+                                self.metrics.metrics["auto_concurrency_start"] = tuner_stats[
+                                    "start_concurrency"
+                                ]
+                                logging.info(
+                                    f"{prefix}🤖 Auto-concurrency stats: {tuner_stats['adjustments']} adjustments, "
+                                    f"final concurrency={tuner_stats['current_concurrency']}, "
+                                    f"final throughput={tuner_stats['last_throughput']:.2f} MB/s"
+                                )
 
-                    logging.info(
-                        f"{prefix}✅ Completed {self.files_processed.value()} file downloads in parallel"
-                    )
-                    self.metrics.update_queue_metrics(
-                        len(self.download_queue), self.config.download_queue_size
-                    )
+                            logging.info(
+                                f"{prefix}✅ Completed {self.files_processed.value()} file downloads in parallel"
+                            )
+                            self.metrics.update_queue_metrics(
+                                len(self.download_queue), self.config.download_queue_size
+                            )
 
-                # ========== END PARALLEL DOWNLOADS SECTION ==========
+                        # ========== END PARALLEL DOWNLOADS SECTION ==========
+                    finally:
+                        self._download_progress = None
 
             run.end_phase()
 
@@ -780,12 +804,16 @@ class ReportMixin(MirrorHost):
             return True
 
         except Exception as e:
+            if progress is not None:
+                progress.close()
             logging.critical(f"{prefix}Fatal error: {e}", exc_info=True)
             self.metrics.add_error(str(e), "fatal")
             run.finish("failed", type(e).__name__)
             logging.info(self.metrics.report(prefix))
             return False
         finally:
+            if progress is not None:
+                progress.close()
             if run.finished is None:
                 run.finish("incomplete")
 

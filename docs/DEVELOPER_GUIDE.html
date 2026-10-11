@@ -1047,9 +1047,17 @@ It never calls the scanner or metadata freshness layer.
 then saves results through <code>CacheManager</code>. HTTPX remains the
 default mirror implementation, including ranged resume and chunks. The
 whole-file pipeline preserves those existing partials.</p>
-<p><code>progress.DownloadProgress</code> observes this pipeline for
-visible known-URL runs, in the existing progress module alongside the
-mirror item tracker. Both use the same tqdm constructor; the base
+<p><code>progress.DownloadProgress</code> observes both known-URL and mirror
+transfers. <code>ReportMixin.sync()</code> owns its context for the download
+phase and passes the same observer to aiohttp workers and HTTPX whole-file/ranged
+workers. Sequential body writes and concurrent chunk writes update received
+bytes before publication; chunk retries replace only their own range in the file
+position, while discarded traffic remains in aggregate received bytes. Retained
+resume bytes advance the file position without adding to this run's traffic or
+transfer rate. Chunk observations use the published destination name, independent
+of staging paths. The single metadata <code>ProgressTracker</code> clears before
+transfers start, and all transfer bars and the timer close before the summary.
+Both trackers use the same tqdm constructor; the base
 package requires <code>tqdm</code>, while the <code>progress</code>
 extra remains a compatibility alias. Renderer failures still degrade
 safely. Byte formatting uses the shared
@@ -1073,8 +1081,9 @@ waiting/flushing/hashing displays. Unknown lengths have no percentage or
 ETA. Retry bars reset to byte zero, and all bars close on success,
 failure or exception. Renderer errors do not fail transfers. Periodic
 observations mark whether every active file has a visible bar. The
-shared CLI console handler's <code>ConsoleProgressFilter</code>
-suppresses those observations on stderr while the file handler retains
+shared console <code>ProgressConsoleHandler</code> writes ordinary messages
+through public <code>tqdm.write()</code> so logs do not overwrite active bars.
+Its <code>ConsoleProgressFilter</code> suppresses periodic observations on stderr while the file handler retains
 them. Missing, failed or disabled bars and receipt-saving without an
 active bar retain console updates; warnings and completion summaries
 always pass through the filter.</p>

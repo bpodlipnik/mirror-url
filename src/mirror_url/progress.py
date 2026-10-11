@@ -1,7 +1,7 @@
 """Terminal progress reporting.
 
 Migrated verbatim from ``mirror_url.py`` (orig. lines 8637-8936):
-``ProgressTracker``, ``MultiLevelProgress``. Known-URL byte/stage observations
+``ProgressTracker``, ``MultiLevelProgress``. Mirror and known-URL byte/stage observations
 share this module via ``DownloadProgress``.
 """
 
@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from threading import RLock
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
@@ -80,7 +80,12 @@ class ProgressTracker:
         self.last_report: float = 0
         self.callbacks: List[Callable[[int, int], None]] = []
         self.use_tqdm = (
-            use_tqdm and TQDM_AVAILABLE and config and config.progress_bar and self.total > 0
+            use_tqdm
+            and TQDM_AVAILABLE
+            and config
+            and config.progress_bar
+            and not config.quiet
+            and self.total > 0
         )
         self.tqdm_bar = None
         self._use_percentage_mode = self.total >= PROGRESS_MIN_FILES_FOR_PCT
@@ -89,7 +94,7 @@ class ProgressTracker:
 
         if self.use_tqdm:
             self.tqdm_bar = _create_progress_bar(
-                total=self.total, desc=f"{prefix}{name}", unit=name, leave=True, position=0
+                total=self.total, desc=f"{prefix}{name}", unit=name, leave=False, position=0
             )
             self.use_tqdm = self.tqdm_bar is not None
 
@@ -162,12 +167,18 @@ class ProgressTracker:
                 report_msg = self._generate_report()
                 elapsed = time.time() - self.start_time
 
-                if elapsed < PROGRESS_SHORT_JOB_SECONDS:
-                    logging.info(f"[short][{self.level}] {report_msg}")
-                elif elapsed < PROGRESS_MEDIUM_JOB_SECONDS:
-                    logging.info(f"[medium][{self.level}] {report_msg}")
-                else:
-                    logging.info(f"[long][{self.level}] {report_msg}")
+                interval = (
+                    "short"
+                    if elapsed < PROGRESS_SHORT_JOB_SECONDS
+                    else "medium"
+                    if elapsed < PROGRESS_MEDIUM_JOB_SECONDS
+                    else "long"
+                )
+                visible_bar = bool(self.tqdm_bar) and not getattr(self.tqdm_bar, "disable", False)
+                logging.info(
+                    f"[{interval}][{self.level}] {report_msg}",
+                    extra={"progress_bar_active": visible_bar},
+                )
 
                 self.last_report = time.time()
 
@@ -184,9 +195,10 @@ class ProgressTracker:
                 try:
                     self.tqdm_bar.n = self.completed
                     self.tqdm_bar.refresh()
-                    self.tqdm_bar.close()
                 except Exception:
                     pass
+                finally:
+                    self.close()
 
             report_msg = self._generate_report(force_total=True)
 
@@ -201,6 +213,16 @@ class ProgressTracker:
             logging.debug(f"report_final: after - completed={self.completed}, total={self.total}")
 
             return report_msg
+
+    def close(self) -> None:
+        """Release the metadata renderer without inventing completed items."""
+        with self.lock:
+            bar, self.tqdm_bar = self.tqdm_bar, None
+            if bar is not None:
+                try:
+                    bar.close()
+                except Exception:
+                    pass
 
     def _generate_report(self, force_total: bool = False) -> str:
         """Generate progress report message"""
@@ -361,11 +383,46 @@ class ConsoleProgressFilter(logging.Filter):
         return not getattr(record, "progress_bar_active", False)
 
 
+class ProgressConsoleHandler(logging.StreamHandler):
+    """Write ordinary log messages without overwriting active tqdm bars."""
+
+    def __init__(self, stream=None):
+        super().__init__(stream)
+        self.addFilter(ConsoleProgressFilter())
+
+    @classmethod
+    def adapt(cls, handler: logging.StreamHandler) -> logging.StreamHandler:
+        """Coordinate a plain existing handler; preserve custom renderers."""
+        if type(handler) is not logging.StreamHandler:
+            return handler
+        coordinated = cls(handler.stream)
+        coordinated.setLevel(handler.level)
+        coordinated.setFormatter(handler.formatter)
+        for filter_ in handler.filters:
+            coordinated.addFilter(filter_)
+        return coordinated
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if not TQDM_AVAILABLE:
+            super().emit(record)
+            return
+        try:
+            from tqdm import tqdm
+
+            tqdm.write(self.format(record), file=self.stream)
+            self.flush()
+        except Exception:
+            # Preserve ordinary logs when the optional terminal renderer fails.
+            super().emit(record)
+
+
 @dataclass
 class _ActiveFile:
     started: float
     received: int = 0
     expected: Optional[int] = None
+    reused: int = 0
+    chunks: Dict[int, int] = field(default_factory=dict)
     stage: str = "preparing"
     bar: Any = None
     position: int = 0
@@ -428,6 +485,7 @@ class DownloadProgress:
             changed_total = file.bar.total != file.expected
             file.bar.total = file.expected
             if reset:
+                file.bar.initial = 0
                 file.bar.reset()
             file.bar.set_postfix_str(file.stage, refresh=False)
             file.bar.update(file.received - file.bar.n)
@@ -473,6 +531,30 @@ class DownloadProgress:
                 file.received, file.expected, file.stage = size, expected, "downloading"
                 self._update_bar(file)
 
+    def resume(self, path: Path, size: int, expected: Optional[int]) -> None:
+        """Show retained partial bytes without crediting them as this run's traffic."""
+        if self.enabled or self.bars:
+            with self.lock:
+                file = self.active[path]
+                file.received, file.reused, file.expected = size, size, expected
+                if file.bar is not None:
+                    file.bar.n = size
+                    file.bar.last_print_n = size
+                    file.bar.initial = size
+                self._update_bar(file, refresh=True)
+
+    def received_chunk(self, path: Optional[Path], chunk: int, size: int, expected: int) -> None:
+        """Aggregate concurrent ranges; a retry replaces only its own range."""
+        if (self.enabled or self.bars) and path is not None:
+            with self.lock:
+                file = self.active[path]
+                previous = file.chunks.get(chunk, 0)
+                self.received_bytes += max(0, size - previous)
+                file.chunks[chunk] = size
+                file.received += size - previous
+                file.expected, file.stage = expected, "downloading"
+                self._update_bar(file)
+
     def stage(self, path: Path, stage: str) -> None:
         if self.enabled or self.bars:
             with self.lock:
@@ -511,9 +593,14 @@ class DownloadProgress:
                     amount += "/" + format_bytes(file.expected, binary_units=True)
                 eta = ""
                 age = now - file.started
-                if file.stage == "downloading" and file.expected and file.received and age > 0:
+                if (
+                    file.stage == "downloading"
+                    and file.expected
+                    and file.received > file.reused
+                    and age > 0
+                ):
                     remaining = max(0, file.expected - file.received)
-                    eta = f", ETA {remaining / (file.received / age):.0f}s"
+                    eta = f", ETA {remaining / ((file.received - file.reused) / age):.0f}s"
                 details.append(f"{name}: {file.stage} ({amount}{eta})")
             if len(self.active) > 3:
                 details.append(f"and {len(self.active) - 3} more active files")
@@ -532,4 +619,18 @@ class DownloadProgress:
             logging.info(message, extra={"progress_bar_active": visible_bars})
 
 
-__all__ = ["ProgressTracker", "MultiLevelProgress", "DownloadProgress", "ConsoleProgressFilter"]
+_DISABLED_DOWNLOAD_PROGRESS = DownloadProgress(False)
+
+
+def get_download_progress(mirror: Any) -> DownloadProgress:
+    """Use the run's shared observer, or a no-op outside visible sync runs."""
+    return getattr(mirror, "_download_progress", None) or _DISABLED_DOWNLOAD_PROGRESS
+
+
+__all__ = [
+    "ProgressTracker",
+    "MultiLevelProgress",
+    "DownloadProgress",
+    "ConsoleProgressFilter",
+    "ProgressConsoleHandler",
+]
