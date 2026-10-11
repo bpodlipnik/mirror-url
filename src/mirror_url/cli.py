@@ -71,6 +71,7 @@ from .exceptions import (
     URLScopeError,
 )
 from .security import PathSafety
+from .transfer_report import log_download_summary
 from .utils import _log_files, sanitize_command_line
 
 
@@ -153,7 +154,8 @@ def setup_shared_logging(
     # (CLI > --config file > default), not the raw parser defaults.
     eff = effective if effective is not None else args
     logging.info("=" * 50)
-    logging.info(f"MirrorURL v{__version__} - SHARED LOG")
+    title = "KNOWN-URL DOWNLOAD" if getattr(eff, "mode", None) == "download" else "SHARED LOG"
+    logging.info(f"MirrorURL v{__version__} - {title}")
     logging.info(f"Log: {log_path}")
 
     if eff.dir_suffix:
@@ -188,6 +190,25 @@ def setup_shared_logging(
         logging.info("🔊 Verbose mode")
     if eff.metrics_json:
         logging.info(f"📊 Metrics: {eff.metrics_json}")
+    if getattr(eff, "mode", None) == "download":
+        logging.info("Destination: %s", eff.dest_path)
+        logging.info("Backend: %s (whole-file streaming)", eff.backend)
+        concurrency = 1 if eff.sequential_downloads else eff.max_concurrent_downloads
+        logging.info("Max concurrent file downloads: %s", concurrency)
+        logging.info("Max connection retries: %s (restart whole file)", eff.max_retries)
+        rate = eff.requests_per_second
+        logging.info(
+            "Request spacing: %.1fms", max(1 / rate if rate else 0, eff.request_delay) * 1000
+        )
+        if eff.bandwidth_limit:
+            logging.info("Bandwidth limit: %s MiB/s", eff.bandwidth_limit)
+        logging.info(
+            "SHA-256: %s", "enabled (local receipts)" if eff.verify_content else "disabled"
+        )
+        if args.print_logs and not args.quiet:
+            logging.info("Download progress: updates approximately every 10 seconds")
+        logging.info("=" * 50)
+        return
     if TQDM_AVAILABLE and eff.progress_bar:
         logging.info("📈 Progress bar enabled")
     if eff.async_metadata:
@@ -1287,6 +1308,8 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
             else:
                 download_config = load_config_from_args(args, silent=True)
             download_config.dir_suffix = args.dir_suffix[0].strip("/") if args.dir_suffix else ""
+            download_config.print_logs = args.print_logs
+            download_config.quiet = args.quiet
             require_backend(download_config.backend)
             target = download_config.dest_path
             for part in filter(None, download_config.dir_suffix.split("/")):
@@ -1301,7 +1324,7 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
                 download_config.backend,
             )
             summary = download_url_list(download_config)
-            logging.info("Download result: %s", json.dumps(summary, sort_keys=True))
+            log_download_summary(download_config, summary)
         except (MirrorError, ValueError, OSError) as error:
             print(f"Download error: {error}", file=sys.stderr)
             sys.exit(1)

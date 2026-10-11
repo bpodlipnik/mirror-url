@@ -35,6 +35,7 @@ from .exceptions import ConfigError, SecurityError, URLScopeError
 from .filename_mapping import FilenameMap, _stat_identity
 from .scratch import OwnedScratch
 from .security import PathSafety, SecurityValidator
+from .transfer_report import DownloadProgress
 from .transport import SecureAsyncTransport
 from .utils import _relative_url_path, sanitize_url_for_log, url_within_scope
 
@@ -286,13 +287,21 @@ class _AIOHTTPBackend:
 class AsyncTransfers:
     """A pooled client and a fixed worker set for one complete transfer batch."""
 
-    def __init__(self, config: MirrorConfig, target: Path, scope: str, scratch: OwnedScratch):
+    def __init__(
+        self,
+        config: MirrorConfig,
+        target: Path,
+        scope: str,
+        scratch: OwnedScratch,
+        progress: Optional[DownloadProgress] = None,
+    ):
         self.config, self.target, self.scope, self.scratch = config, target, scope, scratch
         self.concurrency = 1 if config.sequential_downloads else config.max_concurrent_downloads
         self.pacer = AsyncRequestPacer(config.effective_request_interval)
         self.bandwidth = AsyncBandwidthBudget(config.bandwidth_limit)
         self.outstanding: Dict[Path, int] = {}
         self.stage_seconds = {"fsync": 0.0, "hash": 0.0}
+        self.progress = progress or DownloadProgress(False)
 
     def _space(self) -> None:
         needed = sum(self.outstanding.values()) + self.concurrency * 1024 * 1024
@@ -317,6 +326,7 @@ class AsyncTransfers:
         staging = self.scratch.staging(local, "streaming")
         try:
             for attempt in range(self.config.max_retries + 1):
+                self.progress.begin(local, "waiting for response")
                 try:
                     current = url
                     for hop in range(11):
@@ -339,6 +349,7 @@ class AsyncTransfers:
                                     "Encoded response cannot be published as raw file bytes"
                                 )
                             expected = content_length(headers)
+                            self.progress.received(local, 0, expected)
                             self.outstanding[local] = expected or 0
                             self._space()
                             # Each retry gets a new file in the same owned workspace.
@@ -353,6 +364,7 @@ class AsyncTransfers:
                                     if expected is not None and size > expected:
                                         raise ValueError("Response exceeds Content-Length")
                                     file.write(block)
+                                    self.progress.received(local, size, expected)
                                     self.outstanding[local] = max(0, (expected or 0) - size)
                                     if size - checkpoint >= 1024 * 1024:
                                         self._space()
@@ -362,6 +374,7 @@ class AsyncTransfers:
                                     raise ValueError(
                                         "Response length does not match Content-Length"
                                     )
+                                self.progress.stage(local, "flushing file")
                                 started = time.perf_counter()
                                 file.flush()
                                 os.fsync(file.fileno())
@@ -374,9 +387,14 @@ class AsyncTransfers:
                                 staged_inode.st_ino,
                             ):
                                 raise ValueError("Owned staging file changed during transfer")
+                            self.progress.stage(
+                                local,
+                                "hashing (SHA-256)" if self.config.verify_content else "publishing",
+                            )
                             started = time.perf_counter()
                             digest = file_sha256(staging, self.config.verify_content)
                             self.stage_seconds["hash"] += time.perf_counter() - started
+                            self.progress.stage(local, "publishing")
                             if _identity(staging) != staged_identity:
                                 raise ValueError("Owned staging file changed during hashing")
                             mtime = None
@@ -429,6 +447,7 @@ class AsyncTransfers:
                         sanitize_url_for_log(url),
                         attempt + 1,
                     )
+                    self.progress.stage(local, "waiting to retry")
                     await asyncio.sleep(self.config.retry_delay * 2**attempt)
             raise RuntimeError("Transfer retry budget exhausted")
         finally:
@@ -452,6 +471,7 @@ class AsyncTransfers:
 
         async def worker():
             for url, local in iterator:
+                self.progress.begin(local)
                 try:
                     result = await self._one(backend, url, local)
                     if published is not None:
@@ -460,6 +480,7 @@ class AsyncTransfers:
                     result = TransferResult(url, local, False, error=str(error))
                     logging.error("Download failed for %s: %s", sanitize_url_for_log(url), error)
                 results.append(result)
+                self.progress.finish(local, result.success)
 
         tasks = [asyncio.create_task(worker()) for _ in range(min(self.concurrency, len(items)))]
         try:
@@ -520,8 +541,12 @@ def download_url_list(config: MirrorConfig) -> dict:
     guard = DestinationLock(resources, parent=current_run_lock())
     started = time.perf_counter()
     try:
-        with guard.operation():
+        with (
+            guard.operation(),
+            DownloadProgress(config.print_logs and not config.quiet) as progress,
+        ):
             items = plan_targets(urls, scope, target, config)
+            progress.plan(len(items))
             if config.dry_run:
                 return {
                     "success": True,
@@ -570,7 +595,7 @@ def download_url_list(config: MirrorConfig) -> dict:
                     if old.get("sha256") is not None and file_sha256(local) != old["sha256"]:
                         raise ValueError("Existing file no longer matches its SHA-256 receipt")
             scratch = OwnedScratch(target, state, None, guard)
-            engine = AsyncTransfers(config, target, scope, scratch)
+            engine = AsyncTransfers(config, target, scope, scratch, progress)
 
             def published(result: TransferResult):
                 receipts["files"][str(result.path)] = {
@@ -585,6 +610,7 @@ def download_url_list(config: MirrorConfig) -> dict:
                 results = asyncio.run(engine.run(items, published))
             finally:
                 # Retain receipts for already published files even if interrupted.
+                progress.saving_receipts()
                 _save_receipts(receipt_path, receipts)
             return {
                 "success": all(r.success for r in results),

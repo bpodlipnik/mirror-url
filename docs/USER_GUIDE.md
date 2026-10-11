@@ -992,6 +992,33 @@ The CLI supplies the same shortcut defaults for a download config containing
 that field; standalone `MirrorConfig`/`validate_config_file()` still require
 explicit `base_url`, `dest_path` and `log_path`.
 
+### Progress and completion output
+
+With `--print-logs`, known-URL downloads log progress to stderr approximately
+every **10 seconds**, including when waiting for a response or flushing/hashing
+a completed transfer. Progress shows elapsed time, received bytes, average
+speed, completed/failed file counts and up to three active file paths with
+their current stage. A file with a known length shows received/expected bytes
+and an estimated remaining transfer time while receiving bytes; unknown lengths
+have no ETA. Received bytes include discarded retry attempts, while completed
+files count only successful publications and their receipt entries.
+
+The completion log is a readable **DOWNLOAD SUMMARY** with result, backend,
+destination, published file/byte counts, elapsed time, average throughput,
+disk flush time and receipt location. SHA-256 is explicitly enabled or disabled;
+hash time is shown only with `--verify-content`. SHA-256 receipts describe local
+bytes and do not establish agreement with a remote cryptographic digest.
+The startup banner shows applicable whole-file download settings.
+
+Without `--print-logs`, progress is silent and the summary remains in the log
+file. `--quiet` suppresses INFO-level console progress and summary output.
+The CLI continues to print exactly one JSON result to stdout for scripts;
+console logs stay on stderr. For a terminal view without the JSON line:
+
+```bash
+mirror-url --mode download https://example.org/files/a.fits --print-logs >result.json
+```
+
 ### A URL list
 
 ```text
