@@ -86,7 +86,10 @@ def origin(monkeypatch):
             self.end_headers()
             if body:
                 try:
-                    self.wfile.write(payload)
+                    if callable(payload):
+                        payload(self.wfile)
+                    else:
+                        self.wfile.write(payload)
                     self.wfile.flush()
                 except (BrokenPipeError, ConnectionResetError):
                     pass
@@ -229,6 +232,42 @@ def test_inside_redirect_and_connection_reuse(tmp_path, origin, backend):
     assert [r[1] for r in origin.requests] == ["/root/a", "/root/b", "/root/c", "/root/d"]
     # HTTPX may retire an unread redirect response; completed file bodies reuse the pool.
     assert len({r[3] for r in origin.requests[1:]}) == 1
+
+
+@pytest.mark.parametrize("sequential", [False, True])
+def test_single_worker_streams_large_and_unknown_lengths(tmp_path, origin, sequential):
+    payload = bytes(range(256)) * 3100
+    origin.routes["/root/a"] = (200, {}, payload)
+    origin.routes["/root/unknown"] = (200, {"Connection": "close"}, payload + b"tail")
+    paths = ("a", "unknown") if sequential else ("a",)
+    config = job(tmp_path, origin, paths=paths, sequential_downloads=sequential)
+    result = download_url_list(config)
+    assert result["success"] and result["files_downloaded"] == len(paths)
+    receipts = json.loads(Path(result["receipts"]).read_text())["files"]
+    for name in paths:
+        expected = payload if name == "a" else payload + b"tail"
+        local = config.dest_path / name
+        assert local.read_bytes() == expected
+        assert receipts[str(local)]["sha256"] == hashlib.sha256(expected).hexdigest()
+        assert receipts[str(local)]["identity"] == list(_identity(local))
+    assert_no_scratch(config.dest_path)
+
+
+def test_httpx_multiple_workers_contact_origin_concurrently(tmp_path, origin):
+    rendezvous = threading.Barrier(2, timeout=3)
+
+    def overlap(_):
+        rendezvous.wait()
+        return 200, {}, b"concurrent payload"
+
+    origin.routes.update({"/root/a": overlap, "/root/b": overlap})
+    config = job(tmp_path, origin, paths=("a", "b"), max_concurrent_downloads=2)
+    result = download_url_list(config)
+    assert result["success"] and result["files_downloaded"] == 2
+    assert all(
+        (config.dest_path / name).read_bytes() == b"concurrent payload" for name in ("a", "b")
+    )
+    assert_no_scratch(config.dest_path)
 
 
 def test_literal_unicode_and_spaces_have_identical_uri_escaping(tmp_path, origin, backend):
@@ -452,6 +491,172 @@ def test_insufficient_disk_keeps_old_file(tmp_path, origin, backend, monkeypatch
     assert_no_scratch(config.dest_path)
 
 
+@pytest.mark.parametrize("sequential", [False, True])
+def test_download_batch_samples_free_space_once(tmp_path, origin, backend, monkeypatch, sequential):
+    payload = b"payload!" * (512 * 1024)
+    paths = ("a", "b", "c")
+    for name in paths:
+        origin.routes["/root/" + name] = (200, {}, payload)
+    config = job(tmp_path, origin, backend, paths, sequential_downloads=sequential)
+    headroom = (1 if sequential else config.max_concurrent_downloads) * 1024 * 1024
+    calls = []
+
+    def disk_usage(path):
+        calls.append(path)
+        assert len(calls) == 1, "Transfer loop repeated the filesystem query"
+        return SimpleNamespace(free=headroom + len(paths) * len(payload))
+
+    monkeypatch.setattr("mirror_url.transfers.shutil.disk_usage", disk_usage)
+    result = download_url_list(config)
+    assert result["success"] and result["files_downloaded"] == len(paths)
+    assert calls == [config.dest_path]
+    for name in paths:
+        assert (config.dest_path / name).read_bytes() == payload
+    assert_no_scratch(config.dest_path)
+
+
+@pytest.mark.parametrize("sequential", [False, True])
+def test_download_batch_does_not_reuse_published_space(
+    tmp_path, origin, backend, monkeypatch, sequential
+):
+    payload = b"new" * (1024 * 1024)
+    paths = ("a", "b", "c")
+    for name in paths:
+        origin.routes["/root/" + name] = (200, {}, payload)
+    config = job(tmp_path, origin, backend, paths, overwrite=True, sequential_downloads=sequential)
+    config.dest_path.mkdir()
+    for name in paths:
+        (config.dest_path / name).write_bytes(b"old")
+    calls = []
+
+    def disk_usage(path):
+        calls.append(path)
+        workers = 1 if sequential else config.max_concurrent_downloads
+        return SimpleNamespace(free=workers * 1024 * 1024 + len(payload))
+
+    monkeypatch.setattr("mirror_url.transfers.shutil.disk_usage", disk_usage)
+    result = download_url_list(config)
+    assert not result["success"]
+    assert result["files_downloaded"] == 1 and result["files_failed"] == 2
+    assert len(calls) == 1
+    contents = [(config.dest_path / name).read_bytes() for name in paths]
+    assert contents.count(payload) == 1 and contents.count(b"old") == 2
+    receipts = json.loads(Path(result["receipts"]).read_text())["files"]
+    assert len(receipts) == 1
+    assert_no_scratch(config.dest_path)
+
+
+@pytest.mark.parametrize("retry", [False, True])
+def test_removed_failed_attempt_returns_space_budget(tmp_path, origin, backend, monkeypatch, retry):
+    payload = b"new" * (1024 * 1024)
+    origin.routes["/root/a"] = lambda count: (
+        (200, {}, payload)
+        if retry and count > 1
+        else (200, {"Content-Length": str(len(payload)), "Connection": "close"}, b"partial")
+    )
+    origin.routes["/root/b"] = (200, {}, payload)
+    config = job(
+        tmp_path,
+        origin,
+        backend,
+        ("a", "b"),
+        overwrite=True,
+        sequential_downloads=True,
+        max_retries=int(retry),
+    )
+    config.dest_path.mkdir()
+    (config.dest_path / "a").write_bytes(b"old")
+    calls = []
+
+    def disk_usage(path):
+        calls.append(path)
+        return SimpleNamespace(free=1024 * 1024 + len(payload) * (2 if retry else 1))
+
+    monkeypatch.setattr("mirror_url.transfers.shutil.disk_usage", disk_usage)
+    result = download_url_list(config)
+    assert result["success"] is retry
+    assert result["files_downloaded"] == (2 if retry else 1)
+    assert origin.counts["/root/a"] == (2 if retry else 1)
+    assert (config.dest_path / "a").read_bytes() == (payload if retry else b"old")
+    assert (config.dest_path / "b").read_bytes() == payload
+    assert len(calls) == 1
+    assert_no_scratch(config.dest_path)
+
+
+def test_unknown_length_uses_remaining_batch_budget(tmp_path, origin, backend, monkeypatch):
+    origin.routes["/root/a"] = (200, {}, b"1234")
+    origin.routes["/root/b"] = (200, {"Connection": "close"}, b"5678")
+    config = job(tmp_path, origin, backend, ("a", "b"), overwrite=True, sequential_downloads=True)
+    config.dest_path.mkdir()
+    (config.dest_path / "b").write_bytes(b"old")
+    calls = []
+
+    def disk_usage(path):
+        calls.append(path)
+        return SimpleNamespace(free=1024 * 1024 + 6)
+
+    monkeypatch.setattr("mirror_url.transfers.shutil.disk_usage", disk_usage)
+    result = download_url_list(config)
+    assert not result["success"] and result["files_downloaded"] == 1
+    assert result["files_failed"] == 1 and len(calls) == 1
+    assert (config.dest_path / "a").read_bytes() == b"1234"
+    assert (config.dest_path / "b").read_bytes() == b"old"
+    assert_no_scratch(config.dest_path)
+
+
+def test_space_consumed_by_another_writer_fails_safely(tmp_path, origin, backend, monkeypatch):
+    payload = b"new payload" * 10000
+    origin.routes["/root/a"] = (200, {}, payload)
+    config = job(tmp_path, origin, backend, overwrite=True)
+    config.dest_path.mkdir()
+    local = config.dest_path / "a"
+    local.write_bytes(b"old")
+    original_identity = _identity(local)
+    original_fsync = os.fsync
+    calls = []
+
+    def disk_usage(path):
+        calls.append(path)
+        return SimpleNamespace(free=100 * 1024 * 1024)
+
+    def fsync(descriptor):
+        # Space was available at admission, but another writer consumed it
+        # before the downloaded staging file could be flushed to disk.
+        if os.fstat(descriptor).st_size == len(payload):
+            raise OSError(28, "No space left on device")
+        return original_fsync(descriptor)
+
+    monkeypatch.setattr("mirror_url.transfers.shutil.disk_usage", disk_usage)
+    monkeypatch.setattr("mirror_url.transfers.os.fsync", fsync)
+    result = download_url_list(config)
+    assert not result["success"] and result["files_failed"] == 1
+    assert "No space left on device" in result["failures"][0]["error"]
+    assert local.read_bytes() == b"old" and _identity(local) == original_identity
+    assert not json.loads(Path(result["receipts"]).read_text())["files"]
+    assert len(calls) == 1
+    assert_no_scratch(config.dest_path)
+
+
+def test_failed_free_space_query_is_not_repeated(tmp_path, origin, backend, monkeypatch):
+    config = job(tmp_path, origin, backend, ("a", "b", "c"), overwrite=True)
+    config.dest_path.mkdir()
+    for name in ("a", "b", "c"):
+        (config.dest_path / name).write_bytes(b"old")
+    calls = []
+
+    def disk_usage(path):
+        calls.append(path)
+        raise OSError("Destination free space unavailable")
+
+    monkeypatch.setattr("mirror_url.transfers.shutil.disk_usage", disk_usage)
+    result = download_url_list(config)
+    assert not result["success"] and result["files_failed"] == 3
+    assert len(calls) == 1
+    assert any("Destination free space unavailable" in f["error"] for f in result["failures"])
+    assert all((config.dest_path / name).read_bytes() == b"old" for name in ("a", "b", "c"))
+    assert_no_scratch(config.dest_path)
+
+
 def test_encoded_representation_rejected(tmp_path, origin, backend):
     origin.routes["/root/a"] = (200, {"Content-Encoding": "gzip"}, b"not raw identity")
     config = job(tmp_path, origin, backend)
@@ -616,6 +821,82 @@ async def test_cancelled_workers_finish_before_ownership_release(tmp_path, origi
         assert_no_scratch(config.dest_path)
         assert not (config.dest_path / "a").exists()
     guard.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stage", ["headers", "body"])
+async def test_single_reader_cancellation_drains_network_before_cleanup(
+    tmp_path, origin, stage, monkeypatch
+):
+    entered, release, finished = threading.Event(), threading.Event(), threading.Event()
+    reading = threading.Event()
+    original_reader = httpx.Response.iter_raw
+
+    def observe_reads(response, *args, **kwargs):
+        for block in original_reader(response, *args, **kwargs):
+            yield block
+            # Set only when the client starts its next raw read after receiving
+            # the first block; a server-side pause alone can precede header receipt.
+            reading.set()
+
+    if stage == "body":
+        monkeypatch.setattr(httpx.Response, "iter_raw", observe_reads)
+
+    def pause():
+        entered.set()
+        try:
+            assert release.wait(3)
+        finally:
+            finished.set()
+
+    def body(file):
+        file.write(b"x" * 16384)
+        file.flush()
+        pause()
+        file.write(b"y" * 16384)
+
+    def route(_):
+        if stage == "headers":
+            pause()
+        return 200, {"Content-Length": "32768"}, body if stage == "body" else b"z" * 32768
+
+    origin.routes["/root/a"] = route
+    config = job(tmp_path, origin)
+    config.dest_path.mkdir()
+    local = config.dest_path / "a"
+    local.write_bytes(b"preserved old file")
+    original = _identity(local)
+    guard = DestinationLock([config.dest_path])
+    try:
+        with guard.operation():
+            state = PartialDownloadManager(config.dest_path)._state_directory()
+            scratch = OwnedScratch(config.dest_path, state, None, guard)
+            engine = AsyncTransfers(config, config.dest_path, origin.base, scratch)
+            task = asyncio.create_task(engine.run([(origin.base + "a", local)]))
+            try:
+                assert await asyncio.to_thread(entered.wait, 2)
+                if stage == "body":
+                    assert await asyncio.to_thread(reading.wait, 2)
+                task.cancel()
+                await asyncio.sleep(0.02)
+                task.cancel()
+                await asyncio.sleep(0.02)
+                # The loop remains responsive, but cancellation must not release
+                # staging or ownership while a background network call is live.
+                assert not task.done() and scratch._active and not finished.is_set()
+            finally:
+                release.set()
+            with pytest.raises(asyncio.CancelledError):
+                await asyncio.wait_for(task, 2)
+            assert finished.is_set() and not scratch._active
+            assert engine.closed_connection_pools == 1
+            assert local.read_bytes() == b"preserved old file" and _identity(local) == original
+            assert_no_scratch(config.dest_path)
+        with guard.operation():
+            pass
+    finally:
+        release.set()
+        guard.close()
 
 
 def test_destination_and_log_lock_conflicts_before_get(tmp_path, origin):
@@ -1015,7 +1296,14 @@ def test_cli_progress_tracks_bytes_while_stream_is_pending(
 def test_cli_failed_download_preserves_json_and_console_preferences(
     tmp_path, origin, monkeypatch, capsys, flags
 ):
-    origin.routes["/root/a"] = (404, {}, b"not found")
+    # The client rejects this response without consuming its body. End the
+    # fixture connection here instead of reading another keepalive request
+    # after the client closes it (which can reset the socket on Linux).
+    origin.routes["/root/a"] = (
+        404,
+        {"Content-Length": "9", "Connection": "close"},
+        b"not found",
+    )
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(cli.tempfile, "gettempdir", lambda: str(tmp_path / "logs"))
     monkeypatch.setattr("sys.argv", ["mirror-url", "--mode", "download", origin.base + "a", *flags])

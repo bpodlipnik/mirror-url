@@ -282,7 +282,7 @@ repeats the essentials so you can work from it alone.</p>
 <ul>
 <li><strong>Package:</strong> <code>mirror_url</code> (src-layout under
 <code>src/</code>)</li>
-<li><strong>Version:</strong> 3.4.4</li>
+<li><strong>Version:</strong> 3.4.5</li>
 <li><strong>Python:</strong> 3.10 or newer; CI tests Python
 3.10–3.14</li>
 <li><strong>Runtime deps:</strong> <code>httpx[http2]</code> (including
@@ -1010,12 +1010,31 @@ require all three target fields.</p>
 Its backend adapters provide raw bytes and response headers; the
 controller owns redirects, a monotonic request budget, aggregate
 bandwidth, fixed workers, full filename preflight, disk headroom, retry
-bounds, scratch leases and atomic publication. The HTTPX adapter uses
-<code>SecureAsyncTransport</code>; the optional aiohttp resolver returns
+bounds, scratch leases and atomic publication. The HTTPX adapter selects its reader using the actual worker count. One worker
+uses <code>SecureTransport</code> and a synchronous HTTPX client, running header/body/close
+operations through <code>asyncio.to_thread</code>. Raw bytes are grouped into small bounded
+batches with a short batching window, reducing thread handoffs and file writes
+without requiring slow streams to fill a complete block. Multiple workers use
+<code>SecureAsyncTransport</code>. Both readers only supply response headers and raw bytes;
+<code>AsyncTransfers._one</code> remains the sole transfer policy. Cancellation drains an
+in-flight thread operation before response closure and staging cleanup, even
+when shutdown cancels a worker again. The optional aiohttp resolver returns
 the validated public address directly to its connector, preserving the
 original hostname for Host and TLS. aiohttp requests retain encoded URL
 paths, use HTTP/1.1 and disable implicit redirects, decompression,
 cookies and proxies.</p>
+<p>The controller samples <code>shutil.disk_usage(target).free</code>
+once per batch, at the first accepted response before payload writes,
+and subtracts worker write headroom. The shared in-memory budget
+reserves a known <code>Content-Length</code> before streaming or charges
+each unknown-length block before writing. Reservations stay charged
+after publication. Retries return the old reservation only after
+unlinking owned staging; failed transfers return it only after proven
+scratch cleanup. Failed cleanup retains the reservation conservatively.
+No per-MiB filesystem queries occur. This budget does not allocate disk
+extents or exclude other writers; write/fsync failures continue through
+the existing preservation and receipt rules. The same budget serves
+known-URL downloads and the aiohttp mirror transfer batch.</p>
 <p><code>download_url_list(MirrorConfig(mode="download", ...))</code>
 takes destination/log ownership before creating state. It consumes
 either <code>url_list</code> or one <code>download_url</code> through
@@ -1648,7 +1667,7 @@ refactoring nearby code.</li>
 </table>
 
 <hr />
-<p><em>This guide describes the architecture as of version 3.4.4. When
+<p><em>This guide describes the architecture as of version 3.4.5. When
 you change the structure, update this document in the same PR.</em></p>
 </body>
 </html>

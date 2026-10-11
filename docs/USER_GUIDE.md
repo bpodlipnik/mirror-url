@@ -8,7 +8,7 @@ integrity checks and incremental caching. It also supports direct file URLs
 and exact URL lists without directory discovery. URL-scope, private-network
 and filesystem protections guard discovery and transfers.
 
-- **Version:** 3.4.4
+- **Version:** 3.4.5
 - **Python:** 3.10 or newer; CI tests Python 3.10–3.14
 - **License:** MIT
 
@@ -106,21 +106,21 @@ From a checkout of the repository on a build machine:
 
 ```bash
 pip install build
-python -m build          # produces dist/mirror_url-3.4.4-py3-none-any.whl
+python -m build          # produces dist/mirror_url-3.4.5-py3-none-any.whl
 ```
 
 Copy the wheel to the target server and install it:
 
 ```bash
 python3 -m venv /opt/mirror-url
-/opt/mirror-url/bin/pip install /tmp/mirror_url-3.4.4-py3-none-any.whl
+/opt/mirror-url/bin/pip install /tmp/mirror_url-3.4.5-py3-none-any.whl
 /opt/mirror-url/bin/mirror-url --help
 ```
 
 To include the optional speed extras:
 
 ```bash
-/opt/mirror-url/bin/pip install "/tmp/mirror_url-3.4.4-py3-none-any.whl[fast]"
+/opt/mirror-url/bin/pip install "/tmp/mirror_url-3.4.5-py3-none-any.whl[fast]"
 ```
 
 Available extras: `fast` (stringzilla + lxml), `aiohttp` (whole-file backend),
@@ -130,24 +130,24 @@ The `progress` extra remains compatible; `tqdm` is installed with the base packa
 ### From a Git repository
 
 ```bash
-pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.4.4"
+pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.4.5"
 # private repo over SSH:
-pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.4.4"
+pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.4.5"
 ```
 
 ### As an isolated CLI with pipx
 
 ```bash
-pipx install /tmp/mirror_url-3.4.4-py3-none-any.whl
-# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.4.4"
+pipx install /tmp/mirror_url-3.4.5-py3-none-any.whl
+# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.4.5"
 ```
 
 ### With Docker
 
 ```dockerfile
 FROM python:3.12-slim
-COPY dist/mirror_url-3.4.4-py3-none-any.whl /tmp/
-RUN pip install --no-cache-dir "/tmp/mirror_url-3.4.4-py3-none-any.whl[fast]"
+COPY dist/mirror_url-3.4.5-py3-none-any.whl /tmp/
+RUN pip install --no-cache-dir "/tmp/mirror_url-3.4.5-py3-none-any.whl[fast]"
 ENTRYPOINT ["mirror-url"]
 ```
 
@@ -964,6 +964,20 @@ URL-list mode downloads every selected URL
 with a whole-file GET; it performs no discovery, HEAD freshness checks,
 ETag reuse or ranged resume. It never deletes obsolete local files. Use normal
 mirror mode when you need incremental synchronization.
+
+Known-URL downloads sample destination free space once per batch, before the
+first payload write. A shared budget reserves each declared file length and
+charges unknown-length responses as bytes arrive, while keeping write headroom.
+Published files remain charged; removing a failed attempt's owned staging
+returns its reservation. This is internal accounting, not a filesystem
+allocation. If another program consumes the space, write or flush errors still
+fail the transfer and preserve the existing destination file.
+
+HTTPX downloads with one active worker use a synchronous network reader in a
+background thread, with small bounded byte batches. Multiple workers keep the
+asynchronous reader for concurrent files. Both paths use the same progress,
+retry, integrity, ownership and publication rules; network waits do not block
+the event loop. Download mode still omits discovery and freshness checks.
 
 ### One file URL
 

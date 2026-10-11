@@ -37,7 +37,7 @@ from .progress import DownloadProgress
 from .run_report import RunReport
 from .scratch import OwnedScratch
 from .security import PathSafety, SecurityValidator
-from .transport import SecureAsyncTransport
+from .transport import SecureAsyncTransport, SecureTransport
 from .utils import _relative_url_path, sanitize_url_for_log, url_within_scope
 
 
@@ -207,22 +207,102 @@ class _HTTPXBackend:
 
     def __init__(self, config: MirrorConfig, concurrency: int):
         limits = httpx.Limits(max_connections=concurrency, max_keepalive_connections=concurrency)
-        self.client = httpx.AsyncClient(
-            transport=SecureAsyncTransport(http2=config.http2, limits=limits),
-            http2=config.http2,
-            limits=limits,
-            timeout=config.timeout,
-            trust_env=False,
-            follow_redirects=False,
-        )
+        self.sync_client: Optional[httpx.Client] = None
+        self.client: Optional[httpx.AsyncClient] = None
+        if concurrency == 1:
+            self.sync_client = httpx.Client(
+                transport=SecureTransport(http2=config.http2, limits=limits),
+                http2=config.http2,
+                limits=limits,
+                timeout=config.timeout,
+                trust_env=False,
+                follow_redirects=False,
+            )
+        else:
+            self.client = httpx.AsyncClient(
+                transport=SecureAsyncTransport(http2=config.http2, limits=limits),
+                http2=config.http2,
+                limits=limits,
+                timeout=config.timeout,
+                trust_env=False,
+                follow_redirects=False,
+            )
+
+    @staticmethod
+    async def _thread_call(call: Callable[[], Any]) -> Any:
+        # Cancellation cannot abandon an in-flight reader while its response
+        # or owned staging is being closed. Drain the bounded network operation
+        # first, including repeated cancellation during worker shutdown.
+        operation = asyncio.create_task(asyncio.to_thread(call))
+        try:
+            return await asyncio.shield(operation)
+        except asyncio.CancelledError:
+            while not operation.done():
+                try:
+                    await asyncio.shield(operation)
+                except asyncio.CancelledError:
+                    continue
+                except Exception:
+                    break
+            operation.exception()
+            raise
 
     async def close(self) -> None:
-        await self.client.aclose()
+        if self.sync_client is not None:
+            await self._thread_call(self.sync_client.close)
+        else:
+            assert self.client is not None
+            await self.client.aclose()
+
+    @asynccontextmanager
+    async def _open_single(self, url: str):
+        assert self.sync_client is not None
+        stream = self.sync_client.stream("GET", url, headers={"Accept-Encoding": "identity"})
+        response = None
+
+        def enter():
+            nonlocal response
+            response = stream.__enter__()
+
+        try:
+            await self._thread_call(enter)
+            assert response is not None
+            reader = response.iter_raw()
+
+            def read_batch():
+                # Amortize thread handoffs and file writes, with bounded memory.
+                # The short batching window also returns slow/trickling streams
+                # without waiting to fill a complete 256 KiB block.
+                blocks, size = [], 0
+                deadline = time.monotonic() + 0.01
+                while size < 256 * 1024:
+                    block = next(reader, None)
+                    if block is None:
+                        break
+                    blocks.append(block)
+                    size += len(block)
+                    if time.monotonic() >= deadline:
+                        break
+                return b"".join(blocks)
+
+            async def chunks():
+                while block := await self._thread_call(read_batch):
+                    yield block
+
+            yield response.status_code, response.headers, chunks()
+        finally:
+            if response is not None:
+                await self._thread_call(lambda: stream.__exit__(None, None, None))
 
     @asynccontextmanager
     async def open(self, url: str):
-        async with self.client.stream("GET", url, headers={"Accept-Encoding": "identity"}) as r:
-            yield r.status_code, r.headers, r.aiter_raw()
+        if self.sync_client is not None:
+            async with self._open_single(url) as response:
+                yield response
+        else:
+            assert self.client is not None
+            async with self.client.stream("GET", url, headers={"Accept-Encoding": "identity"}) as r:
+                yield r.status_code, r.headers, r.aiter_raw()
 
 
 class _AIOHTTPBackend:
@@ -300,15 +380,31 @@ class AsyncTransfers:
         self.concurrency = 1 if config.sequential_downloads else config.max_concurrent_downloads
         self.pacer = AsyncRequestPacer(config.effective_request_interval)
         self.bandwidth = AsyncBandwidthBudget(config.bandwidth_limit)
-        self.outstanding: Dict[Path, int] = {}
+        self._space_remaining: Optional[int] = None
+        self._space_reserved: Dict[Path, int] = {}
         self.stage_seconds = {"fsync": 0.0, "hash": 0.0}
         self.progress = progress or DownloadProgress(False)
         self.closed_connection_pools = 0
 
-    def _space(self) -> None:
-        needed = sum(self.outstanding.values()) + self.concurrency * 1024 * 1024
-        if shutil.disk_usage(self.target).free < needed:
+    def _reserve_space(self, local: Path, size: int) -> None:
+        # One filesystem query per batch, before its first payload write.
+        # This is an internal budget, not an OS allocation: write/fsync errors
+        # still protect publication if another process consumes the free space.
+        if self._space_remaining is None:
+            # Leave the budget closed if the single filesystem query fails.
+            self._space_remaining = -self.concurrency * 1024 * 1024
+            self._space_remaining += shutil.disk_usage(self.target).free
+        if self._space_remaining < size:
             raise OSError("Insufficient free space for active transfers and write headroom")
+        self._space_remaining -= size
+        self._space_reserved[local] = self._space_reserved.get(local, 0) + size
+
+    def _release_space(self, local: Path, retained: int = 0) -> None:
+        reserved = self._space_reserved.pop(local, 0)
+        if self._space_remaining is not None:
+            # Published bytes remain charged for the rest of the batch. Only
+            # proven removal of owned staging returns a failed attempt's budget.
+            self._space_remaining += reserved - retained
 
     async def _one(self, backend, url: str, local: Path) -> TransferResult:
         original = _identity(local)
@@ -326,6 +422,7 @@ class AsyncTransfers:
             raise ValueError("Destination path changed before transfer")
         local.parent.mkdir(parents=True, exist_ok=True)
         staging = self.scratch.staging(local, "streaming")
+        published_size = 0
         try:
             for attempt in range(self.config.max_retries + 1):
                 self.progress.begin(local, "waiting for response")
@@ -352,25 +449,23 @@ class AsyncTransfers:
                                 )
                             expected = content_length(headers)
                             self.progress.received(local, 0, expected)
-                            self.outstanding[local] = expected or 0
-                            self._space()
                             # Each retry gets a new file in the same owned workspace.
                             if staging.exists():
                                 _identity(staging)
                                 staging.unlink()
-                            size, checkpoint = 0, 0
+                                self._release_space(local)
+                            self._reserve_space(local, expected or 0)
+                            size = 0
                             with staging.open("xb") as file:
                                 staged_inode = os.fstat(file.fileno())
                                 async for block in chunks:
                                     size += len(block)
                                     if expected is not None and size > expected:
                                         raise ValueError("Response exceeds Content-Length")
+                                    if expected is None:
+                                        self._reserve_space(local, len(block))
                                     file.write(block)
                                     self.progress.received(local, size, expected)
-                                    self.outstanding[local] = max(0, (expected or 0) - size)
-                                    if size - checkpoint >= 1024 * 1024:
-                                        self._space()
-                                        checkpoint = size
                                     await self.bandwidth.wait(len(block))
                                 if expected is not None and size != expected:
                                     raise ValueError(
@@ -438,6 +533,7 @@ class AsyncTransfers:
                                     "Destination changed during transfer; preserving existing entry"
                                 )
                             os.replace(staging, local)
+                            published_size = size
                             return TransferResult(
                                 url, local, True, size, strong_etag(headers), digest, mtime
                             )
@@ -453,9 +549,9 @@ class AsyncTransfers:
                     await asyncio.sleep(self.config.retry_delay * 2**attempt)
             raise RuntimeError("Transfer retry budget exhausted")
         finally:
-            self.outstanding.pop(local, None)
             if not self.scratch.release(staging.parent):
                 raise ValueError("Owned staging cleanup failed; preserved for investigation")
+            self._release_space(local, published_size)
 
     async def run(
         self,
@@ -466,8 +562,11 @@ class AsyncTransfers:
         if plan_targets([url for url, _ in items], self.scope, self.target, self.config) != items:
             raise ValueError("Caller-supplied local paths do not match scoped URL paths")
         require_backend(self.config.backend)
+        self._space_remaining = None
+        self._space_reserved.clear()
+        workers = min(self.concurrency, len(items))
         backend = (_AIOHTTPBackend if self.config.backend == "aiohttp" else _HTTPXBackend)(
-            self.config, self.concurrency
+            self.config, max(workers, 1)
         )
         iterator, results = iter(items), []
 
@@ -484,7 +583,7 @@ class AsyncTransfers:
                 results.append(result)
                 self.progress.finish(local, result.success)
 
-        tasks = [asyncio.create_task(worker()) for _ in range(min(self.concurrency, len(items)))]
+        tasks = [asyncio.create_task(worker()) for _ in range(workers)]
         try:
             await asyncio.gather(*tasks)
         finally:

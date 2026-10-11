@@ -11,7 +11,7 @@ If you only want to *use* MirrorURL (install, CLI, config, Python API), read
 repeats the essentials so you can work from it alone.
 
 - **Package:** `mirror_url` (src-layout under `src/`)
-- **Version:** 3.4.4
+- **Version:** 3.4.5
 - **Python:** 3.10 or newer; CI tests Python 3.10–3.14
 - **Runtime deps:** `httpx[http2]` (including `h2`), `pydantic` v2, `PyYAML`, `portalocker` 3.x, `tqdm` (optional: `stringzilla`,
   `lxml`, `psutil`, `aiohttp`)
@@ -645,10 +645,30 @@ sources or no source. Standalone models still require all three target fields.
 provide raw bytes and response headers; the controller owns redirects, a
 monotonic request budget, aggregate bandwidth, fixed workers, full filename
 preflight, disk headroom, retry bounds, scratch leases and atomic publication.
-The HTTPX adapter uses `SecureAsyncTransport`; the optional aiohttp resolver
+The HTTPX adapter selects its reader using the actual worker count. One worker
+uses `SecureTransport` and a synchronous HTTPX client, running header/body/close
+operations through `asyncio.to_thread`. Raw bytes are grouped into small bounded
+batches with a short batching window, reducing thread handoffs and file writes
+without requiring slow streams to fill a complete block. Multiple workers use
+`SecureAsyncTransport`. Both readers only supply response headers and raw bytes;
+`AsyncTransfers._one` remains the sole transfer policy. Cancellation drains an
+in-flight thread operation before response closure and staging cleanup, even
+when shutdown cancels a worker again. The optional aiohttp resolver
 returns the validated public address directly to its connector, preserving the
 original hostname for Host and TLS. aiohttp requests retain encoded URL paths,
 use HTTP/1.1 and disable implicit redirects, decompression, cookies and proxies.
+
+The controller samples `shutil.disk_usage(target).free` once per batch, at the
+first accepted response before payload writes, and subtracts worker write
+headroom. The shared in-memory budget reserves a known `Content-Length` before
+streaming or charges each unknown-length block before writing. Reservations
+stay charged after publication. Retries return the old reservation only after
+unlinking owned staging; failed transfers return it only after proven scratch
+cleanup. Failed cleanup retains the reservation conservatively. No per-MiB
+filesystem queries occur. This budget does not allocate disk extents or exclude
+other writers; write/fsync failures continue through the existing preservation
+and receipt rules. The same budget serves known-URL downloads and the aiohttp
+mirror transfer batch.
 
 `download_url_list(MirrorConfig(mode="download", ...))` takes destination/log
 ownership before creating state. It consumes either `url_list` or one
@@ -1241,5 +1261,5 @@ Preserve these constraints when extending or refactoring the current code.
 
 ---
 
-*This guide describes the architecture as of version 3.4.4. When you change the
+*This guide describes the architecture as of version 3.4.5. When you change the
 structure, update this document in the same PR.*

@@ -4,6 +4,24 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [3.4.5] - 2026-10-11
+
+### Fixed
+
+- Use the synchronous HTTPX reader in a background thread when a whole-file
+  batch has one worker. Batch raw bytes before handing them to the existing
+  controller, reducing per-read async overhead and file writes. Retain async
+  HTTPX for concurrent workers and the same retry, progress, ownership,
+  integrity and publication policy. Drain in-flight reads before cancellation
+  releases staging or closes the response.
+- Sample whole-file download free space once per batch and reserve declared
+  file lengths from a shared in-memory budget. Charge unknown-length streams
+  as bytes arrive, retain published-byte charges, and return failed-attempt
+  reservations only after owned staging is removed. Remove per-MiB filesystem
+  queries while preserving write headroom and disk-error handling.
+
 ## [3.4.4] - 2026-10-11
 
 ### Fixed
