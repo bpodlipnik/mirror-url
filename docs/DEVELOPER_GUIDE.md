@@ -554,8 +554,23 @@ These invariants are part of the current implementation:
   previous handlers. Graceful CLI interruption currently exits 0, while forced
   cleanup timeout exits 1; neither implies that an interrupted sync completed.
 
-The sync pipeline scans directories sequentially and materializes the remote
-file list in memory. `scan_mode`, `parallel_threshold`, `download_queue_size`,
+The sync pipeline materializes the remote file list in memory. Explicit
+`scan_mode: parallel` uses a discovery pool of `min(workers, 4)` threads;
+adaptive (default), sequential and async scan modes retain sequential discovery.
+The pool submits at most one bounded batch of listings at a time. The coordinator
+consumes results in breadth-first order and owns scope/depth/exclusion decisions,
+symlink state and incomplete-scan flags. It checks scope, depth and duplicate
+identity before submitting requests. Workers retain both directory per-IP pacing
+and normal connection-manager/transport rate limits. Pool shutdown cancels queued
+work and joins running requests on normal exit, exceptions and generator close.
+Scanner counters and shared XPath evaluation use a short state lock; HTTP work
+does not hold it. Fresh GET proofs retain their current-pass lifetime, and any
+listing failure still blocks cache publication and obsolete-file cleanup.
+Discovery logs counts and monotonic elapsed time before and during network work,
+then reports the final wall-clock rate; unknown tree size has no percentage or ETA.
+The later file-collection pass no longer emits a cached-work discovery rate.
+
+`parallel_threshold`, `download_queue_size`,
 the batch-size settings, and disk-backed remote tracking do not select another
 pipeline or impose a list-memory bound. `FileSystemCache` is available as a
 component, but freshness checks use direct filesystem stats. The scanner's

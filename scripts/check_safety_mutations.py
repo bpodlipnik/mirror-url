@@ -15,6 +15,41 @@ from pathlib import Path
 
 MUTATIONS = (
     (
+        "bounded directory request submissions",
+        "_core/scan.py",
+        "for _ in range(min(workers, len(queue))):",
+        "for _ in range(len(queue)):",
+        "tests/test_parallel_directory_discovery.py::test_only_one_worker_sized_batch_is_submitted_while_requests_are_blocked",
+    ),
+    (
+        "directory worker cap",
+        "_core/scan.py",
+        "min(4, self.config.workers) if parallel else 1",
+        "self.config.workers if parallel else 1",
+        "tests/test_parallel_directory_discovery.py::test_only_one_worker_sized_batch_is_submitted_while_requests_are_blocked",
+    ),
+    (
+        "breadth-first parallel decision order",
+        "_core/scan.py",
+        "yield from batch",
+        "yield from reversed(batch)",
+        "tests/test_parallel_directory_discovery.py::test_out_of_order_responses_cannot_reverse_symlink_decisions[skip]",
+    ),
+    (
+        "prefetch scope boundary",
+        "_core/scan.py",
+        "if relative is not None and depth < max_depth:",
+        "if depth < max_depth:",
+        "tests/test_parallel_directory_discovery.py::test_prefetch_checks_scope_before_any_request_is_submitted",
+    ),
+    (
+        "prefetch duplicate identity",
+        "_core/scan.py",
+        "if key not in processed and key not in scheduled:",
+        "if True:",
+        "tests/test_parallel_directory_discovery.py::test_prefetch_cannot_bypass_already_processed_directory",
+    ),
+    (
         "directory GET proof reset between discoveries",
         "_core/scan.py",
         "self.scanner.fresh_listing_headers = {}",

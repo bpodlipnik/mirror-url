@@ -957,7 +957,7 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
         "--scan-mode",
         choices=["sequential", "parallel", "adaptive", "async"],
         default="adaptive",
-        help="Compatibility scan-mode setting (default: adaptive); sync currently scans directories sequentially regardless of this value",
+        help="Directory discovery: parallel uses up to min(--workers, 4) listing workers; adaptive (default), sequential and async use sequential discovery. File metadata concurrency is configured separately",
     )
     scan.add_argument(
         "--parallel-threshold",

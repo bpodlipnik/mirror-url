@@ -7,6 +7,7 @@ import html
 import re
 import socket
 import threading
+import time
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
@@ -33,6 +34,7 @@ def local_archive(monkeypatch):
         drops={},
         etag=True,
         directory_headers={},
+        directory_delay_seconds=0.0,
     )
     lock = threading.Lock()
 
@@ -101,6 +103,8 @@ def local_archive(monkeypatch):
                 status = 404
             if "Content-Type" in headers:
                 headers.update(state.directory_headers)
+            if path.endswith("/") or not path:
+                time.sleep(state.directory_delay_seconds)
             self.send_response(status)
             for name, value in headers.items():
                 self.send_header(name, value)

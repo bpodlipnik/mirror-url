@@ -507,7 +507,7 @@ The most commonly used options:
 </tr>
 <tr>
 <td nowrap><samp>--scan-mode {adaptive,sequential,parallel,async}</samp></td>
-<td>Accepted for compatibility; directory discovery and parsing currently use sequential scanning regardless of this value. Async workers apply to file metadata checks.</td>
+<td><code>parallel</code> enables concurrent directory listing requests with at most <code>min(--workers, 4)</code> workers. <code>adaptive</code> (default), <code>sequential</code> and <code>async</code> retain sequential directory discovery. Request rate limits still apply. File metadata checks and parallel downloads are configured separately.</td>
 </tr>
 <tr>
 <td nowrap><samp>--parallel-threshold N</samp></td>
@@ -1670,7 +1670,7 @@ limit tracker behavior; they do not make the heuristic a definitive detector.
   phase timings and `download_throughput` (`null` when unavailable). Existing
   top-level metric keys remain available; `download_speed` is the older average
   over the collector's lifetime, not the new download-phase throughput.
-- **`--progress-bar`** shows a live tqdm bar (requires the `progress` extra).
+- **`--progress-bar`** shows a live tqdm bar for file processing (requires the `progress` extra). Directory discovery reports examined-directory counts and elapsed time while fetching listings; its total tree size is unknown, so it does not show a percentage or ETA. The final discovery rate includes listing request time.
 - **Health/metrics HTTP endpoints.** Setting `--metrics-json FILE` also starts
   a local HTTP server for a non-dry-run instance, until it is cleaned up.
   `--health-check-port` alone does not enable it. The server binds to `localhost`

@@ -14,16 +14,17 @@ import socket
 import sys
 import time
 from collections import deque
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from re import error as re_error
-from typing import TYPE_CHECKING, Dict, Generator, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Callable, Dict, Generator, List, Optional, Set, Tuple
 from urllib.parse import urlparse, urlsplit
 
 import httpx
 
 from ..decorators import log_performance
 from ..destination_lock import destination_operation
-from ..enums import MemoryPressure
+from ..enums import MemoryPressure, ScanMode
 from ..filename_mapping import FilenameMap
 from ..security import PathSafety
 from ..utils import _relative_url_path, sanitize_url_for_log, trim_url, url_within_scope
@@ -32,6 +33,33 @@ if TYPE_CHECKING:
     from ._typing import MirrorHost
 else:
     MirrorHost = object
+
+
+def _directory_work(
+    queue: deque[Tuple[str, int]],
+    processed: Set[str],
+    root_url: str,
+    max_depth: int,
+    executor: Optional[ThreadPoolExecutor],
+    workers: int,
+    scan: Callable[[str], Tuple[List[str], List[str]]],
+) -> Generator[Tuple[str, int, Optional[Future[Tuple[List[str], List[str]]]]], None, None]:
+    """Prefetch only a bounded batch; consume it in deterministic BFS order."""
+    while queue:
+        batch = []
+        scheduled: Set[str] = set()
+        for _ in range(min(workers, len(queue))):
+            url, depth = queue.popleft()
+            future = None
+            if executor is not None:
+                relative = _relative_url_path(url, root_url)
+                if relative is not None and depth < max_depth:
+                    key = relative.rstrip("/")
+                    if key not in processed and key not in scheduled:
+                        scheduled.add(key)
+                        future = executor.submit(scan, url)
+            batch.append((url, depth, future))
+        yield from batch
 
 
 class ScanMixin(MirrorHost):
@@ -258,10 +286,6 @@ class ScanMixin(MirrorHost):
             all_files: List[str] = []
             dir_signatures: Dict[str, str] = {}
 
-            self.multi_progress.add_level(
-                "directories", len(directories), prefix, self.config.progress_bar, self.config
-            )
-
             for i, url in enumerate(directories):
                 try:
                     files, subdirs = self.scanner.scan_directory_sequential(url)
@@ -292,8 +316,6 @@ class ScanMixin(MirrorHost):
                 all_files.extend(files)
                 sig = self._get_listing_signature(url)
                 dir_signatures[url] = sig
-                self.multi_progress.update("directories")
-
                 if i % 100 == 0:
                     pressure = self.memory_monitor.check_pressure()
                     if pressure != MemoryPressure.NORMAL:
@@ -705,6 +727,38 @@ class ScanMixin(MirrorHost):
         return " [⚠️ Last-Modified/ETag differ despite matching entries -- worth a manual look]"
 
     def _discover_directories_bfs(self) -> Generator[str, None, None]:
+        """Own the optional discovery pool until all its requests have exited."""
+        parallel = getattr(self.config, "scan_mode", ScanMode.ADAPTIVE) == ScanMode.PARALLEL
+        workers = min(4, self.config.workers) if parallel else 1
+        executor = (
+            ThreadPoolExecutor(max_workers=workers, thread_name_prefix="directory_scan")
+            if parallel
+            else None
+        )
+        try:
+            yield from self._walk_directory_tree(executor, workers)
+        finally:
+            if executor is not None:
+                executor.shutdown(wait=True, cancel_futures=True)
+
+    def _pace_directory_request(self, url: str) -> None:
+        """Retain the directory per-IP budget in addition to transport pacing."""
+        parsed = urlparse(url)
+        try:
+            if parsed.hostname is None:
+                raise ValueError("URL has no hostname")
+            ip = socket.gethostbyname(parsed.hostname)
+            self.per_ip_limiter.wait(ip)
+        except Exception:
+            pass
+
+    def _scan_discovery_directory(self, url: str) -> Tuple[List[str], List[str]]:
+        self._pace_directory_request(url)
+        return self.scanner.scan_directory_sequential(url, parallel=True)
+
+    def _walk_directory_tree(
+        self, executor: Optional[ThreadPoolExecutor], workers: int
+    ) -> Generator[str, None, None]:
         """BFS directory discovery - strictly within target scope."""
         if not self.connection_ok:
             logging.debug("Skipping directory discovery - connection not OK")
@@ -743,9 +797,24 @@ class ScanMixin(MirrorHost):
         flagged_symlink_prefixes: List[str] = []
         self.cleanup_protected_prefixes = set()
 
-        while queue:
-            url, depth = queue.popleft()
-
+        started = last_report = time.perf_counter()
+        logging.info(
+            "%sDiscovering directories: %s (%s worker%s)",
+            prefix,
+            "parallel" if executor is not None else "sequential",
+            workers,
+            "" if workers == 1 else "s",
+        )
+        work = _directory_work(
+            queue,
+            processed_dirs,
+            root_url,
+            self.config.max_depth,
+            executor,
+            workers,
+            self._scan_discovery_directory,
+        )
+        for url, depth, future in work:
             relative = _relative_url_path(url, root_url)
             if relative is None:
                 logging.debug(f"Skipping URL outside root scope: {url}")
@@ -774,7 +843,11 @@ class ScanMixin(MirrorHost):
             # "what's in this folder" probe into N+1 requests.
             if depth < self.config.max_depth:
                 try:
-                    _files, subdirs = self.scanner.scan_directory_sequential(url)
+                    _files, subdirs = (
+                        future.result()
+                        if future is not None
+                        else self.scanner.scan_directory_sequential(url)
+                    )
                 except Exception as e:
                     # FIX (partial-scan guard): this directory's files/subdirs
                     # are unknown, not empty -- treating them as [] previously
@@ -919,14 +992,18 @@ class ScanMixin(MirrorHost):
                 # Rate limiting -- only meaningful right after an actual
                 # request; skip it for the no-fetch branch above, since
                 # there's nothing to throttle.
-                parsed = urlparse(url)
-                try:
-                    if parsed.hostname is None:
-                        raise ValueError("URL has no hostname")
-                    ip = socket.gethostbyname(parsed.hostname)
-                    self.per_ip_limiter.wait(ip)
-                except Exception:
-                    pass
+                if executor is None:
+                    self._pace_directory_request(url)
+
+            now = time.perf_counter()
+            if now - last_report >= 5:
+                logging.info(
+                    "%sDirectory discovery: %s directories examined, %.3fs elapsed",
+                    prefix,
+                    len(processed_dirs),
+                    now - started,
+                )
+                last_report = now
 
             if skip_this_dir:
                 parsed_dir = urlsplit(url)
@@ -937,6 +1014,15 @@ class ScanMixin(MirrorHost):
                 )
             else:
                 yield url
+
+        elapsed = time.perf_counter() - started
+        logging.info(
+            "%sDirectory discovery finished: %s directories examined in %.3fs (%.1f dirs/s)",
+            prefix,
+            len(processed_dirs),
+            elapsed,
+            len(processed_dirs) / max(elapsed, 1e-9),
+        )
 
     def _get_local_path_from_url(self, url: str) -> Optional[Path]:
         """

@@ -756,7 +756,7 @@ below.</p>
 </tr>
 <tr>
 <td nowrap><samp>--scan-mode {adaptive,sequential,parallel,async}</samp></td>
-<td>Accepted for compatibility; directory discovery and parsing currently use sequential scanning regardless of this value. Async workers apply to file metadata checks.</td>
+<td><code>parallel</code> enables concurrent directory listing requests with at most <code>min(--workers, 4)</code> workers. <code>adaptive</code> (default), <code>sequential</code> and <code>async</code> retain sequential directory discovery. Request rate limits still apply. File metadata checks and parallel downloads are configured separately.</td>
 </tr>
 <tr>
 <td nowrap><samp>--parallel-threshold N</samp></td>
@@ -1917,7 +1917,11 @@ when unavailable). Existing top-level metric keys remain available;
 <code>download_speed</code> is the older average over the collector's
 lifetime, not the new download-phase throughput.</p></li>
 <li><p><strong><code>--progress-bar</code></strong> shows a live tqdm
-bar (requires the <code>progress</code> extra).</p></li>
+bar for file processing (requires the <code>progress</code> extra).
+Directory discovery reports examined-directory counts and elapsed time
+while fetching listings; its total tree size is unknown, so it does not
+show a percentage or ETA. The final discovery rate includes listing
+request time.</p></li>
 <li><p><strong>Health/metrics HTTP endpoints.</strong> Setting
 <code>--metrics-json FILE</code> also starts a local HTTP server for a
 non-dry-run instance, until it is cleaned up.
