@@ -8,6 +8,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Use the synchronous HTTPX reader in a background thread when a whole-file
+  batch has one worker. Batch raw bytes before handing them to the existing
+  controller, reducing per-read async overhead and file writes. Retain async
+  HTTPX for concurrent workers and the same retry, progress, ownership,
+  integrity and publication policy. Drain in-flight reads before cancellation
+  releases staging or closes the response.
 - Sample whole-file download free space once per batch and reserve declared
   file lengths from a shared in-memory budget. Charge unknown-length streams
   as bytes arrive, retain published-byte charges, and return failed-attempt

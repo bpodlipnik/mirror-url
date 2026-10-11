@@ -86,7 +86,10 @@ def origin(monkeypatch):
             self.end_headers()
             if body:
                 try:
-                    self.wfile.write(payload)
+                    if callable(payload):
+                        payload(self.wfile)
+                    else:
+                        self.wfile.write(payload)
                     self.wfile.flush()
                 except (BrokenPipeError, ConnectionResetError):
                     pass
@@ -229,6 +232,42 @@ def test_inside_redirect_and_connection_reuse(tmp_path, origin, backend):
     assert [r[1] for r in origin.requests] == ["/root/a", "/root/b", "/root/c", "/root/d"]
     # HTTPX may retire an unread redirect response; completed file bodies reuse the pool.
     assert len({r[3] for r in origin.requests[1:]}) == 1
+
+
+@pytest.mark.parametrize("sequential", [False, True])
+def test_single_worker_streams_large_and_unknown_lengths(tmp_path, origin, sequential):
+    payload = bytes(range(256)) * 3100
+    origin.routes["/root/a"] = (200, {}, payload)
+    origin.routes["/root/unknown"] = (200, {"Connection": "close"}, payload + b"tail")
+    paths = ("a", "unknown") if sequential else ("a",)
+    config = job(tmp_path, origin, paths=paths, sequential_downloads=sequential)
+    result = download_url_list(config)
+    assert result["success"] and result["files_downloaded"] == len(paths)
+    receipts = json.loads(Path(result["receipts"]).read_text())["files"]
+    for name in paths:
+        expected = payload if name == "a" else payload + b"tail"
+        local = config.dest_path / name
+        assert local.read_bytes() == expected
+        assert receipts[str(local)]["sha256"] == hashlib.sha256(expected).hexdigest()
+        assert receipts[str(local)]["identity"] == list(_identity(local))
+    assert_no_scratch(config.dest_path)
+
+
+def test_httpx_multiple_workers_contact_origin_concurrently(tmp_path, origin):
+    rendezvous = threading.Barrier(2, timeout=3)
+
+    def overlap(_):
+        rendezvous.wait()
+        return 200, {}, b"concurrent payload"
+
+    origin.routes.update({"/root/a": overlap, "/root/b": overlap})
+    config = job(tmp_path, origin, paths=("a", "b"), max_concurrent_downloads=2)
+    result = download_url_list(config)
+    assert result["success"] and result["files_downloaded"] == 2
+    assert all(
+        (config.dest_path / name).read_bytes() == b"concurrent payload" for name in ("a", "b")
+    )
+    assert_no_scratch(config.dest_path)
 
 
 def test_literal_unicode_and_spaces_have_identical_uri_escaping(tmp_path, origin, backend):
@@ -782,6 +821,82 @@ async def test_cancelled_workers_finish_before_ownership_release(tmp_path, origi
         assert_no_scratch(config.dest_path)
         assert not (config.dest_path / "a").exists()
     guard.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stage", ["headers", "body"])
+async def test_single_reader_cancellation_drains_network_before_cleanup(
+    tmp_path, origin, stage, monkeypatch
+):
+    entered, release, finished = threading.Event(), threading.Event(), threading.Event()
+    reading = threading.Event()
+    original_reader = httpx.Response.iter_raw
+
+    def observe_reads(response, *args, **kwargs):
+        for block in original_reader(response, *args, **kwargs):
+            yield block
+            # Set only when the client starts its next raw read after receiving
+            # the first block; a server-side pause alone can precede header receipt.
+            reading.set()
+
+    if stage == "body":
+        monkeypatch.setattr(httpx.Response, "iter_raw", observe_reads)
+
+    def pause():
+        entered.set()
+        try:
+            assert release.wait(3)
+        finally:
+            finished.set()
+
+    def body(file):
+        file.write(b"x" * 16384)
+        file.flush()
+        pause()
+        file.write(b"y" * 16384)
+
+    def route(_):
+        if stage == "headers":
+            pause()
+        return 200, {"Content-Length": "32768"}, body if stage == "body" else b"z" * 32768
+
+    origin.routes["/root/a"] = route
+    config = job(tmp_path, origin)
+    config.dest_path.mkdir()
+    local = config.dest_path / "a"
+    local.write_bytes(b"preserved old file")
+    original = _identity(local)
+    guard = DestinationLock([config.dest_path])
+    try:
+        with guard.operation():
+            state = PartialDownloadManager(config.dest_path)._state_directory()
+            scratch = OwnedScratch(config.dest_path, state, None, guard)
+            engine = AsyncTransfers(config, config.dest_path, origin.base, scratch)
+            task = asyncio.create_task(engine.run([(origin.base + "a", local)]))
+            try:
+                assert await asyncio.to_thread(entered.wait, 2)
+                if stage == "body":
+                    assert await asyncio.to_thread(reading.wait, 2)
+                task.cancel()
+                await asyncio.sleep(0.02)
+                task.cancel()
+                await asyncio.sleep(0.02)
+                # The loop remains responsive, but cancellation must not release
+                # staging or ownership while a background network call is live.
+                assert not task.done() and scratch._active and not finished.is_set()
+            finally:
+                release.set()
+            with pytest.raises(asyncio.CancelledError):
+                await asyncio.wait_for(task, 2)
+            assert finished.is_set() and not scratch._active
+            assert engine.closed_connection_pools == 1
+            assert local.read_bytes() == b"preserved old file" and _identity(local) == original
+            assert_no_scratch(config.dest_path)
+        with guard.operation():
+            pass
+    finally:
+        release.set()
+        guard.close()
 
 
 def test_destination_and_log_lock_conflicts_before_get(tmp_path, origin):

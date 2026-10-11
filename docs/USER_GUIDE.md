@@ -973,6 +973,12 @@ returns its reservation. This is internal accounting, not a filesystem
 allocation. If another program consumes the space, write or flush errors still
 fail the transfer and preserve the existing destination file.
 
+HTTPX downloads with one active worker use a synchronous network reader in a
+background thread, with small bounded byte batches. Multiple workers keep the
+asynchronous reader for concurrent files. Both paths use the same progress,
+retry, integrity, ownership and publication rules; network waits do not block
+the event loop. Download mode still omits discovery and freshness checks.
+
 ### One file URL
 
 Use the direct shortcut to download one file:

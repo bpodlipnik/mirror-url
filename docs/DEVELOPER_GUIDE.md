@@ -645,7 +645,15 @@ sources or no source. Standalone models still require all three target fields.
 provide raw bytes and response headers; the controller owns redirects, a
 monotonic request budget, aggregate bandwidth, fixed workers, full filename
 preflight, disk headroom, retry bounds, scratch leases and atomic publication.
-The HTTPX adapter uses `SecureAsyncTransport`; the optional aiohttp resolver
+The HTTPX adapter selects its reader using the actual worker count. One worker
+uses `SecureTransport` and a synchronous HTTPX client, running header/body/close
+operations through `asyncio.to_thread`. Raw bytes are grouped into small bounded
+batches with a short batching window, reducing thread handoffs and file writes
+without requiring slow streams to fill a complete block. Multiple workers use
+`SecureAsyncTransport`. Both readers only supply response headers and raw bytes;
+`AsyncTransfers._one` remains the sole transfer policy. Cancellation drains an
+in-flight thread operation before response closure and staging cleanup, even
+when shutdown cancels a worker again. The optional aiohttp resolver
 returns the validated public address directly to its connector, preserving the
 original hostname for Host and TLS. aiohttp requests retain encoded URL paths,
 use HTTP/1.1 and disable implicit redirects, decompression, cookies and proxies.
