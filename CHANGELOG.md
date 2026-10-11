@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Use the mirror `SUMMARY:` layout and shared run timer for known-URL downloads,
+  with accurate missing/existing publication counts, measured preparation,
+  download and cleanup times, download throughput and total duration.
+- Install `tqdm` as a core dependency so `--progress` and `--progress-bar` work
+  in a normal installation. Retain the `progress` extra for compatibility.
+- Keep one updating console bar per active known-URL download. With
+  `--print-logs`, retain ten-second observations in the log file without
+  duplicating them on the console; keep console updates when bars are unavailable.
+
 ## [3.4.2] - 2026-10-11
 
 ### Fixed

@@ -71,6 +71,8 @@ from .exceptions import (
     URLScopeError,
 )
 from .metrics import format_download_summary
+from .progress import ConsoleProgressFilter
+from .run_report import RunReport
 from .security import PathSafety
 from .utils import _log_files, sanitize_command_line
 
@@ -122,6 +124,7 @@ def setup_shared_logging(
     handlers: List[logging.Handler] = [file_handler]
     if args.print_logs:
         console_handler = logging.StreamHandler(sys.stderr)
+        console_handler.addFilter(ConsoleProgressFilter())
         console_handler.setFormatter(
             logging.Formatter(
                 "[%(asctime)s] [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
@@ -1327,8 +1330,16 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
                 "Known-URL download: backend=%s, discovery and freshness checks omitted",
                 download_config.backend,
             )
-            summary = download_url_list(download_config)
-            logging.info(format_download_summary(download_config, summary, target))
+            report = RunReport()
+            summary = download_url_list(download_config, run_report=report)
+            run = report.snapshot(summary.get("bytes_downloaded", 0))
+            logging.info(format_download_summary(download_config, summary, target, run))
+            logging.info("-" * 50)
+            logging.info(
+                "Download completed successfully"
+                if summary["success"]
+                else "Download completed with failures"
+            )
         except (MirrorError, ValueError, OSError) as error:
             print(f"Download error: {error}", file=sys.stderr)
             sys.exit(1)

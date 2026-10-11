@@ -58,7 +58,7 @@ python -m pip install --upgrade pip
 python -m pip install mirror-url
 ```
 
-To include all optional acceleration, progress, and monitoring packages:
+To include all optional acceleration, monitoring, and backend packages:
 
 ```bash
 python -m pip install "mirror-url[all]"
@@ -79,10 +79,11 @@ mirror-url --help
 ```
 
 Core dependencies: `httpx[http2]`, `pydantic` (v2), `PyYAML`, `portalocker`
-(including `pywin32` on Windows). Optional extras:
-`fast` (stringzilla, lxml), `progress` (tqdm), `monitor` (psutil),
+(including `pywin32` on Windows), and `tqdm` for progress bars. Optional extras:
+`fast` (stringzilla, lxml), `monitor` (psutil),
 `aiohttp` (the whole-file backend), and `all`
-(all optional runtime packages). Contributor setup is described below.
+(all optional runtime packages). The `progress` extra remains a compatibility alias;
+normal installations include progress bars. Contributor setup is described below.
 
 ## Usage
 

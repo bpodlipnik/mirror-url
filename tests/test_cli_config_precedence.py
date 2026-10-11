@@ -54,7 +54,7 @@ def run_main(tmp_path, monkeypatch):
 
     monkeypatch.setattr(cli, "MirrorURL", _StubMirror)
 
-    def stub_download(config):
+    def stub_download(config, **kwargs):
         captured.append(config)
         raise _Stop()
 

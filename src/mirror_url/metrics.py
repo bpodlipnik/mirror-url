@@ -14,7 +14,7 @@ from collections import deque
 from datetime import datetime
 from pathlib import Path
 from threading import RLock
-from typing import TYPE_CHECKING, Any, Dict, Literal
+from typing import TYPE_CHECKING, Any, Dict, Literal, Optional
 
 from ._version import __version__
 from .constants import ADAPTIVE_START_CONCURRENCY
@@ -269,7 +269,14 @@ class MetricsCollector:
 
             return summary
 
-    def report(self, prefix: str = "", show_stats: bool = False) -> str:
+    def report(
+        self,
+        prefix: str = "",
+        show_stats: bool = False,
+        *,
+        run: Optional[dict] = None,
+        known_urls: bool = False,
+    ) -> str:
         """
         Generate detailed metrics report.
 
@@ -278,13 +285,18 @@ class MetricsCollector:
             show_stats: Unused. Accepted for backward compatibility (``--stats``
                 used to be documented as switching on a detailed summary, but the
                 full summary has always been produced regardless).
+            run: Finished coordinator snapshot for a known-URL result.
+            known_urls: Mark discovery and metadata as not performed while
+                retaining the common summary layout and zero subsystem work.
 
         Returns:
             Formatted metrics report
         """
         summary = self.get_summary()
-        active_report = self.run_report.started is not None
-        if active_report:
+        active_report = run is not None or self.run_report.started is not None
+        if run is not None:
+            summary["run"] = run
+        elif active_report:
             # Preserve lifetime metrics in the API/JSON; display this sync's
             # cache and subsystem activity rather than earlier sync calls.
             activity = {
@@ -341,57 +353,9 @@ class MetricsCollector:
             f"{prefix}  Directories processed: {summary['directories_processed']}",
         ]
         if active_report:
-            run = summary["run"]
-            lines = [
-                f"{prefix}SUMMARY:",
-                f"{prefix}  Result: {run['status'].upper()}",
-                f"{prefix}  Remote files found: {run['remote_files_found']}",
-                f"{prefix}  Selected paths: {run['selected_paths_found']}/{run['selected_paths_configured']} found in scope",
-                f"{prefix}  Selected existing files checked: {run['selected_existing_files_checked']}",
-                f"{prefix}  Existing files checked and current: {run['existing_files_current']}",
-                f"{prefix}  Freshness checks skipped: {run['freshness_checks_skipped']}",
-                f"{prefix}  Other files skipped: {run['other_files_skipped']}",
-                f"{prefix}  Missing files downloaded: {run['missing_files_downloaded']}",
-                f"{prefix}  Changed files downloaded: {run['changed_files_downloaded']}",
-                f"{prefix}  Uncertain-freshness downloads: {run['uncertain_freshness_downloads']}",
-                f"{prefix}  Files failed: {summary['files_failed']}",
-                f"{prefix}  Obsolete files deleted: {self.metrics.get('files_deleted', 0)}",
-                f"{prefix}  Obsolete files moved: {self.metrics.get('files_moved', 0)}",
-                f"{prefix}  Downloaded bytes: {format_bytes(summary['bytes_downloaded'])}",
-            ]
-            if run["status"] in ("dry run", "failed dry run"):
-                lines.append(
-                    f"{prefix}  Files that would be downloaded: {run['downloads_planned']}"
-                )
-            if run["unclassified_downloads"]:
-                lines.append(f"{prefix}  Other files downloaded: {run['unclassified_downloads']}")
-            if run["metadata_checks_unresolved"]:
-                lines.append(
-                    f"{prefix}  Unresolved freshness checks: {run['metadata_checks_unresolved']}"
-                )
-            if run["reasons"]:
-                lines.append(f"{prefix}  Result details: {run['reasons']}")
-            mode = run["discovery_mode"]
-            workers = run["discovery_workers"]
-            strategy = f"{mode} ({workers} worker{'s' if workers != 1 else ''})" if mode else "n/a"
-            lines.append(f"{prefix}  Discovery mode: {strategy}")
-            lines.append(f"{prefix}  Directories examined: {run['directories_examined']}")
-            lines.append(
-                f"{prefix}  Discovery elapsed time: {run['phase_seconds'].get('discovery', 0):.3f}s"
+            lines = _format_run_summary(
+                summary, summary["run"], prefix=prefix, known_urls=known_urls
             )
-            discovery_rate = run["discovery_throughput"]
-            rate = f"{discovery_rate:.1f} dirs/s" if discovery_rate is not None else "n/a"
-            lines.append(f"{prefix}  Discovery throughput: {rate}")
-            for phase in ("metadata", "download preparation", "downloads", "cleanup"):
-                lines.append(
-                    f"{prefix}  {phase.capitalize()} time: {run['phase_seconds'].get(phase, 0):.3f}s"
-                )
-            throughput = run["download_throughput"]
-            speed = f"{format_bytes(throughput)}/s" if throughput is not None else "n/a"
-            lines.append(f"{prefix}  Download throughput: {speed}")
-            lines.append(f"{prefix}  Total duration: {run['elapsed_seconds']:.3f}s")
-            lines.append(f"{prefix}  Directories scanned: {summary['directories_processed']}")
-
         # Scan mode metrics
         if summary["directories_scanned_parallel"] > 0:
             lines.append(f"{prefix}  Parallel scans: {summary['directories_scanned_parallel']}")
@@ -578,36 +542,112 @@ class MetricsCollector:
             return False
 
 
-def format_download_summary(config: MirrorConfig, summary: dict, target: Path) -> str:
-    """Render known-URL metrics using the destination already validated by the CLI."""
-    lines = [
-        "DOWNLOAD SUMMARY:",
-        "  Result: " + ("SUCCESS" if summary["success"] else "FAILED"),
-        f"  Backend: {config.backend}",
-        f"  Destination: {target.resolve()}",
-    ]
-    if summary.get("dry_run"):
-        lines.extend(["  Dry run: no downloads", f"  Files planned: {summary['files']}"])
-    else:
-        size = summary["bytes_downloaded"]
-        elapsed = summary["elapsed_seconds"]
-        throughput = (
-            format_bytes(size / elapsed, binary_units=True) + "/s" if elapsed > 0 else "n/a"
+def _format_run_summary(
+    summary: dict, run: dict, *, prefix: str = "", known_urls: bool = False
+) -> list[str]:
+    """Render the same completion layout for mirror and known-URL runs."""
+    lines = [f"{prefix}SUMMARY:", f"{prefix}  Result: {run['status'].upper()}"]
+    found = "not performed" if known_urls else run["remote_files_found"]
+    lines.append(f"{prefix}  Remote files found: {found}")
+    if known_urls:
+        lines.append(f"{prefix}  Files requested: {run['remote_files_found']}")
+    lines.extend(
+        [
+            f"{prefix}  Selected paths: {run['selected_paths_found']}/{run['selected_paths_configured']} found in scope",
+            f"{prefix}  Selected existing files checked: {run['selected_existing_files_checked']}",
+            f"{prefix}  Existing files checked and current: {run['existing_files_current']}",
+            f"{prefix}  Freshness checks skipped: {run['freshness_checks_skipped']}",
+            f"{prefix}  Other files skipped: {run['other_files_skipped']}",
+            f"{prefix}  Missing files downloaded: {run['missing_files_downloaded']}",
+            f"{prefix}  Changed files downloaded: {run['changed_files_downloaded']}",
+            f"{prefix}  Uncertain-freshness downloads: {run['uncertain_freshness_downloads']}",
+            f"{prefix}  Files failed: {summary['files_failed']}",
+            f"{prefix}  Obsolete files deleted: {summary.get('files_deleted', 0)}",
+            f"{prefix}  Obsolete files moved: {summary.get('files_moved', 0)}",
+            f"{prefix}  Downloaded bytes: {format_bytes(summary['bytes_downloaded'])}",
+        ]
+    )
+    if run["status"] in ("dry run", "failed dry run"):
+        planned = summary["files"] if known_urls else run["downloads_planned"]
+        lines.append(f"{prefix}  Files that would be downloaded: {planned}")
+    if known_urls or run["unclassified_downloads"]:
+        label = "Existing files downloaded" if known_urls else "Other files downloaded"
+        lines.append(f"{prefix}  {label}: {run['unclassified_downloads']}")
+    if known_urls and run["status"] != "dry run":
+        lines.append(f"{prefix}  Files downloaded: {summary['files_downloaded']}")
+    if run["metadata_checks_unresolved"]:
+        lines.append(f"{prefix}  Unresolved freshness checks: {run['metadata_checks_unresolved']}")
+    if run["reasons"]:
+        lines.append(f"{prefix}  Result details: {run['reasons']}")
+    mode, workers = run["discovery_mode"], run["discovery_workers"]
+    strategy = f"{mode} ({workers} worker{'s' if workers != 1 else ''})" if mode else "n/a"
+    discovery = f"{run['phase_seconds'].get('discovery', 0):.3f}s"
+    if known_urls:
+        strategy = discovery = "not performed"
+    lines.extend(
+        [
+            f"{prefix}  Discovery mode: {strategy}",
+            f"{prefix}  Directories examined: {run['directories_examined']}",
+            f"{prefix}  Discovery elapsed time: {discovery}",
+        ]
+    )
+    rate = run["discovery_throughput"]
+    lines.append(
+        f"{prefix}  Discovery throughput: {f'{rate:.1f} dirs/s' if rate is not None else 'n/a'}"
+    )
+    for phase in ("metadata", "download preparation", "downloads", "cleanup"):
+        seconds = run["phase_seconds"].get(phase, None if known_urls else 0.0)
+        duration = f"{seconds:.3f}s" if seconds is not None else "n/a"
+        if known_urls and phase == "metadata":
+            duration = "not performed"
+        lines.append(f"{prefix}  {phase.capitalize()} time: {duration}")
+    throughput = run["download_throughput"]
+    speed = f"{format_bytes(throughput)}/s" if throughput is not None else "n/a"
+    lines.append(f"{prefix}  Download throughput: {speed}")
+    elapsed = run["elapsed_seconds"]
+    lines.append(f"{prefix}  Total duration: {f'{elapsed:.3f}s' if elapsed is not None else 'n/a'}")
+    lines.append(f"{prefix}  Directories scanned: {summary['directories_processed']}")
+    return lines
+
+
+def format_download_summary(
+    config: MirrorConfig, summary: dict, target: Path, run: Optional[dict] = None
+) -> str:
+    """Use the shared summary layout and measured known-URL coordinator phases."""
+    if run is None:
+        # Older callers have only the JSON result, without per-phase observations.
+        run = RunReport().snapshot()
+        run.update(
+            status="dry run"
+            if summary.get("dry_run")
+            else "success"
+            if summary["success"]
+            else "failed",
+            elapsed_seconds=summary.get("elapsed_seconds"),
+            remote_files_found=summary.get(
+                "files", summary.get("files_downloaded", 0) + summary.get("files_failed", 0)
+            ),
+            missing_files_downloaded="n/a",
+            unclassified_downloads="n/a",
         )
-        lines.extend(
-            [
-                f"  Files downloaded: {summary['files_downloaded']}",
-                f"  Files failed: {summary['files_failed']}",
-                f"  Downloaded bytes: {format_bytes(size, binary_units=True)} ({size} bytes)",
-                f"  Elapsed time: {elapsed:.3f}s",
-                f"  Average throughput: {throughput}",
-                "  SHA-256: "
-                + ("enabled (local receipts)" if config.verify_content else "disabled"),
-                f"  Disk flush time: {summary['stage_seconds']['fsync']:.3f}s",
-            ]
+    metrics = MetricsCollector()
+    # Mirror's renderer receives the same zero subsystem counters for work
+    # this pipeline does not perform, plus the actual known-URL observations.
+    metrics.metrics.update(
+        files_downloaded=summary.get("files_downloaded", 0),
+        files_failed=summary.get("files_failed", 0),
+        bytes_downloaded=summary.get("bytes_downloaded", 0),
+        files=summary.get("files", 0),
+    )
+    lines = [metrics.report(run=run, known_urls=True)]
+    lines.extend([f"  Backend: {config.backend}", f"  Destination: {target.resolve()}"])
+    if not summary.get("dry_run"):
+        lines.append(
+            "  SHA-256: " + ("enabled (local receipts)" if config.verify_content else "disabled")
         )
+        lines.append(f"  Disk flush time (sum): {summary['stage_seconds']['fsync']:.3f}s")
         if config.verify_content:
-            lines.append(f"  SHA-256 time: {summary['stage_seconds']['hash']:.3f}s")
+            lines.append(f"  SHA-256 time (sum): {summary['stage_seconds']['hash']:.3f}s")
         lines.append(f"  Ownership receipts: {summary['receipts']}")
     return "\n".join(lines)
 

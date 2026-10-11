@@ -28,7 +28,7 @@ classifiers = [
     "Topic :: System :: Archiving :: Mirroring",
 ]
 
-# Core runtime dependencies (imported unconditionally by the package).
+# Core dependencies for standard CLI features.
 dependencies = [
     # [http2]: config.http2 defaults to True, so h2 is a hard runtime
     # requirement, not optional -- without it, AdaptiveAsyncManager's
@@ -38,6 +38,7 @@ dependencies = [
     "httpx[http2]>=0.24",
     "pydantic>=2.0",
     "PyYAML>=6.0",
+    "tqdm>=4.65",
     # 3.x provides shared Windows locks (via pywin32).
     "portalocker>=3.2,<4",
 ]
@@ -45,10 +46,11 @@ dependencies = [
 [project.optional-dependencies]
 # Optional accelerators / niceties — guarded by try/except in the code.
 fast = ["stringzilla>=3.0", "lxml>=4.9"]
-progress = ["tqdm>=4.65"]
+# Retain the extra name for compatibility; progress is included in core.
+progress = []
 monitor = ["psutil>=5.9"]
 aiohttp = ["aiohttp>=3.10,<4"]
-all = ["stringzilla>=3.0", "lxml>=4.9", "tqdm>=4.65", "psutil>=5.9", "aiohttp>=3.10,<4"]
+all = ["stringzilla>=3.0", "lxml>=4.9", "psutil>=5.9", "aiohttp>=3.10,<4"]
 
 # Development / CI toolchain.
 dev = [
@@ -134,7 +136,7 @@ ignore = [
 # Check against the minimum supported runtime, matching requires-python.
 python_version = "3.10"
 files = ["src/mirror_url"]
-ignore_missing_imports = true   # optional deps (stringzilla, lxml, tqdm, psutil) have no stubs
+ignore_missing_imports = true   # dependencies (stringzilla, lxml, tqdm, psutil) have no stubs
 follow_imports = "silent"
 disallow_untyped_defs = false
 check_untyped_defs = false

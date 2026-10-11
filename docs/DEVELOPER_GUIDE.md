@@ -13,8 +13,8 @@ repeats the essentials so you can work from it alone.
 - **Package:** `mirror_url` (src-layout under `src/`)
 - **Version:** 3.4.2
 - **Python:** 3.10 or newer; CI tests Python 3.10–3.14
-- **Runtime deps:** `httpx[http2]` (including `h2`), `pydantic` v2, `PyYAML`, `portalocker` 3.x (optional: `stringzilla`,
-  `lxml`, `tqdm`, `psutil`, `aiohttp`)
+- **Runtime deps:** `httpx[http2]` (including `h2`), `pydantic` v2, `PyYAML`, `portalocker` 3.x, `tqdm` (optional: `stringzilla`,
+  `lxml`, `psutil`, `aiohttp`)
 
 ---
 
@@ -663,8 +663,10 @@ chunks. The whole-file pipeline preserves those existing partials.
 
 `progress.DownloadProgress` observes this pipeline for visible known-URL
 runs, in the existing progress module alongside the mirror item tracker.
-Both use the same optional tqdm constructor; byte and summary formatting uses
-the shared `utils.format_bytes()` with IEC labels. One timer thread waits ten
+Both use the same tqdm constructor; the base package requires `tqdm`, while
+the `progress` extra remains a compatibility alias. Renderer failures still
+degrade safely. Byte formatting uses the shared `utils.format_bytes()`;
+completion summaries follow mirror units and live byte progress uses IEC labels. One timer thread waits ten
 seconds between progress messages, independently
 of the async loop so synchronous fsync and optional SHA-256 work remain visible.
 Workers update bounded active-file observations under a short lock; logging
@@ -680,11 +682,26 @@ only active bars are retained. Body updates use tqdm's refresh throttling, while
 stage changes and timer ticks refresh waiting/flushing/hashing displays. Unknown
 lengths have no percentage or ETA. Retry bars reset to byte zero, and all bars
 close on success, failure or exception. Renderer errors do not fail transfers.
+Periodic observations mark whether every active file has a visible bar.
+The shared CLI console handler's `ConsoleProgressFilter` suppresses those
+observations on stderr while the file handler retains them. Missing, failed or
+disabled bars and receipt-saving without an active bar retain console updates;
+warnings and completion summaries always pass through the filter.
 
 The CLI uses a download-specific startup banner and
 `metrics.format_download_summary()` for readable completion logs, using the
-destination already validated by the CLI. The existing JSON result
-schema and stdout stream remain unchanged. `--print-logs` sends human logs to
+destination already validated by the CLI. Mirror and known-URL completion logs
+share `MetricsCollector.report()`, `_format_run_summary()` and the `RunReport`
+coordinator clock. Known-URL summaries retain mirror's field order and subsystem
+counters, marking discovery/metadata as not performed and reporting zero
+scan, cache, freshness and obsolete-file work. Known-URL
+preparation, downloads and cleanup are measured separately; cleanup includes
+receipt saving, progress timer shutdown and transfer guard cleanup. The outer CLI
+owner releases the run's kernel locks after completion output and log closure.
+Missing versus existing publication counts use the preflight local file identity;
+existing downloads are not classified as changed without a freshness check.
+The JSON result schema and stdout stream remain unchanged; its elapsed clock
+now includes final timer and transfer guard cleanup. `--print-logs` sends human logs to
 stderr; it does not duplicate the JSON result in the log. CLI logging flags
 control progress visibility, matching the shared handler configuration.
 
