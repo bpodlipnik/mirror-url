@@ -22,6 +22,7 @@ from ..constants import ADAPTIVE_START_CONCURRENCY, AUTO_CONCURRENCY_SAMPLES
 from ..decorators import log_performance
 from ..destination_lock import destination_operation
 from ..enums import CleanupPolicy, DownloadMethod
+from ..metrics import log_run_completion
 from ..progress import ProgressTracker
 from ..transfers import AsyncTransfers, TransferResult
 from ..utils import format_bytes, format_duration, sanitize_url_for_log
@@ -772,10 +773,10 @@ class ReportMixin(MirrorHost):
                 self.metrics.export_json(self.config.metrics_json, self.config)
 
             if reasons:
-                logging.warning("%sSync failed: %s", prefix, "; ".join(reasons))
+                log_run_completion(False, prefix=prefix, reasons="; ".join(reasons))
                 return False
 
-            logging.info(f"{prefix}Sync completed successfully")
+            log_run_completion(True, prefix=prefix)
             return True
 
         except Exception as e:

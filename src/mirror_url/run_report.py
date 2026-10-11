@@ -29,6 +29,7 @@ class RunReport:
         self.discovery_mode: Optional[str] = None
         self.discovery_workers = 0
         self.directories_examined = 0
+        self.closed_connection_pools = 0
 
     def start(self, metrics: dict, selected_configured: int) -> None:
         with self._lock:
@@ -47,6 +48,7 @@ class RunReport:
             self.selected_configured = selected_configured
             self.discovery_mode = None
             self.discovery_workers = self.directories_examined = 0
+            self.closed_connection_pools = 0
 
     def begin_discovery(self, mode: str, workers: int) -> None:
         """Record the actual BFS strategy, separately from parser activity."""

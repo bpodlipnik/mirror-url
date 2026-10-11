@@ -31,6 +31,7 @@ from .exceptions import (
     SecurityError,
     URLScopeError,
 )
+from .metrics import log_connection_pools_closed
 from .rate_limiter import PerIPRateLimiter, RateLimiter
 from .security import SecurityValidator
 from .transport import SecureTransport
@@ -313,7 +314,7 @@ class ConnectionPool:
             self.pools.clear()
             self.pool_usage.clear()
             self.last_used.clear()
-            logging.info(f"Closed all {pool_count} connection pools")
+            log_connection_pools_closed(pool_count)
 
     def get_stats(self) -> Dict[str, Any]:
         """

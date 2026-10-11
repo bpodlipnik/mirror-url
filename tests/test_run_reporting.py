@@ -59,7 +59,9 @@ def test_phase_wall_time_is_the_download_denominator_and_completion_is_frozen(mo
     assert result["elapsed_seconds"] == 18
     assert result["download_throughput"] == 5_000_000
     assert result["phase_seconds"] == {"discovery": 16, "downloads": 2}
+    report.closed_connection_pools = 1
     report.start({}, 0)
+    assert report.closed_connection_pools == 0
     assert report.snapshot()["missing_files_downloaded"] == 0
     assert report.snapshot()["download_throughput"] is None
 

@@ -90,7 +90,7 @@ def test_disabled_progress_has_no_thread_state_or_output(tmp_path, caplog):
 
 
 @pytest.mark.parametrize("verify", [False, True])
-def test_readable_summary_explains_real_hash_status(tmp_path, caplog, verify):
+def test_download_summary_has_no_separate_details_footer(tmp_path, caplog, verify):
     caplog.set_level(logging.INFO)
     config = MirrorConfig(
         base_url="https://files.example/root",
@@ -127,9 +127,22 @@ def test_readable_summary_explains_real_hash_status(tmp_path, caplog, verify):
     assert "SUMMARY:" in caplog.text and "Result: SUCCESS" in caplog.text
     assert "Downloaded bytes: 8.89 GB" in caplog.text
     assert "Download throughput: 113.76 MB/s" in caplog.text and "90.831s" in caplog.text
-    assert "Disk flush time (sum): 3.538s" in caplog.text
-    assert ("SHA-256 time (sum):" in caplog.text) is verify
-    assert ("SHA-256: disabled" in caplog.text) is not verify
+    for extra in (
+        "Backend:",
+        "Destination:",
+        "SHA-256:",
+        "Disk flush time",
+        "SHA-256 time",
+        "Ownership receipts:",
+    ):
+        assert extra not in caplog.text
+    assert (
+        caplog.records[-1]
+        .getMessage()
+        .endswith(
+            "  Cache signatures: 0\n  RGET-LIST used: False\n  Fast parses: 0\n  LXML parses: 0"
+        )
+    )
     assert "Download preparation time: 1.000s" in caplog.text
     assert "Downloads time: 80.000s" in caplog.text
     assert "Cleanup time: 9.831s" in caplog.text
@@ -203,7 +216,10 @@ def test_download_summary_retains_mirror_field_order_and_labels(tmp_path):
         return [line.split(":", 1)[0].strip() for line in text.splitlines()]
 
     mirror_labels, download_labels = labels(mirror), labels(download)
-    assert [label for label in download_labels if label in mirror_labels] == mirror_labels
+    direct_counts = {"Files requested", "Existing files downloaded", "Files downloaded"}
+    assert [label for label in download_labels if label not in direct_counts] == mirror_labels
+    footer = "  In-memory parsed listing reuses:"
+    assert download[download.index(footer) :] == mirror[mirror.index(footer) :]
     for label in (
         "Selected paths",
         "Existing files checked and current",

@@ -886,8 +886,7 @@ def test_cli_print_logs_reports_during_network_wait_then_readable_summary(
     )
     cli.main()
     captured = capsys.readouterr()
-    result = json.loads(captured.out)
-    assert result["success"] and waited == [True]
+    assert captured.out == "" and waited == [True]
     assert len(messages) >= 2 and "waiting for response" in "\n".join(messages)
     assert "SUMMARY:" in captured.err and "Files downloaded: 1" in captured.err
     assert f"Destination: {tmp_path}" in captured.err and "Download throughput:" in captured.err
@@ -944,12 +943,11 @@ def test_cli_progress_remains_live_during_blocking_finalization(
     )
     cli.main()
     captured = capsys.readouterr()
-    result = json.loads(captured.out)
-    assert result["success"] and waited == [True]
+    assert captured.out == "" and waited == [True]
     assert len(messages) >= 2
     assert ("flushing file" if stage == "flush" else "hashing (SHA-256)") in "\n".join(messages)
     assert all("0/1 files completed" in message for message in messages)
-    assert "SHA-256 time (sum):" in captured.err
+    assert "Result: SUCCESS" in captured.err and "SHA-256: enabled" in captured.err
     assert (tmp_path / "a").read_bytes() == payload
     assert not any(t.name == "mirror-url-download-progress" for t in threading.enumerate())
 
@@ -999,7 +997,8 @@ def test_cli_progress_tracks_bytes_while_stream_is_pending(
     )
     cli.main()
     captured = capsys.readouterr()
-    assert json.loads(captured.out)["success"] and waited == [True]
+    assert captured.out == "" and waited == [True]
+    assert "Result: SUCCESS" in captured.err
     assert len(messages) >= 2
     assert all(
         "received 3.00 B" in message and "0/1 files completed" in message for message in messages
@@ -1023,8 +1022,16 @@ def test_cli_failed_download_preserves_json_and_console_preferences(
     with pytest.raises(SystemExit) as error:
         cli.main()
     captured = capsys.readouterr()
-    result = json.loads(captured.out)
-    assert error.value.code == 1 and not result["success"] and result["files_failed"] == 1
+    assert error.value.code == 1
+    if flags == ["--print-logs"]:
+        assert captured.out == ""
+        assert "Files failed: 1" in captured.err
+        assert "Sync failed" in captured.err and "❌ Failed to process: ROOT" in captured.err
+        assert "Sync completed successfully" not in captured.err
+        assert "Closed all 1 connection pools" in captured.err
+    else:
+        result = json.loads(captured.out)
+        assert not result["success"] and result["files_failed"] == 1
     assert ("SUMMARY:" in captured.err) is (flags == ["--print-logs"])
     assert ("Result: FAILED" in captured.err) is (flags == ["--print-logs"])
     if not flags:
@@ -1074,7 +1081,11 @@ def test_cli_known_url_byte_bar_and_json_stream(
     )
     cli.main()
     captured = capsys.readouterr()
-    assert json.loads(captured.out)["files_downloaded"] == 1
+    if print_logs:
+        assert captured.out == ""
+        assert "Files downloaded: 1" in captured.err
+    else:
+        assert json.loads(captured.out)["files_downloaded"] == 1
     assert snapshots == [(3, declared_length)]
     assert len(bars) == 1 and bars[0].n == 6 and bars[0].disable
     assert bars[0].total == declared_length
@@ -1107,11 +1118,12 @@ def test_cli_download_summary_uses_validated_destination(tmp_path, origin, monke
     )
     cli.main()
     captured = capsys.readouterr()
-    result = json.loads(captured.out)
     target = destination / "_CON"
-    assert result["success"] and (target / "a").read_bytes() == b"destination bytes"
+    assert captured.out == "" and "Result: SUCCESS" in captured.err
+    assert (target / "a").read_bytes() == b"destination bytes"
     assert f"Destination: {target}" in captured.err
-    assert json.loads(Path(result["receipts"]).read_text())["target"] == str(target)
+    receipts = list((target / ".mirror-url-state").glob("url-list-*.json"))
+    assert len(receipts) == 1 and json.loads(receipts[0].read_text())["target"] == str(target)
 
 
 @pytest.mark.parametrize("source", ["positional", "list", "config-direct"])
@@ -1336,6 +1348,7 @@ def test_known_url_phase_report_finishes_on_preflight_error_and_dry_run(tmp_path
     result = download_url_list(config, run_report=report)
     assert result == {"success": True, "dry_run": True, "files": 1, "backend": "httpx"}
     assert report.status == "dry run" and report.finished is not None
+    assert report.closed_connection_pools == 0
     assert "downloads" not in report.phases and not origin.requests
     config.dry_run = False
     config.dest_path.mkdir()
@@ -1345,6 +1358,119 @@ def test_known_url_phase_report_finishes_on_preflight_error_and_dry_run(tmp_path
     assert report.status == "failed" and report.finished is not None
     assert report._active_phase is None and "downloads" not in report.phases
     assert not origin.requests
+
+
+def test_cli_download_uses_mirror_completion_footer_after_real_backend_close(
+    tmp_path, origin, backend, monkeypatch, capsys
+):
+    import mirror_url.transfers as transfers
+
+    adapter = transfers._HTTPXBackend if backend == "httpx" else transfers._AIOHTTPBackend
+    original = adapter.close
+    closures = []
+
+    async def close(self):
+        await original(self)
+        closures.append(self)
+
+    monkeypatch.setattr(adapter, "close", close)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(cli.tempfile, "gettempdir", lambda: str(tmp_path / "logs"))
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "mirror-url",
+            "--mode",
+            "download",
+            origin.base + "a",
+            "--backend",
+            backend,
+            "--print-logs",
+        ],
+    )
+    cli.main()
+    captured = capsys.readouterr()
+    assert captured.out == "" and len(closures) == 1
+    lines = captured.err.splitlines()
+    # Remove log prefixes while preserving the complete summary/trailer order.
+    lines = [line.split("] [INFO] ", 1)[-1].rstrip() for line in lines]
+    assert lines[-7:] == [
+        "  RGET-LIST used: False",
+        "  Fast parses: 0",
+        "  LXML parses: 0",
+        "-" * 50,
+        "Sync completed successfully",
+        "[1/1] ✅ Successfully processed: ROOT",
+        "Closed all 1 connection pools",
+    ]
+    assert (tmp_path / "a").read_bytes() == b"bytes"
+    receipts = list((tmp_path / ".mirror-url-state").glob("url-list-*.json"))
+    assert len(receipts) == 1
+    receipt = json.loads(receipts[0].read_text())["files"][str(tmp_path / "a")]
+    assert receipt["size"] == 5 and receipt["url"] == origin.base + "a"
+
+
+def test_backend_close_failure_cannot_emit_success_or_pool_closure(
+    tmp_path, origin, backend, monkeypatch, capsys
+):
+    import mirror_url.transfers as transfers
+
+    adapter = transfers._HTTPXBackend if backend == "httpx" else transfers._AIOHTTPBackend
+    original = adapter.close
+
+    async def close(self):
+        await original(self)
+        raise OSError("backend close failed")
+
+    monkeypatch.setattr(adapter, "close", close)
+    reports = []
+    original_report = cli.RunReport
+
+    def report():
+        value = original_report()
+        reports.append(value)
+        return value
+
+    monkeypatch.setattr(cli, "RunReport", report)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(cli.tempfile, "gettempdir", lambda: str(tmp_path / "logs"))
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "mirror-url",
+            "--mode",
+            "download",
+            origin.base + "a",
+            "--backend",
+            backend,
+            "--print-logs",
+        ],
+    )
+    with pytest.raises(SystemExit) as error:
+        cli.main()
+    captured = capsys.readouterr()
+    assert error.value.code == 1 and "backend close failed" in captured.err
+    assert captured.out == "" and "Sync completed successfully" not in captured.err
+    assert "Closed all 1 connection pools" not in captured.err
+    assert len(reports) == 1 and reports[0].status == "failed"
+    assert reports[0].closed_connection_pools == 0
+    assert (tmp_path / "a").read_bytes() == b"bytes"
+    assert len(list((tmp_path / ".mirror-url-state").glob("url-list-*.json"))) == 1
+
+
+def test_cli_dry_run_reports_no_pool_closures(tmp_path, origin, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(cli.tempfile, "gettempdir", lambda: str(tmp_path / "logs"))
+    monkeypatch.setattr(
+        "sys.argv",
+        ["mirror-url", "--mode", "download", origin.base + "a", "--print-logs", "--dry-run"],
+    )
+    cli.main()
+    captured = capsys.readouterr()
+    assert captured.out == "" and "Result: DRY RUN" in captured.err
+    assert "Closed all 0 connection pools" in captured.err
+    assert not origin.requests and not (tmp_path / "a").exists()
+    assert not (tmp_path / ".mirror-url-state").exists()
 
 
 def test_known_url_report_does_not_claim_success_when_ownership_close_fails(
