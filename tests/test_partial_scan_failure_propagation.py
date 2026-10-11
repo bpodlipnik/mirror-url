@@ -48,10 +48,10 @@ from types import SimpleNamespace
 import pytest
 
 from mirror_url._core.scan import ScanMixin
-from mirror_url.run_report import RunReport
 from mirror_url.enums import MemoryPressure
 from mirror_url.exceptions import ParsingError
 from mirror_url.metrics import MetricsCollector
+from mirror_url.run_report import RunReport
 from mirror_url.scanner import DirectoryScanner
 
 ROOT = "https://example.test/data/"
