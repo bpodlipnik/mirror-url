@@ -33,6 +33,7 @@ from types import SimpleNamespace
 
 from mirror_url._core.scan import ScanMixin
 from mirror_url.enums import MemoryPressure
+from mirror_url.run_report import RunReport
 
 ROOT = "https://example.test/data/"
 
@@ -50,6 +51,7 @@ class _FakeScanner:
 class _FakeMetrics:
     def __init__(self):
         self.metrics: dict[str, int] = {}
+        self.run_report = RunReport()
 
     def increment(self, metric: str, value: int = 1) -> None:
         self.metrics[metric] = self.metrics.get(metric, 0) + value

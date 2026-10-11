@@ -39,6 +39,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from mirror_url._core.scan import ScanMixin
+from mirror_url.run_report import RunReport
 
 ROOT = "https://example.test/data/"
 
@@ -70,7 +71,7 @@ class _StubMirror(ScanMixin):
         self.config = SimpleNamespace(
             max_depth=max_depth, exclude_dirs=exclude_dirs or [], handle_symlinks=False
         )
-        self.metrics = SimpleNamespace(increment=lambda *a, **kw: None)
+        self.metrics = SimpleNamespace(increment=lambda *a, **kw: None, run_report=RunReport())
         self.per_ip_limiter = SimpleNamespace(wait=lambda ip: None)
         self.scan_incomplete = False
 
@@ -104,6 +105,7 @@ def test_max_depth_1_scans_only_the_root_not_every_child(monkeypatch):
     yielded = list(mirror._discover_directories_bfs())
 
     assert sorted(yielded) == sorted([ROOT, ROOT + "A/", ROOT + "B/"])
+    assert mirror.metrics.run_report.snapshot()["directories_examined"] == 3
     assert mirror.scanner.calls == [ROOT], (
         f"expected exactly one scan (the root only), got {mirror.scanner.calls} -- "
         "children at depth == max_depth must be yielded without being fetched"

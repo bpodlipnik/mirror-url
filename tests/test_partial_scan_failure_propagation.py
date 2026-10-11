@@ -48,6 +48,7 @@ from types import SimpleNamespace
 import pytest
 
 from mirror_url._core.scan import ScanMixin
+from mirror_url.run_report import RunReport
 from mirror_url.enums import MemoryPressure
 from mirror_url.exceptions import ParsingError
 from mirror_url.metrics import MetricsCollector
@@ -151,6 +152,7 @@ class _RaisingRealScanner:
 class _FakeMetrics:
     def __init__(self):
         self.metrics: dict = {}
+        self.run_report = RunReport()
 
     def increment(self, metric: str, value: int = 1) -> None:
         self.metrics[metric] = self.metrics.get(metric, 0) + value
@@ -191,6 +193,7 @@ def test_bfs_sets_scan_incomplete_when_a_directory_scan_fails(monkeypatch):
     yielded = list(mirror._discover_directories_bfs())
 
     assert mirror.scan_incomplete is True
+    assert mirror.metrics.run_report.snapshot()["directories_examined"] == 3
     # The run must still continue and yield the directories that did
     # scan successfully, rather than aborting entirely over one failure.
     assert ROOT in yielded
