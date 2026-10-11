@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Make `--scan-mode parallel` opt in to bounded concurrent directory discovery,
+  with at most four listing workers and no more pending requests than workers.
+  Coordinate results in breadth-first order, retaining scope/depth/exclusion,
+  symlink policy, request pacing and incomplete-scan cleanup protection.
+  Adaptive, sequential and async scan modes retain sequential discovery.
+- Report discovery progress during listing requests using examined-directory
+  counts and elapsed time, without percentages or ETA for an unknown tree size.
+  Remove the misleading progress rate from the later cached collection pass.
+
 ## [3.3.4] - 2026-10-10
 
 ### Changed

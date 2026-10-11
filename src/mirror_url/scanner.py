@@ -9,6 +9,7 @@ import hashlib
 import logging
 import re
 import time
+from threading import RLock
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urljoin, urlsplit
 
@@ -49,6 +50,7 @@ class DirectoryScanner:
         self.lxml_parse_count = 0
         self.cached_signatures: Dict[str, str] = {}
         self.scan_count = 0
+        self._state_lock = RLock()
         # Last-Modified/ETag captured from each directory listing's own
         # GET response -- zero extra cost, this is the same request
         # scan_directory_sequential() already makes to get the HTML to
@@ -73,14 +75,17 @@ class DirectoryScanner:
 
     def _maybe_cleanup_cache(self) -> None:
         """Periodically clean up cache"""
-        now = time.time()
-        if now - self._last_cache_cleanup > self._cache_cleanup_interval:
-            self.parse_cache.shrink_to(0.5)
-            self._last_cache_cleanup = now
-            logging.debug("Parse cache shrunk to 50%")
+        with self._state_lock:
+            now = time.time()
+            if now - self._last_cache_cleanup > self._cache_cleanup_interval:
+                self.parse_cache.shrink_to(0.5)
+                self._last_cache_cleanup = now
+                logging.debug("Parse cache shrunk to 50%")
 
     @log_performance("directory_scan")
-    def scan_directory_sequential(self, url: str) -> Tuple[List[str], List[str]]:
+    def scan_directory_sequential(
+        self, url: str, *, parallel: bool = False
+    ) -> Tuple[List[str], List[str]]:
         """
         Scan a single directory sequentially.
 
@@ -119,7 +124,9 @@ class DirectoryScanner:
             return files, subdirs
 
         try:
-            files, subdirs = self._perform_scan(url)
+            files, subdirs = (
+                self._perform_scan(url, parallel=True) if parallel else self._perform_scan(url)
+            )
         except ParsingError as e:
             # FIX (real data-loss bug, reported by Borut): this used to
             # swallow the failure and `return [], []` -- correct for NOT
@@ -153,10 +160,11 @@ class DirectoryScanner:
             ).hexdigest()
             self.mirror.cache_manager.set_html_cache(url, files, subdirs, content_hash)
 
-        self.scan_count += 1
+        with self._state_lock:
+            self.scan_count += 1
         return files, subdirs
 
-    def _perform_scan(self, url: str) -> Tuple[List[str], List[str]]:
+    def _perform_scan(self, url: str, *, parallel: bool = False) -> Tuple[List[str], List[str]]:
         """Perform actual directory scanning"""
         files = []
         subdirs = []
@@ -204,7 +212,8 @@ class DirectoryScanner:
 
             if should_use_fast_parser(content_length, self.config):
                 links = extract_links_fast(document)
-                self.fast_parse_count += 1
+                with self._state_lock:
+                    self.fast_parse_count += 1
                 self.metrics.increment("fast_parses")
                 logging.debug(
                     f"Fast parser used for {sanitize_url_for_log(url)} ({content_length} bytes)"
@@ -215,7 +224,8 @@ class DirectoryScanner:
                         f"lxml not available, falling back to fast parser for {sanitize_url_for_log(url)}"
                     )
                     links = extract_links_fast(document)
-                    self.fast_parse_count += 1
+                    with self._state_lock:
+                        self.fast_parse_count += 1
                     self.metrics.increment("fast_parses")
                 else:
                     try:
@@ -224,11 +234,14 @@ class DirectoryScanner:
                         link_xpath = self.LINK_XPATH
                         if link_xpath is None:
                             raise RuntimeError("lxml XPath was not initialized")
-                        for link in link_xpath(tree):
+                        with self._state_lock:
+                            elements = link_xpath(tree)
+                        for link in elements:
                             href = link.get("href")
                             if href:
                                 links.append(href)
-                        self.lxml_parse_count += 1
+                        with self._state_lock:
+                            self.lxml_parse_count += 1
                         self.metrics.increment("lxml_parses")
                         logging.debug(
                             f"LXML parser used for {sanitize_url_for_log(url)} ({content_length} bytes)"
@@ -241,7 +254,8 @@ class DirectoryScanner:
                             sanitize_url_for_log(url),
                         )
                         links = extract_links_fast(document)
-                        self.fast_parse_count += 1
+                        with self._state_lock:
+                            self.fast_parse_count += 1
                         self.metrics.increment("fast_parses")
 
             # Scope and local mapping share once-decoded URL path semantics.
@@ -270,7 +284,9 @@ class DirectoryScanner:
                         files.append(full_url)
 
             self.metrics.increment("directories_processed")
-            self.metrics.increment("directories_scanned_sequential")
+            self.metrics.increment(
+                "directories_scanned_parallel" if parallel else "directories_scanned_sequential"
+            )
 
             logging.debug(
                 f"Scan complete for {sanitize_url_for_log(url)}: {len(files)} files, {len(subdirs)} subdirs"

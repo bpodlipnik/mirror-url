@@ -8,7 +8,7 @@ import httpx
 import pytest
 
 from mirror_url import MirrorURL
-from mirror_url.enums import CleanupPolicy
+from mirror_url.enums import CleanupPolicy, ScanMode
 from mirror_url.metrics import MetricsCollector
 from safety_helpers import ROOT, SafetyMirror
 from test_http_mirror_workflows import config as config
@@ -186,9 +186,11 @@ def test_directory_request_reporting_uses_current_sync_deltas():
 
 @pytest.mark.integration
 @pytest.mark.parametrize("validators", [True, False])
+@pytest.mark.parametrize("scan_mode", [ScanMode.ADAPTIVE, ScanMode.PARALLEL])
 def test_42_directory_discovery_reuses_successful_get_without_signature_head(
-    remote, config, validators
+    remote, config, validators, scan_mode
 ):
+    config.scan_mode = scan_mode
     remote.files = {f"dir{index}/file": b"payload" for index in range(41)}
     remote.directory_headers = {"ETag": '"listing"'} if validators else {}
     with MirrorURL(config) as mirror:
@@ -210,7 +212,11 @@ def test_42_directory_discovery_reuses_successful_get_without_signature_head(
 
 @pytest.mark.integration
 @pytest.mark.parametrize("validators", [True, False])
-def test_unchanged_directory_get_signature_does_not_hide_changed_child(remote, config, validators):
+@pytest.mark.parametrize("scan_mode", [ScanMode.ADAPTIVE, ScanMode.PARALLEL])
+def test_unchanged_directory_get_signature_does_not_hide_changed_child(
+    remote, config, validators, scan_mode
+):
+    config.scan_mode = scan_mode
     remote.files = {"selected": b"first", "unchecked": b"keep"}
     remote.directory_headers = {"ETag": '"unchanged-directory"'} if validators else {}
     config.cache_html = False
@@ -234,7 +240,11 @@ def test_unchanged_directory_get_signature_does_not_hide_changed_child(remote, c
 
 @pytest.mark.integration
 @pytest.mark.parametrize("validators", [True, False])
-def test_failed_listing_with_get_proof_preserves_failed_subtree(remote, config, validators):
+@pytest.mark.parametrize("scan_mode", [ScanMode.ADAPTIVE, ScanMode.PARALLEL])
+def test_failed_listing_with_get_proof_preserves_failed_subtree(
+    remote, config, validators, scan_mode
+):
+    config.scan_mode = scan_mode
     remote.files = {"flaky/keep": b"keep", "ok/keep": b"ok"}
     remote.directory_headers = (
         {"Last-Modified": "Wed, 30 Sep 2026 12:00:00 GMT"} if validators else {}
