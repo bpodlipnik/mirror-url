@@ -798,10 +798,12 @@ class ScanMixin(MirrorHost):
         self.cleanup_protected_prefixes = set()
 
         started = last_report = time.perf_counter()
+        mode = "parallel" if executor is not None else "sequential"
+        self.metrics.run_report.begin_discovery(mode, workers)
         logging.info(
             "%sDiscovering directories: %s (%s worker%s)",
             prefix,
-            "parallel" if executor is not None else "sequential",
+            mode,
             workers,
             "" if workers == 1 else "s",
         )
@@ -825,6 +827,7 @@ class ScanMixin(MirrorHost):
                 continue
 
             processed_dirs.add(directory_key)
+            self.metrics.run_report.record_directory_examined()
             skip_this_dir = False
 
             # A directory is only worth *fetching* (an actual HTTP request)

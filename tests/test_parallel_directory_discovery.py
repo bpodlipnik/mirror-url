@@ -66,7 +66,10 @@ def test_only_explicit_parallel_mode_overlaps_bounded_listing_requests(
         return httpx.Response(200, content=body.encode())
 
     mirror.connection_manager.request.side_effect = request
-    assert mirror.get_remote_files() == [ROOT + f"d{i}/file" for i in range(8)]
+    mirror.metrics.run_report.start(mirror.metrics.metrics, 0)
+    with mirror.metrics.run_report.phase("discovery"):
+        assert mirror.get_remote_files() == [ROOT + f"d{i}/file" for i in range(8)]
+    mirror.metrics.run_report.finish("success")
     assert peak == expected and active == 0
     assert len(calls) == len(set(calls)) == 9
     summary = mirror.metrics.get_summary()
@@ -76,6 +79,14 @@ def test_only_explicit_parallel_mode_overlaps_bounded_listing_requests(
     assert summary["directories_scanned_sequential"] == (0 if mode == "parallel" else 9)
     assert mirror.scanner.scan_count == 9
     assert mirror.scanner.fast_parse_count + mirror.scanner.lxml_parse_count == 9
+    run = summary["run"]
+    actual_mode = "parallel" if mode == "parallel" else "sequential"
+    assert run["discovery_mode"] == actual_mode
+    assert run["discovery_workers"] == expected
+    assert run["directories_examined"] == 9
+    assert run["discovery_throughput"] == 9 / run["phase_seconds"]["discovery"]
+    suffix = "" if expected == 1 else "s"
+    assert f"Discovery mode: {actual_mode} ({expected} worker{suffix})" in mirror.metrics.report()
     assert not mirror.scan_incomplete
     assert not any(t.name.startswith("directory_scan") for t in threading.enumerate())
 

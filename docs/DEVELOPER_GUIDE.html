@@ -282,7 +282,7 @@ repeats the essentials so you can work from it alone.</p>
 <ul>
 <li><strong>Package:</strong> <code>mirror_url</code> (src-layout under
 <code>src/</code>)</li>
-<li><strong>Version:</strong> 3.4.0</li>
+<li><strong>Version:</strong> 3.4.1</li>
 <li><strong>Python:</strong> 3.10 or newer; CI tests Python
 3.10–3.14</li>
 <li><strong>Runtime deps:</strong> <code>httpx[http2]</code> (including
@@ -809,16 +809,30 @@ by the download phase's elapsed time, rather than summed worker times.
 Completion freezes elapsed time; beginning another sync clears its
 decisions, publication set and phases. Listing work is measured per
 call, includes fetch wait, and is reported as summed work rather than
-CPU parsing time.</p>
+CPU parsing time. <code>begin_discovery()</code> records the actual BFS
+strategy and worker bound; <code>record_directory_examined()</code>
+counts each distinct directory admitted by the coordinator, including
+entries at the depth limit and failed listing attempts. Both fields and
+the count reset at each sync. <code>discovery_throughput</code> divides
+that count by <code>phase_seconds["discovery"]</code>, which includes
+cache loading and file-list collection. The progress banner measures the
+BFS walk alone. Throughput is nullable when discovery did not start or
+its elapsed time is not positive. Failed scans retain their partial work
+and failed status; a rate is not evidence of successful discovery. The
+summary groups mode, worker count, examined count, elapsed time and
+throughput, and omits the former rate derived from summed listing work.
+Summed worker time can exceed elapsed discovery time.</p>
 <p>The text summary reports this sync's cache/subsystem activity using a
 baseline of lifetime counters. JSON retains existing metric keys and
 adds <code>metrics.run</code> with explicit outcomes, selection
 coverage, status, reasons, <code>phase_seconds</code>,
-<code>elapsed_seconds</code> and nullable
-<code>download_throughput</code>. Directory signatures, in-memory
-listing reuse, HTML hits/misses and cache bypasses remain distinct.
-<code>listing_fetches</code> remains the logical listing GET count.
-<code>listing_get_seconds</code>,
+<code>elapsed_seconds</code>, <code>discovery_mode</code>,
+<code>discovery_workers</code>, <code>directories_examined</code> and
+nullable
+<code>discovery_throughput</code>/<code>download_throughput</code>.
+Directory signatures, in-memory listing reuse, HTML hits/misses and
+cache bypasses remain distinct. <code>listing_fetches</code> remains the
+logical listing GET count. <code>listing_get_seconds</code>,
 <code>directory_signature_head_calls</code>,
 <code>directory_signature_head_seconds</code> and
 <code>directory_signatures_from_get</code> expose directory request work
@@ -1575,7 +1589,7 @@ refactoring nearby code.</li>
 </table>
 
 <hr />
-<p><em>This guide describes the architecture as of version 3.4.0. When
+<p><em>This guide describes the architecture as of version 3.4.1. When
 you change the structure, update this document in the same PR.</em></p>
 </body>
 </html>

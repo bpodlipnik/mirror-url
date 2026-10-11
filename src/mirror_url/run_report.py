@@ -26,6 +26,9 @@ class RunReport:
         self.remote_files = 0
         self.selected_configured = 0
         self.selected_found = 0
+        self.discovery_mode: Optional[str] = None
+        self.discovery_workers = 0
+        self.directories_examined = 0
 
     def start(self, metrics: dict, selected_configured: int) -> None:
         with self._lock:
@@ -42,6 +45,20 @@ class RunReport:
             }
             self.remote_files = self.selected_found = 0
             self.selected_configured = selected_configured
+            self.discovery_mode = None
+            self.discovery_workers = self.directories_examined = 0
+
+    def begin_discovery(self, mode: str, workers: int) -> None:
+        """Record the actual BFS strategy, separately from parser activity."""
+        with self._lock:
+            self.discovery_mode = mode
+            self.discovery_workers = workers
+            self.directories_examined = 0
+
+    def record_directory_examined(self) -> None:
+        """Count each directory admitted by the BFS coordinator once."""
+        with self._lock:
+            self.directories_examined += 1
 
     def finish(self, status: str, reasons: str = "") -> None:
         with self._lock:
@@ -96,6 +113,7 @@ class RunReport:
                 else 0.0
             )
             download_seconds = self.phases.get("downloads", 0.0)
+            discovery_seconds = self.phases.get("discovery", 0.0)
             return {
                 "status": self.status,
                 "reasons": self.reasons,
@@ -117,6 +135,14 @@ class RunReport:
                 "downloads_planned": checks["missing"] + checks["changed"] + checks["uncertain"],
                 "phase_seconds": dict(self.phases),
                 "elapsed_seconds": elapsed,
+                "discovery_mode": self.discovery_mode,
+                "discovery_workers": self.discovery_workers,
+                "directories_examined": self.directories_examined,
+                "discovery_throughput": (
+                    self.directories_examined / discovery_seconds
+                    if self.discovery_mode is not None and discovery_seconds > 0
+                    else None
+                ),
                 "download_throughput": (
                     downloaded_bytes / download_seconds
                     if self.downloads and download_seconds > 0
