@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.4.4] - 2026-10-11
+
+### Fixed
+
+- End known-URL downloads with the shared mirror summary and completion
+  messages, including zero parser counters and observed pool closures. Remove
+  the appended download-details footer; retain settings in the startup banner
+  and receipt/fsync/hash details in JSON results.
+- With `--print-logs`, show the readable completion output without a trailing
+  JSON line. Preserve one JSON result on stdout when console logs are disabled
+  or `--quiet` is set.
+
 ## [3.4.3] - 2026-10-11
 
 ### Fixed

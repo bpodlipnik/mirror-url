@@ -70,7 +70,12 @@ from .exceptions import (
     PathTraversalError,
     URLScopeError,
 )
-from .metrics import format_download_summary
+from .metrics import (
+    format_download_summary,
+    log_connection_pools_closed,
+    log_processed_result,
+    log_run_completion,
+)
 from .progress import ConsoleProgressFilter
 from .run_report import RunReport
 from .security import PathSafety
@@ -1324,7 +1329,9 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
             target = PathSafety._resolve_destination_root(target)
             ownership.enter_context(run_ownership([target, download_config.log_path]))
             args.log_file = args.log_file or "download"
-            setup_shared_logging(args, _effective_args(args, explicit_dests, download_config))
+            display_settings = _effective_args(args, explicit_dests, download_config)
+            display_settings.dest_path = target
+            setup_shared_logging(args, display_settings)
             ownership.callback(_close_run_handlers, list(logging.root.handlers))
             logging.info(
                 "Known-URL download: backend=%s, discovery and freshness checks omitted",
@@ -1335,15 +1342,14 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
             run = report.snapshot(summary.get("bytes_downloaded", 0))
             logging.info(format_download_summary(download_config, summary, target, run))
             logging.info("-" * 50)
-            logging.info(
-                "Download completed successfully"
-                if summary["success"]
-                else "Download completed with failures"
-            )
+            log_run_completion(summary["success"])
+            log_processed_result(summary["success"], download_config.dir_suffix, 1, 1)
+            log_connection_pools_closed(report.closed_connection_pools)
         except (MirrorError, ValueError, OSError) as error:
             print(f"Download error: {error}", file=sys.stderr)
             sys.exit(1)
-        print(json.dumps(summary, sort_keys=True))
+        if not args.print_logs or args.quiet:
+            print(json.dumps(summary, sort_keys=True))
         if not summary["success"]:
             sys.exit(1)
         return
@@ -1777,11 +1783,10 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
                         failed.append(suf or "ROOT")
                 else:
                     sync_success = mirror.sync()
+                    log_processed_result(sync_success, suf, i, total)
                     if sync_success:
-                        logging.info(f"[{i}/{total}] ✅ Successfully processed: {suf or 'ROOT'}")
                         processed.append(suf or "ROOT")
                     else:
-                        logging.error(f"[{i}/{total}] ❌ Failed to process: {suf or 'ROOT'}")
                         failed.append(suf or "ROOT")
 
             # Flush handlers to ensure logs are written

@@ -11,7 +11,7 @@ If you only want to *use* MirrorURL (install, CLI, config, Python API), read
 repeats the essentials so you can work from it alone.
 
 - **Package:** `mirror_url` (src-layout under `src/`)
-- **Version:** 3.4.3
+- **Version:** 3.4.4
 - **Python:** 3.10 or newer; CI tests Python 3.10–3.14
 - **Runtime deps:** `httpx[http2]` (including `h2`), `pydantic` v2, `PyYAML`, `portalocker` 3.x, `tqdm` (optional: `stringzilla`,
   `lxml`, `psutil`, `aiohttp`)
@@ -700,10 +700,17 @@ receipt saving, progress timer shutdown and transfer guard cleanup. The outer CL
 owner releases the run's kernel locks after completion output and log closure.
 Missing versus existing publication counts use the preflight local file identity;
 existing downloads are not classified as changed without a freshness check.
-The JSON result schema and stdout stream remain unchanged; its elapsed clock
-now includes final timer and transfer guard cleanup. `--print-logs` sends human logs to
-stderr; it does not duplicate the JSON result in the log. CLI logging flags
-control progress visibility, matching the shared handler configuration.
+The adapter prepares metrics and delegates formatting to `MetricsCollector.report()`;
+it appends no separate download-details footer. Shared completion helpers in
+`metrics.py` supply the sync outcome, processed scope and pool-closure messages
+for both CLI paths. `RunReport.closed_connection_pools` records successful
+known-URL backend closures outside the JSON snapshot and resets for each run;
+dry runs and preflight failures create no pools.
+The JSON result schema remains unchanged; its elapsed clock includes final
+timer and transfer guard cleanup. With `--print-logs` and without `--quiet`,
+the CLI sends human logs to stderr and leaves stdout empty. Otherwise it emits
+one JSON result on stdout. CLI logging flags control progress visibility,
+matching the shared handler configuration.
 
 The new candidate needs its own CI and full qualification runs. Frozen
 validation of an older source snapshot does not cover this implementation.
@@ -1234,5 +1241,5 @@ Preserve these constraints when extending or refactoring the current code.
 
 ---
 
-*This guide describes the architecture as of version 3.4.3. When you change the
+*This guide describes the architecture as of version 3.4.4. When you change the
 structure, update this document in the same PR.*

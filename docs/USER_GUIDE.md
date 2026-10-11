@@ -8,7 +8,7 @@ integrity checks and incremental caching. It also supports direct file URLs
 and exact URL lists without directory discovery. URL-scope, private-network
 and filesystem protections guard discovery and transfers.
 
-- **Version:** 3.4.3
+- **Version:** 3.4.4
 - **Python:** 3.10 or newer; CI tests Python 3.10–3.14
 - **License:** MIT
 
@@ -106,21 +106,21 @@ From a checkout of the repository on a build machine:
 
 ```bash
 pip install build
-python -m build          # produces dist/mirror_url-3.4.3-py3-none-any.whl
+python -m build          # produces dist/mirror_url-3.4.4-py3-none-any.whl
 ```
 
 Copy the wheel to the target server and install it:
 
 ```bash
 python3 -m venv /opt/mirror-url
-/opt/mirror-url/bin/pip install /tmp/mirror_url-3.4.3-py3-none-any.whl
+/opt/mirror-url/bin/pip install /tmp/mirror_url-3.4.4-py3-none-any.whl
 /opt/mirror-url/bin/mirror-url --help
 ```
 
 To include the optional speed extras:
 
 ```bash
-/opt/mirror-url/bin/pip install "/tmp/mirror_url-3.4.3-py3-none-any.whl[fast]"
+/opt/mirror-url/bin/pip install "/tmp/mirror_url-3.4.4-py3-none-any.whl[fast]"
 ```
 
 Available extras: `fast` (stringzilla + lxml), `aiohttp` (whole-file backend),
@@ -130,24 +130,24 @@ The `progress` extra remains compatible; `tqdm` is installed with the base packa
 ### From a Git repository
 
 ```bash
-pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.4.3"
+pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.4.4"
 # private repo over SSH:
-pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.4.3"
+pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.4.4"
 ```
 
 ### As an isolated CLI with pipx
 
 ```bash
-pipx install /tmp/mirror_url-3.4.3-py3-none-any.whl
-# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.4.3"
+pipx install /tmp/mirror_url-3.4.4-py3-none-any.whl
+# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.4.4"
 ```
 
 ### With Docker
 
 ```dockerfile
 FROM python:3.12-slim
-COPY dist/mirror_url-3.4.3-py3-none-any.whl /tmp/
-RUN pip install --no-cache-dir "/tmp/mirror_url-3.4.3-py3-none-any.whl[fast]"
+COPY dist/mirror_url-3.4.4-py3-none-any.whl /tmp/
+RUN pip install --no-cache-dir "/tmp/mirror_url-3.4.4-py3-none-any.whl[fast]"
 ENTRYPOINT ["mirror-url"]
 ```
 
@@ -1014,13 +1014,15 @@ their scan, freshness and obsolete-file counters remain zero. Files requested
 records the supplied URL count. Existing-file downloads are counted from local file presence;
 they do not imply the remote file changed.
 
-The summary also records the backend, destination, disk flush work (summed
-across files) and receipt location. SHA-256 is explicitly enabled or disabled;
-summed hash time is shown only with `--verify-content`. These per-file work
-sums can exceed elapsed time during concurrent downloads and overlap the
-download phase. SHA-256 receipts describe local bytes and do not establish
-agreement with a remote cryptographic digest.
-The startup banner shows applicable whole-file download settings.
+The summary ends with the same cache and parser counters as mirror mode,
+followed by the separator, completion message, processed scope (`ROOT` for
+the direct shortcut) and connection-pool closure count. Download mode reports
+zero parser/cache work and counts pools only after their backend closes.
+The startup banner records the backend, destination, SHA-256 setting and
+applicable whole-file download settings. JSON results retain the receipt
+location and summed fsync/hash work. These work sums can exceed elapsed time
+during concurrent downloads and overlap the download phase. SHA-256 receipts
+describe local bytes and do not establish agreement with a remote digest.
 
 `--progress-bar` (also `--progress`) shows per-file byte bars, independently of
 `--print-logs`. The normal installation includes the `tqdm` renderer.
@@ -1035,11 +1037,13 @@ arrived; publication and receipt recording must still succeed.
 Without `--print-logs`, periodic log messages are silent and the summary remains
 in the log file. `--quiet` suppresses bars and INFO-level console progress and
 summary output.
-The CLI continues to print exactly one JSON result to stdout for scripts;
-console logs stay on stderr. For a terminal view without the JSON line:
+With `--print-logs` and without `--quiet`, the CLI shows the readable summary
+and completion lines on stderr and leaves stdout empty. Without `--print-logs`,
+or with `--quiet`, it prints exactly one JSON result to stdout for scripts.
+For a terminal view, use `--print-logs`; to capture JSON instead:
 
 ```bash
-mirror-url --mode download https://example.org/files/a.fits --print-logs >result.json
+mirror-url --mode download https://example.org/files/a.fits >result.json
 ```
 
 ### A URL list
@@ -1087,8 +1091,9 @@ cooperative cancellation. An abrupt process kill between publication and this
 save may leave a file without a receipt: the next run refuses to replace it
 without `--overwrite`. This mode does not offer resumable partial transfers.
 
-The CLI writes a run log and prints a JSON summary with downloaded/failed file
-counts, bytes, elapsed time, pacing waits, fsync/hash time and any failures. A
+The CLI writes a run log and, when console logs are disabled or `--quiet` is
+set, prints a JSON summary with downloaded/failed file counts, bytes, elapsed
+time, pacing waits, fsync/hash time and any failures. A
 failed file makes the command exit nonzero. `--dry-run` validates the list
 without network access or download state creation. Discovery/listing/filter
 flags, chunk modes, auto-concurrency, missing-only mode and cleanup policies

@@ -464,7 +464,7 @@ class MetricsCollector:
             lines.append(f"{prefix}  Duration: {format_duration(summary['elapsed_seconds'])}")
 
         # Parser stats
-        if summary.get("fast_parses", 0) > 0 or summary.get("lxml_parses", 0) > 0:
+        if active_report or summary.get("fast_parses", 0) > 0 or summary.get("lxml_parses", 0) > 0:
             lines.append(f"{prefix}  Fast parses: {summary['fast_parses']}")
             lines.append(f"{prefix}  LXML parses: {summary['lxml_parses']}")
 
@@ -639,17 +639,34 @@ def format_download_summary(
         bytes_downloaded=summary.get("bytes_downloaded", 0),
         files=summary.get("files", 0),
     )
-    lines = [metrics.report(run=run, known_urls=True)]
-    lines.extend([f"  Backend: {config.backend}", f"  Destination: {target.resolve()}"])
-    if not summary.get("dry_run"):
-        lines.append(
-            "  SHA-256: " + ("enabled (local receipts)" if config.verify_content else "disabled")
-        )
-        lines.append(f"  Disk flush time (sum): {summary['stage_seconds']['fsync']:.3f}s")
-        if config.verify_content:
-            lines.append(f"  SHA-256 time (sum): {summary['stage_seconds']['hash']:.3f}s")
-        lines.append(f"  Ownership receipts: {summary['receipts']}")
-    return "\n".join(lines)
+    return metrics.report(run=run, known_urls=True)
 
 
-__all__ = ["MetricsCollector", "format_download_summary"]
+def log_run_completion(success: bool, *, prefix: str = "", reasons: str = "") -> None:
+    """Use one completion message for mirror and known-URL runs."""
+    if success:
+        logging.info("%sSync completed successfully", prefix)
+    else:
+        logging.warning("%sSync failed%s", prefix, f": {reasons}" if reasons else "")
+
+
+def log_processed_result(success: bool, suffix: str, index: int, total: int) -> None:
+    """Report the selected scope after its completed operation."""
+    if success:
+        logging.info("[%s/%s] ✅ Successfully processed: %s", index, total, suffix or "ROOT")
+    else:
+        logging.error("[%s/%s] ❌ Failed to process: %s", index, total, suffix or "ROOT")
+
+
+def log_connection_pools_closed(count: int) -> None:
+    """Report the number of pools that the caller actually closed."""
+    logging.info("Closed all %s connection pools", count)
+
+
+__all__ = [
+    "MetricsCollector",
+    "format_download_summary",
+    "log_run_completion",
+    "log_processed_result",
+    "log_connection_pools_closed",
+]

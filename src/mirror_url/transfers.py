@@ -303,6 +303,7 @@ class AsyncTransfers:
         self.outstanding: Dict[Path, int] = {}
         self.stage_seconds = {"fsync": 0.0, "hash": 0.0}
         self.progress = progress or DownloadProgress(False)
+        self.closed_connection_pools = 0
 
     def _space(self) -> None:
         needed = sum(self.outstanding.values()) + self.concurrency * 1024 * 1024
@@ -491,6 +492,7 @@ class AsyncTransfers:
                 task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
             await backend.close()
+            self.closed_connection_pools += 1
         return results
 
 
@@ -619,6 +621,7 @@ def download_url_list(config: MirrorConfig, *, run_report: Optional[RunReport] =
                 results = asyncio.run(engine.run(items, published))
             finally:
                 # Retain receipts for already published files even if interrupted.
+                report.closed_connection_pools += engine.closed_connection_pools
                 report.begin_phase("cleanup")
                 progress.saving_receipts()
                 _save_receipts(receipt_path, receipts)
