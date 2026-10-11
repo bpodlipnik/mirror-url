@@ -34,6 +34,7 @@ from .download_integrity import content_length, file_sha256, strong_etag
 from .exceptions import ConfigError, SecurityError, URLScopeError
 from .filename_mapping import FilenameMap, _stat_identity
 from .progress import DownloadProgress
+from .run_report import RunReport
 from .scratch import OwnedScratch
 from .security import PathSafety, SecurityValidator
 from .transport import SecureAsyncTransport
@@ -509,7 +510,7 @@ def _save_receipts(path: Path, data: dict) -> None:
         temporary.unlink(missing_ok=True)
 
 
-def download_url_list(config: MirrorConfig) -> dict:
+def download_url_list(config: MirrorConfig, *, run_report: Optional[RunReport] = None) -> dict:
     """GET exact URLs from a list or one direct URL without discovery or freshness HEADs.
 
     Existing files require a matching prior receipt or explicit overwrite.
@@ -539,7 +540,10 @@ def download_url_list(config: MirrorConfig) -> dict:
         raise ValueError("URL list is empty")
     resources = [target, PathSafety._resolve_destination_root(config.log_path)]
     guard = DestinationLock(resources, parent=current_run_lock())
-    started = time.perf_counter()
+    report = run_report if run_report is not None else RunReport()
+    report.start({}, 0)
+    report.begin_phase("download preparation")
+    outcome: Optional[dict] = None
     try:
         with (
             guard.operation(),
@@ -547,13 +551,15 @@ def download_url_list(config: MirrorConfig) -> dict:
         ):
             items = plan_targets(urls, scope, target, config)
             progress.plan(len(items))
+            report.remote_files = len(items)
             if config.dry_run:
-                return {
+                outcome = {
                     "success": True,
                     "dry_run": True,
                     "files": len(items),
                     "backend": config.backend,
                 }
+                return outcome
             target.mkdir(parents=True, exist_ok=True)
             partial = PartialDownloadManager(target)
             state = partial._state_directory()
@@ -582,6 +588,7 @@ def download_url_list(config: MirrorConfig) -> dict:
                 receipts = previous
             for url, local in items:
                 identity = _identity(local)
+                report.record_check(url, "missing" if identity is None else "unclassified")
                 if identity is not None and not config.overwrite:
                     old = receipts["files"].get(str(local))
                     if (
@@ -605,20 +612,23 @@ def download_url_list(config: MirrorConfig) -> dict:
                     "sha256": result.sha256,
                     "identity": list(_identity(result.path) or ()),
                 }
+                report.record_publication(result.url)
 
+            report.begin_phase("downloads")
             try:
                 results = asyncio.run(engine.run(items, published))
             finally:
                 # Retain receipts for already published files even if interrupted.
+                report.begin_phase("cleanup")
                 progress.saving_receipts()
                 _save_receipts(receipt_path, receipts)
-            return {
+            outcome = {
                 "success": all(r.success for r in results),
                 "backend": config.backend,
                 "files_downloaded": sum(r.success for r in results),
                 "files_failed": sum(not r.success for r in results),
                 "bytes_downloaded": sum(r.size for r in results if r.success),
-                "elapsed_seconds": time.perf_counter() - started,
+                "elapsed_seconds": 0.0,  # Finalized after timer and ownership cleanup below.
                 "pacing_wait_seconds": engine.pacer.wait_seconds,
                 "effective_request_interval": config.effective_request_interval,
                 "stage_seconds": engine.stage_seconds,
@@ -629,5 +639,21 @@ def download_url_list(config: MirrorConfig) -> dict:
                     if not r.success
                 ],
             }
+            return outcome
+    except BaseException:
+        # Context cleanup can fail after a successful worker result was built.
+        outcome = None
+        raise
     finally:
-        guard.close()
+        report.begin_phase("cleanup")
+        released = False
+        try:
+            guard.close()
+            released = True
+        finally:
+            status = "failed"
+            if released and outcome is not None and outcome["success"]:
+                status = "dry run" if outcome.get("dry_run") else "success"
+            report.finish(status)
+            if outcome is not None and not outcome.get("dry_run"):
+                outcome["elapsed_seconds"] = report.snapshot()["elapsed_seconds"]

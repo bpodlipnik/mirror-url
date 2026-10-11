@@ -84,9 +84,9 @@ directory index; direct file and URL-list downloads do not require a listing.
 - **Python 3.10 or newer.**
 - Runtime dependencies (installed automatically): `httpx` (with the
   `http2` extra, which pulls in `h2` -- HTTP/2 is on by default, see
-  `--no-http2`), `pydantic` (v2), `PyYAML`, `portalocker` 3.x (and `pywin32` on Windows).
+  `--no-http2`), `pydantic` (v2), `PyYAML`, `portalocker` 3.x (and `pywin32` on Windows), and `tqdm` (progress bars).
 - Optional accelerators (install via extras, see below): `stringzilla` + `lxml`
-  (faster parsing), `tqdm` (progress bars), `psutil` (memory/disk monitoring).
+  (faster parsing), `psutil` (memory/disk monitoring).
 
 ---
 
@@ -123,8 +123,9 @@ To include the optional speed extras:
 /opt/mirror-url/bin/pip install "/tmp/mirror_url-3.4.2-py3-none-any.whl[fast]"
 ```
 
-Available extras: `fast` (stringzilla + lxml), `progress` (tqdm),
+Available extras: `fast` (stringzilla + lxml), `aiohttp` (whole-file backend),
 `monitor` (psutil), `all` (everything), `dev` (test/lint toolchain).
+The `progress` extra remains compatible; `tqdm` is installed with the base package.
 
 ### From a Git repository
 
@@ -585,7 +586,7 @@ The most commonly used options:
 <tbody>
 <tr>
 <td nowrap><samp>--progress-bar</samp>, <samp>--progress</samp></td>
-<td>Show tqdm progress bars (needs the <code>progress</code> extra). Known-URL downloads show received bytes and the current transfer stage.</td>
+<td>Show tqdm progress bars (included in a normal installation). Known-URL downloads show received bytes and the current transfer stage.</td>
 </tr>
 <tr>
 <td nowrap><samp>--stats</samp></td>
@@ -994,7 +995,7 @@ explicit `base_url`, `dest_path` and `log_path`.
 
 ### Progress and completion output
 
-With `--print-logs`, known-URL downloads log progress to stderr approximately
+With `--print-logs`, known-URL downloads record progress approximately
 every **10 seconds**, including when waiting for a response or flushing/hashing
 a completed transfer. Progress shows elapsed time, received bytes, average
 speed, completed/failed file counts and up to three active file paths with
@@ -1003,15 +1004,29 @@ and an estimated remaining transfer time while receiving bytes; unknown lengths
 have no ETA. Received bytes include discarded retry attempts, while completed
 files count only successful publications and their receipt entries.
 
-The completion log is a readable **DOWNLOAD SUMMARY** with result, backend,
-destination, published file/byte counts, elapsed time, average throughput,
-disk flush time and receipt location. SHA-256 is explicitly enabled or disabled;
-hash time is shown only with `--verify-content`. SHA-256 receipts describe local
-bytes and do not establish agreement with a remote cryptographic digest.
+The completion log uses the same **SUMMARY** layout as mirror mode. It shows
+requested files, successful missing/existing-file downloads, failures,
+downloaded bytes, measured download preparation/download/cleanup times,
+download throughput and total duration. Throughput uses the download phase;
+total duration also includes preparation and cleanup. The field order and labels
+match mirror mode. Direct downloads mark discovery and metadata as not performed;
+their scan, freshness and obsolete-file counters remain zero. Files requested
+records the supplied URL count. Existing-file downloads are counted from local file presence;
+they do not imply the remote file changed.
+
+The summary also records the backend, destination, disk flush work (summed
+across files) and receipt location. SHA-256 is explicitly enabled or disabled;
+summed hash time is shown only with `--verify-content`. These per-file work
+sums can exceed elapsed time during concurrent downloads and overlap the
+download phase. SHA-256 receipts describe local bytes and do not establish
+agreement with a remote cryptographic digest.
 The startup banner shows applicable whole-file download settings.
 
 `--progress-bar` (also `--progress`) shows per-file byte bars, independently of
-`--print-logs`. Install the optional renderer with `pip install 'mirror-url[progress]'`.
+`--print-logs`. The normal installation includes the `tqdm` renderer.
+With both options, each file has one updating console bar; periodic progress
+stays in the log file instead of adding console lines while bars are active.
+If a bar cannot be displayed, the ten-second console messages remain available.
 Known lengths show percentage and transfer ETA; unknown lengths show received
 bytes and speed. Bars also identify response waits, disk flushing and hashing.
 Retries reset the affected file's byte bar. Reaching 100% means the body has
@@ -1723,7 +1738,7 @@ limit tracker behavior; they do not make the heuristic a definitive detector.
   listing attempts; throughput does not establish a successful scan. Existing
   top-level metric keys remain available; `download_speed` is the older average
   over the collector's lifetime, not the new download-phase throughput.
-- **`--progress-bar` / `--progress`** shows live tqdm bars (requires the `progress` extra). Mirror mode tracks file processing; known-URL download mode tracks received bytes and transfer stages. Directory discovery reports examined-directory counts and elapsed time while fetching listings; its total tree size is unknown, so it does not show a percentage or ETA. The final discovery rate includes listing request time.
+- **`--progress-bar` / `--progress`** shows live tqdm bars (included in the normal installation). Mirror mode tracks file processing; known-URL download mode tracks received bytes and transfer stages. Directory discovery reports examined-directory counts and elapsed time while fetching listings; its total tree size is unknown, so it does not show a percentage or ETA. The final discovery rate includes listing request time.
 - **Health/metrics HTTP endpoints.** Setting `--metrics-json FILE` also starts
   a local HTTP server for a non-dry-run instance, until it is cleaned up.
   `--health-check-port` alone does not enable it. The server binds to `localhost`
@@ -1882,8 +1897,8 @@ support, and a strong ETag. Otherwise MirrorURL uses whole-file transfers.
 Check the log with `--print-logs --debug` for selection and fallback messages.
 
 **Progress bar / memory stats missing.**
-Install the optional extras: `pip install "mirror-url[progress,monitor]"`
-(tqdm / psutil).
+Progress bars are included in the normal installation. Install monitoring with
+`pip install "mirror-url[monitor]"` (psutil).
 
 **Re-runs re-download everything.**
 Make sure `--log-path` is stable between runs (that's where the cache lives) and

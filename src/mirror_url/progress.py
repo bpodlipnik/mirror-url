@@ -32,7 +32,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only, avoids an import cycle
 
 
 def _create_progress_bar(**settings):
-    """Use the same optional terminal renderer for item and byte progress."""
+    """Use the same terminal renderer for item and byte progress."""
     try:
         from tqdm import tqdm
 
@@ -354,6 +354,13 @@ class MultiLevelProgress:
 PROGRESS_INTERVAL_SECONDS = 10.0
 
 
+class ConsoleProgressFilter(logging.Filter):
+    """Keep periodic file-log observations off the console when bars show them."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return not getattr(record, "progress_bar_active", False)
+
+
 @dataclass
 class _ActiveFile:
     started: float
@@ -377,7 +384,9 @@ class DownloadProgress:
         requested = bool(config and config.progress_bar and not config.quiet)
         self.bars = requested and TQDM_AVAILABLE
         if requested and not TQDM_AVAILABLE:
-            logging.warning("Progress bars require tqdm; install mirror-url[progress]")
+            logging.warning(
+                "Progress bars require tqdm; install tqdm (a required mirror-url dependency)"
+            )
         self.started = time.perf_counter()
         self.lock = threading.Lock()
         self.stop = threading.Event()
@@ -514,8 +523,13 @@ class DownloadProgress:
                 f"{self.failed} failed; received {format_bytes(self.received_bytes, binary_units=True)}; "
                 f"elapsed {elapsed:.1f}s; average {format_bytes(rate, binary_units=True)}/s; {detail}"
             )
+            # A disabled or failed renderer must retain the console fallback.
+            visible_bars = bool(self.active) and all(
+                file.bar is not None and not getattr(file.bar, "disable", False)
+                for file in self.active.values()
+            )
         if self.enabled:
-            logging.info(message)
+            logging.info(message, extra={"progress_bar_active": visible_bars})
 
 
-__all__ = ["ProgressTracker", "MultiLevelProgress", "DownloadProgress"]
+__all__ = ["ProgressTracker", "MultiLevelProgress", "DownloadProgress", "ConsoleProgressFilter"]

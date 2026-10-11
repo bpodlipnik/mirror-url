@@ -30,6 +30,7 @@ from mirror_url.enums import CleanupPolicy
 from mirror_url.exceptions import ConfigError, DestinationLockError, SecurityError, URLScopeError
 from mirror_url.metrics import MetricsCollector
 from mirror_url.rate_limiter import PerIPRateLimiter, RateLimiter
+from mirror_url.run_report import RunReport
 from mirror_url.scratch import OwnedScratch
 from mirror_url.security import SecurityValidator
 from mirror_url.transfers import (
@@ -888,9 +889,9 @@ def test_cli_print_logs_reports_during_network_wait_then_readable_summary(
     result = json.loads(captured.out)
     assert result["success"] and waited == [True]
     assert len(messages) >= 2 and "waiting for response" in "\n".join(messages)
-    assert "DOWNLOAD SUMMARY:" in captured.err and "Files downloaded: 1" in captured.err
-    assert f"Destination: {tmp_path}" in captured.err and "Average throughput:" in captured.err
-    assert "SHA-256: disabled" in captured.err and "SHA-256 time:" not in captured.err
+    assert "SUMMARY:" in captured.err and "Files downloaded: 1" in captured.err
+    assert f"Destination: {tmp_path}" in captured.err and "Download throughput:" in captured.err
+    assert "SHA-256: disabled" in captured.err and "SHA-256 time (sum):" not in captured.err
     assert "Download result: {" not in captured.err and '"bytes_downloaded"' not in captured.err
     for unused in [
         "Adaptive async",
@@ -948,7 +949,7 @@ def test_cli_progress_remains_live_during_blocking_finalization(
     assert len(messages) >= 2
     assert ("flushing file" if stage == "flush" else "hashing (SHA-256)") in "\n".join(messages)
     assert all("0/1 files completed" in message for message in messages)
-    assert "SHA-256 time:" in captured.err
+    assert "SHA-256 time (sum):" in captured.err
     assert (tmp_path / "a").read_bytes() == payload
     assert not any(t.name == "mirror-url-download-progress" for t in threading.enumerate())
 
@@ -1024,7 +1025,7 @@ def test_cli_failed_download_preserves_json_and_console_preferences(
     captured = capsys.readouterr()
     result = json.loads(captured.out)
     assert error.value.code == 1 and not result["success"] and result["files_failed"] == 1
-    assert ("DOWNLOAD SUMMARY:" in captured.err) is (flags == ["--print-logs"])
+    assert ("SUMMARY:" in captured.err) is (flags == ["--print-logs"])
     assert ("Result: FAILED" in captured.err) is (flags == ["--print-logs"])
     if not flags:
         assert not captured.err
@@ -1078,7 +1079,7 @@ def test_cli_known_url_byte_bar_and_json_stream(
     assert len(bars) == 1 and bars[0].n == 6 and bars[0].disable
     assert bars[0].total == declared_length
     assert "a:" in captured.err and ("%" in captured.err) is (declared_length is not None)
-    assert ("DOWNLOAD SUMMARY:" in captured.err) is print_logs
+    assert ("SUMMARY:" in captured.err) is print_logs
     assert (tmp_path / "a").read_bytes() == b"abcdef"
     assert not any(t.name == "mirror-url-download-progress" for t in threading.enumerate())
 
@@ -1296,3 +1297,70 @@ def test_selected_updates_and_failure_preservation_on_both_backends(
         assert local.read_bytes() == b"MODIFIED"
         assert mirror.cache_manager.get_file_metadata(local) == metadata
         assert_no_scratch(config.dest_path)
+
+
+def test_known_url_phase_report_counts_only_published_local_outcomes(tmp_path, origin, backend):
+    config = job(tmp_path, origin, backend, paths=("a", "b"))
+    for existing in (False, True):
+        report = RunReport()
+        result = download_url_list(config, run_report=report)
+        run = report.snapshot(result["bytes_downloaded"])
+        assert run["status"] == "success"
+        assert run["remote_files_found"] == 2
+        assert run["missing_files_downloaded"] == (0 if existing else 2)
+        assert run["unclassified_downloads"] == (2 if existing else 0)
+        assert run["changed_files_downloaded"] == run["uncertain_freshness_downloads"] == 0
+        assert set(run["phase_seconds"]) == {"download preparation", "downloads", "cleanup"}
+        assert all(seconds > 0 for seconds in run["phase_seconds"].values())
+        assert sum(run["phase_seconds"].values()) <= run["elapsed_seconds"]
+        assert run["elapsed_seconds"] == result["elapsed_seconds"]
+        assert (
+            run["download_throughput"]
+            == result["bytes_downloaded"] / run["phase_seconds"]["downloads"]
+        )
+        assert report.finished is not None and report._active_phase is None
+    origin.routes["/root/a"] = (500, {}, b"failed")
+    report = RunReport()
+    result = download_url_list(config, run_report=report)
+    run = report.snapshot(result["bytes_downloaded"])
+    assert not result["success"] and run["status"] == "failed"
+    assert run["missing_files_downloaded"] == 0 and run["unclassified_downloads"] == 1
+    assert result["files_failed"] == 1 and result["files_downloaded"] == 1
+    assert (config.dest_path / "a").read_bytes() == b"bytes"
+    assert all(method == "GET" for method, *_ in origin.requests)
+
+
+def test_known_url_phase_report_finishes_on_preflight_error_and_dry_run(tmp_path, origin):
+    config = job(tmp_path, origin, paths=("a",), dry_run=True)
+    report = RunReport()
+    result = download_url_list(config, run_report=report)
+    assert result == {"success": True, "dry_run": True, "files": 1, "backend": "httpx"}
+    assert report.status == "dry run" and report.finished is not None
+    assert "downloads" not in report.phases and not origin.requests
+    config.dry_run = False
+    config.dest_path.mkdir()
+    (config.dest_path / "a").write_bytes(b"unowned")
+    with pytest.raises(ValueError, match="no matching ownership receipt"):
+        download_url_list(config, run_report=report)
+    assert report.status == "failed" and report.finished is not None
+    assert report._active_phase is None and "downloads" not in report.phases
+    assert not origin.requests
+
+
+def test_known_url_report_does_not_claim_success_when_ownership_close_fails(
+    tmp_path, origin, monkeypatch
+):
+    original = DestinationLock.close
+
+    def failing_close(lock):
+        original(lock)
+        raise OSError("ownership close failed")
+
+    monkeypatch.setattr(DestinationLock, "close", failing_close)
+    report = RunReport()
+    config = job(tmp_path, origin, paths=("a",))
+    with pytest.raises(OSError, match="ownership close failed"):
+        download_url_list(config, run_report=report)
+    assert report.status == "failed" and report.finished is not None
+    assert report._active_phase is None
+    assert (config.dest_path / "a").read_bytes() == b"bytes"
