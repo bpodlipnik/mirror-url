@@ -10,6 +10,7 @@ import logging
 import os
 import socket
 import threading
+import time
 from collections import Counter
 from contextlib import asynccontextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -833,7 +834,7 @@ def test_cli_direct_url_honors_explicit_targets(tmp_path, origin, monkeypatch, c
     assert len(list(logs.glob("download_*.log"))) == 1
 
 
-def _observe_periodic_reports(monkeypatch):
+def _observe_periodic_reports(monkeypatch, stage):
     """Release a blocked transfer only after the real timer reports twice."""
     monkeypatch.setattr(transfer_report, "PROGRESS_INTERVAL_SECONDS", 0.02)
     observed = threading.Event()
@@ -845,6 +846,7 @@ def _observe_periodic_reports(monkeypatch):
             isinstance(message, str)
             and message.startswith("Download progress:")
             and "files completed" in message
+            and stage in message
         ):
             messages.append(message)
             if len(messages) >= 2:
@@ -858,7 +860,7 @@ def _observe_periodic_reports(monkeypatch):
 def test_cli_print_logs_reports_during_network_wait_then_readable_summary(
     tmp_path, origin, backend, monkeypatch, capsys
 ):
-    observed, messages = _observe_periodic_reports(monkeypatch)
+    observed, messages = _observe_periodic_reports(monkeypatch, "waiting for response")
     waited = []
 
     def waiting_response(_):
@@ -909,7 +911,9 @@ def test_cli_progress_remains_live_during_blocking_finalization(
 ):
     import mirror_url.transfers as transfers
 
-    observed, messages = _observe_periodic_reports(monkeypatch)
+    observed, messages = _observe_periodic_reports(
+        monkeypatch, "flushing file" if stage == "flush" else "hashing (SHA-256)"
+    )
     waited = []
     payload = b"finalization bytes"
     origin.routes["/root/a"] = (200, {}, payload)
@@ -954,7 +958,7 @@ def test_cli_progress_tracks_bytes_while_stream_is_pending(
 ):
     import mirror_url.transfers as transfers
 
-    observed, messages = _observe_periodic_reports(monkeypatch)
+    observed, messages = _observe_periodic_reports(monkeypatch, "downloading (3.00 B")
     waited = []
 
     @asynccontextmanager
@@ -968,6 +972,14 @@ def test_cli_progress_tracks_bytes_while_stream_is_pending(
         yield 200, headers, chunks()
 
     adapter = transfers._HTTPXBackend if backend == "httpx" else transfers._AIOHTTPBackend
+    original_init = adapter.__init__
+
+    def delayed_init(self, *args, **kwargs):
+        # Earlier preparing/waiting reports must not release the body stall.
+        time.sleep(0.08)
+        original_init(self, *args, **kwargs)
+
+    monkeypatch.setattr(adapter, "__init__", delayed_init)
     monkeypatch.setattr(adapter, "open", slow_body)
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(cli.tempfile, "gettempdir", lambda: str(tmp_path / "logs"))
