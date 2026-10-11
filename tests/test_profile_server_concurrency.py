@@ -36,10 +36,12 @@ from __future__ import annotations
 
 import asyncio
 import time
+from types import SimpleNamespace
 
 import httpx
 import pytest
 
+from mirror_url import async_connection
 from mirror_url.async_connection import AdaptiveAsyncManager
 from mirror_url.config import MirrorConfig
 from mirror_url.constants import ADAPTIVE_START_CONCURRENCY, PROFILE_SAMPLE_SIZE
@@ -133,12 +135,13 @@ async def test_concurrency_is_bounded_by_current_concurrency():
 
 
 @pytest.mark.asyncio
-async def test_profiling_starts_full_batches_before_responses_complete():
+async def test_profiling_starts_full_batches_before_responses_complete(monkeypatch):
     """Hold each batch's responses until all concurrent probes have started.
 
     A sequential implementation cannot fill the first batch, and an
     unbounded implementation starts the second batch before the first is
-    released. Deadlines only guard against a hung test.
+    released. Only the controller's deadlines guard against a hung test;
+    request timeout behavior is covered by its own regression below.
     """
     n_samples = 10
     concurrency = 5
@@ -148,6 +151,20 @@ async def test_profiling_starts_full_batches_before_responses_complete():
     in_flight = 0
     peak_in_flight = 0
     completed = 0
+
+    async def await_probe_response(awaitable, *, timeout):
+        assert timeout == 5.0
+        return await awaitable
+
+    # Intentionally held responses must not expire while the CI runner is
+    # paused. Override wait_for only in the manager's module for this test;
+    # the controller keeps the real asyncio.wait_for watchdog and the timeout
+    # regression below continues to exercise the production request deadline.
+    monkeypatch.setattr(
+        async_connection,
+        "asyncio",
+        SimpleNamespace(**{**vars(asyncio), "wait_for": await_probe_response}),
+    )
 
     async def handler(request: httpx.Request) -> httpx.Response:
         nonlocal in_flight, peak_in_flight, completed

@@ -20,6 +20,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   an explicit alias. Show per-file received bytes and stages, with percentage
   and ETA only for known lengths. Reuse the existing reporting modules, shared
   byte formatter and optional tqdm renderer; close bars and timers on exit.
+- Keep the profiling-concurrency regression independent of CI scheduling,
+  while retaining its controller watchdog and separate request-timeout test.
 
 ## [3.4.1] - 2026-10-11
 
