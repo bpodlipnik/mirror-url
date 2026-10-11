@@ -965,6 +965,14 @@ with a whole-file GET; it performs no discovery, HEAD freshness checks,
 ETag reuse or ranged resume. It never deletes obsolete local files. Use normal
 mirror mode when you need incremental synchronization.
 
+Known-URL downloads sample destination free space once per batch, before the
+first payload write. A shared budget reserves each declared file length and
+charges unknown-length responses as bytes arrive, while keeping write headroom.
+Published files remain charged; removing a failed attempt's owned staging
+returns its reservation. This is internal accounting, not a filesystem
+allocation. If another program consumes the space, write or flush errors still
+fail the transfer and preserve the existing destination file.
+
 ### One file URL
 
 Use the direct shortcut to download one file:

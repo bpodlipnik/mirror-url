@@ -650,6 +650,18 @@ returns the validated public address directly to its connector, preserving the
 original hostname for Host and TLS. aiohttp requests retain encoded URL paths,
 use HTTP/1.1 and disable implicit redirects, decompression, cookies and proxies.
 
+The controller samples `shutil.disk_usage(target).free` once per batch, at the
+first accepted response before payload writes, and subtracts worker write
+headroom. The shared in-memory budget reserves a known `Content-Length` before
+streaming or charges each unknown-length block before writing. Reservations
+stay charged after publication. Retries return the old reservation only after
+unlinking owned staging; failed transfers return it only after proven scratch
+cleanup. Failed cleanup retains the reservation conservatively. No per-MiB
+filesystem queries occur. This budget does not allocate disk extents or exclude
+other writers; write/fsync failures continue through the existing preservation
+and receipt rules. The same budget serves known-URL downloads and the aiohttp
+mirror transfer batch.
+
 `download_url_list(MirrorConfig(mode="download", ...))` takes destination/log
 ownership before creating state. It consumes either `url_list` or one
 `download_url` through the same plan, backend, scratch and publication path.
