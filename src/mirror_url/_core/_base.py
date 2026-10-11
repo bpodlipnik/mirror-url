@@ -41,7 +41,7 @@ from ..health import HealthChecker, HealthCheckServer
 from ..metrics import MetricsCollector
 from ..monitoring import DiskSpaceManager, MemoryMonitor, PerformanceMonitor
 from ..primitives import AtomicCounter, AtomicSize
-from ..progress import MultiLevelProgress
+from ..progress import DownloadProgress, MultiLevelProgress, ProgressConsoleHandler
 from ..queue import DownloadQueue
 from ..rate_limiter import BandwidthLimiter, PerIPRateLimiter
 from ..scanner import DirectoryScanner
@@ -434,6 +434,7 @@ class _MirrorBase(MirrorHost):
         self.scratch_manager: Optional[OwnedScratch] = None
         self.health_checker = HealthChecker(self)
         self.multi_progress = MultiLevelProgress()
+        self._download_progress: Optional[DownloadProgress] = None
         self.per_ip_limiter = PerIPRateLimiter(
             requests_per_second=config.requests_per_second, delay=config.request_delay
         )
@@ -1051,7 +1052,9 @@ class _MirrorBase(MirrorHost):
         existing_console = []
         for handler in logging.root.handlers[:]:
             if isinstance(handler, logging.StreamHandler) and handler.stream == sys.stderr:
-                existing_console.append(handler)
+                existing_console.append(
+                    ProgressConsoleHandler.adapt(handler) if self.config.progress_bar else handler
+                )
 
         # Clear all other handlers
         for handler in logging.root.handlers[:]:
@@ -1061,6 +1064,10 @@ class _MirrorBase(MirrorHost):
                     handler.close()
                 except Exception:
                     pass
+
+        for handler in existing_console:
+            if handler not in logging.root.handlers:
+                logging.root.addHandler(handler)
 
         # FIX: Ensure log directory exists BEFORE creating FileHandler
         if not self.config.dry_run:
@@ -1092,7 +1099,7 @@ class _MirrorBase(MirrorHost):
         except (FileNotFoundError, PermissionError, OSError) as e:
             # Fallback: ensure console handler exists before logging warning
             if not logging.root.handlers:
-                console = logging.StreamHandler(sys.stderr)
+                console = ProgressConsoleHandler(sys.stderr)
                 console.setFormatter(
                     logging.Formatter(
                         "[%(asctime)s] [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
@@ -1113,7 +1120,7 @@ class _MirrorBase(MirrorHost):
 
         # Add console handler ONLY if requested AND no console handler exists
         if self.config.print_logs and not existing_console:
-            console_handler = logging.StreamHandler(sys.stderr)
+            console_handler = ProgressConsoleHandler(sys.stderr)
             console_handler.setFormatter(
                 logging.Formatter(
                     "[%(asctime)s] [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S"

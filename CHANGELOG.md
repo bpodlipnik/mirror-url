@@ -6,6 +6,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Show live per-file byte and transfer-stage progress in mirror mode, using
+  the shared download reporter for HTTPX sequential, parallel and streaming
+  transfers and aiohttp. Remove the duplicate, unupdated metadata bar. Clear
+  metadata bars before transfers and close all bars/timers before the summary,
+  including on failure. Aggregate chunk ranges into one file bar and exclude
+  retained resume bytes from newly received traffic.
+- Coordinate console logging with tqdm so messages do not overwrite active
+  bars; keep periodic byte observations in the log file when bars are visible.
+
 ## [3.4.5] - 2026-10-11
 
 ### Fixed

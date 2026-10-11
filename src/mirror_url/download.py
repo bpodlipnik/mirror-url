@@ -54,6 +54,7 @@ from .download_integrity import (
 from .enums import DownloadMethod
 from .exceptions import ChunkAssemblyError, ChunkDownloadError
 from .models import ChunkInfo, ParallelFileDownload
+from .progress import get_download_progress
 from .rate_limiter import BandwidthLimiter, ChunkAwareRateLimiter
 from .scratch import OwnedScratch
 from .utils import bounded_executor_shutdown, exponential_backoff, format_bytes
@@ -445,6 +446,7 @@ class ParallelDownloadManager:
                 direct_write=download.staging_path is not None,
                 etag=etag,
                 file_size=file_size,
+                progress_path=local_path,
             )
             chunks.append(chunk)
         download.chunks = chunks
@@ -467,6 +469,7 @@ class ParallelDownloadManager:
     @destination_operation
     def _download_verified_chunk(self, chunk: ChunkInfo, *, streaming: bool) -> bool:
         chunk.status = "downloading"
+        progress = get_download_progress(self.mirror)
         parsed = urlparse(chunk.file_url)
         hostname = parsed.hostname
         if hostname is None:
@@ -492,6 +495,7 @@ class ParallelDownloadManager:
             attempt = 0
             while True:
                 response = None
+                progress.received_chunk(chunk.progress_path, chunk.chunk_id, 0, chunk.file_size)
                 try:
                     # Both modes share scope checks, manual redirects, retry
                     # headers and circuit breaking through ConnectionManager.
@@ -522,6 +526,9 @@ class ParallelDownloadManager:
                                 raise ChunkDownloadError("Response exceeds chunk boundary")
                             f.write(data)
                             downloaded += len(data)
+                            progress.received_chunk(
+                                chunk.progress_path, chunk.chunk_id, downloaded, chunk.file_size
+                            )
                             if self.bandwidth_limiter:
                                 self.bandwidth_limiter.throttle(len(data))
                         f.flush()
@@ -666,17 +673,24 @@ class ParallelDownloadManager:
     @destination_operation
     def _finish_streaming(self, download: ParallelFileDownload) -> bool:
         """Publish only after all validated chunks are complete and flushed."""
+        progress = get_download_progress(self.mirror)
         staging_work = download.staging_path.parent if download.staging_path else None
         try:
             if not download.staging_path or any(c.status != "completed" for c in download.chunks):
                 raise ChunkAssemblyError("Streaming download is incomplete")
             if download.staging_path.stat().st_size != download.file_size:
                 raise ChunkAssemblyError("Streaming size mismatch")
+            progress.stage(download.final_path, "flushing file")
             with open(download.staging_path, "r+b") as f:
                 os.fsync(f.fileno())
+            progress.stage(
+                download.final_path,
+                "hashing (SHA-256)" if self.config.verify_content else "verifying file",
+            )
             digest = file_sha256(
                 download.staging_path, enabled=getattr(self.config, "verify_content", False)
             )
+            progress.stage(download.final_path, "publishing")
             os.replace(download.staging_path, download.final_path)
             download.staging_path = None
             self._restore_server_timestamp(download)
@@ -844,6 +858,7 @@ class ParallelDownloadManager:
         # ====================================================================
         # PHASE 1: VALIDATE INPUT STATE & SNAPSHOT
         # ====================================================================
+        progress = get_download_progress(self.mirror)
         with download.lock:
             if not download.chunks:
                 logging.error(f"No chunks to assemble for {download.final_path}")
@@ -866,6 +881,7 @@ class ParallelDownloadManager:
             file_size = download.file_size
             chunks = sorted(download.chunks, key=lambda c: c.chunk_id)
             download.status = "assembling"
+        progress.stage(download.final_path, "assembling chunks")
 
         logging.info(
             f"🔧 Assembling {download.final_path.name} from {len(chunks)} chunks "
@@ -954,6 +970,7 @@ class ParallelDownloadManager:
                                 )
 
                         # Flush to disk
+                        progress.stage(download.final_path, "flushing file")
                         if mm is not None:
                             mm.flush()
                         else:
@@ -994,9 +1011,14 @@ class ParallelDownloadManager:
             # The assembly file is in the destination directory, so a
             # failed replace must leave the old file intact. A copy/move
             # fallback could destroy it before that fallback completes.
+            progress.stage(
+                download.final_path,
+                "hashing (SHA-256)" if self.config.verify_content else "verifying file",
+            )
             digest = file_sha256(
                 temp_assembly, enabled=getattr(self.config, "verify_content", False)
             )
+            progress.stage(download.final_path, "publishing")
             os.replace(temp_assembly, download.final_path)
             temp_file_moved = True
             self._restore_server_timestamp(download)

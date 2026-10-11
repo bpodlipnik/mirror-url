@@ -168,6 +168,7 @@ class ChunkInfo:
     last_modified: Optional[str] = None
     direct_write: bool = False  # Write into the shared staging file
     file_size: Optional[int] = None
+    progress_path: Optional[Path] = None  # Published name, independent of chunk staging
 
 
 @dataclass

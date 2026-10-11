@@ -28,6 +28,7 @@ from ..download_integrity import (
     validate_range,
 )
 from ..exceptions import MirrorConnectionError
+from ..progress import get_download_progress
 from ..utils import exponential_backoff, format_bytes, sanitize_url_for_log, trim_url
 
 if TYPE_CHECKING:
@@ -46,32 +47,45 @@ class DownloadMixin(MirrorHost):
         If parallel downloads are enabled and file is large enough,
         uses parallel chunk downloads. Otherwise falls back to single-threaded.
         """
-        # Check if we should use parallel download
-        if self.parallel_manager and self.parallel_manager.enabled:
-            # Use passed size or fetch it
-            current_size = file_size if file_size is not None else self._get_file_size(remote_url)
-            if current_size and self.parallel_manager.should_use_parallel(current_size):
-                # Create parallel download
-                download = self.parallel_manager.create_chunks(remote_url, local_path, current_size)
-                if download:
-                    # Download chunks in parallel
-                    success = self.parallel_manager.download_parallel(download)
-                    if success:
-                        return True
+        progress = get_download_progress(self)
+        progress.begin(local_path, "waiting for response")
+        success = False
+        try:
+            # Check if we should use parallel download
+            if self.parallel_manager and self.parallel_manager.enabled:
+                # Use passed size or fetch it
+                current_size = (
+                    file_size if file_size is not None else self._get_file_size(remote_url)
+                )
+                if current_size and self.parallel_manager.should_use_parallel(current_size):
+                    # Create parallel download
+                    download = self.parallel_manager.create_chunks(
+                        remote_url, local_path, current_size
+                    )
+                    if download:
+                        # Download chunks in parallel
+                        success = self.parallel_manager.download_parallel(download)
+                        if success:
+                            return True
 
-                    # Fallback to single-threaded download if parallel fails.
-                    # ⚠️ IMPORTANT: _download_file_single ALREADY increments failur
-                    # on failure. We must NOT increment them here to avoid double-counting.
-                    return self._download_file_single(remote_url, local_path)
+                        # Fallback to single-threaded download if parallel fails.
+                        # ⚠️ IMPORTANT: _download_file_single ALREADY increments failur
+                        # on failure. We must NOT increment them here to avoid double-counting.
+                        success = self._download_file_single(remote_url, local_path)
+                        return success
 
-        # Fallback for files that don't meet parallel criteria (too small, disabled, etc.)
-        return self._download_file_single(remote_url, local_path)
+            # Fallback for files that don't meet parallel criteria (too small, disabled, etc.)
+            success = self._download_file_single(remote_url, local_path)
+            return success
+        finally:
+            progress.finish(local_path, success)
 
     @destination_operation
     def _download_file_single(self, remote_url: str, local_path: Path) -> bool:
         """Original single-threaded download method with atomic counter updates."""
         remote_url = trim_url(remote_url)
         download_start = time.time()
+        progress = get_download_progress(self)
         partial_manager = self.partial_manager
         if partial_manager is None:
             logging.error("Partial download manager is unavailable")
@@ -100,6 +114,7 @@ class DownloadMixin(MirrorHost):
             for attempt in range(self.config.max_retries + 1):
                 r = None
                 try:
+                    progress.begin(local_path, "waiting for response")
                     headers = {"Accept-Encoding": "identity"}
                     metadata = (
                         load_resume_metadata(partial_path, remote_url)
@@ -166,6 +181,7 @@ class DownloadMixin(MirrorHost):
                         expected_size = content_length(r.headers)
 
                     size = bytes_already
+                    progress.resume(local_path, bytes_already, expected_size)
                     with open(partial_path, mode) as f:
                         f.flush()
                         os.fsync(f.fileno())
@@ -183,9 +199,11 @@ class DownloadMixin(MirrorHost):
                                     raise ValueError("Download exceeds expected length")
                                 f.write(chunk)
                                 size += len(chunk)
+                                progress.received(local_path, size, expected_size)
                                 partial_manager.update_activity(partial_path, len(chunk))
                                 if self.bandwidth_limiter:
                                     self.bandwidth_limiter.throttle(len(chunk))
+                        progress.stage(local_path, "flushing file")
                         f.flush()
                         os.fsync(f.fileno())
                     if expected_size is not None and size != expected_size:
@@ -194,9 +212,14 @@ class DownloadMixin(MirrorHost):
                     download_time = time.time() - start
                     self.metrics.add_download_time(download_time)
 
+                    progress.stage(
+                        local_path,
+                        "hashing (SHA-256)" if self.config.verify_content else "verifying file",
+                    )
                     digest = file_sha256(
                         partial_path, enabled=getattr(self.config, "verify_content", False)
                     )
+                    progress.stage(local_path, "publishing")
                     os.replace(partial_path, local_path)
                     try:
                         clear_resume_metadata(partial_path)
@@ -260,6 +283,7 @@ class DownloadMixin(MirrorHost):
                         logging.warning(
                             f"Download attempt {attempt + 1} failed: {e}. Retrying in {wait_time:.1f}s..."
                         )
+                        progress.stage(local_path, "waiting to retry")
                         time.sleep(wait_time)
                     else:
                         raise

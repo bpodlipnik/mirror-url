@@ -586,7 +586,7 @@ The most commonly used options:
 <tbody>
 <tr>
 <td nowrap><samp>--progress-bar</samp>, <samp>--progress</samp></td>
-<td>Show tqdm progress bars (included in a normal installation). Known-URL downloads show received bytes and the current transfer stage.</td>
+<td>Show tqdm progress bars (included in a normal installation). Mirror and known-URL downloads show received bytes and the current transfer stage.</td>
 </tr>
 <tr>
 <td nowrap><samp>--stats</samp></td>
@@ -1757,7 +1757,7 @@ limit tracker behavior; they do not make the heuristic a definitive detector.
   listing attempts; throughput does not establish a successful scan. Existing
   top-level metric keys remain available; `download_speed` is the older average
   over the collector's lifetime, not the new download-phase throughput.
-- **`--progress-bar` / `--progress`** shows live tqdm bars (included in the normal installation). Mirror mode tracks file processing; known-URL download mode tracks received bytes and transfer stages. Directory discovery reports examined-directory counts and elapsed time while fetching listings; its total tree size is unknown, so it does not show a percentage or ETA. The final discovery rate includes listing request time.
+- **`--progress-bar` / `--progress`** shows live tqdm bars (included in the normal installation). Both mirror and known-URL downloads show one bar per active file, updated as bytes arrive, with the current transfer stage. Mirror metadata checks use a separate files-examined bar that clears before transfers start. Completed bars close before the summary. Resumed bytes advance the file position without counting as new traffic; parallel ranges share one file bar. Directory discovery reports examined-directory counts and elapsed time while fetching listings; its total tree size is unknown, so it does not show a percentage or ETA. The final discovery rate includes listing request time.
 - **Health/metrics HTTP endpoints.** Setting `--metrics-json FILE` also starts
   a local HTTP server for a non-dry-run instance, until it is cleaned up.
   `--health-check-port` alone does not enable it. The server binds to `localhost`

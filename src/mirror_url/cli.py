@@ -76,7 +76,7 @@ from .metrics import (
     log_processed_result,
     log_run_completion,
 )
-from .progress import ConsoleProgressFilter
+from .progress import ProgressConsoleHandler
 from .run_report import RunReport
 from .security import PathSafety
 from .utils import _log_files, sanitize_command_line
@@ -128,8 +128,7 @@ def setup_shared_logging(
     # Create console handler (if print-logs is enabled)
     handlers: List[logging.Handler] = [file_handler]
     if args.print_logs:
-        console_handler = logging.StreamHandler(sys.stderr)
-        console_handler.addFilter(ConsoleProgressFilter())
+        console_handler = ProgressConsoleHandler(sys.stderr)
         console_handler.setFormatter(
             logging.Formatter(
                 "[%(asctime)s] [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
@@ -1417,7 +1416,7 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
 
         # Add console handler only if none exist and --print-logs is set
         if args.print_logs and not console_handlers_to_keep:
-            console_handler = logging.StreamHandler(sys.stderr)
+            console_handler = ProgressConsoleHandler(sys.stderr)
             console_handler.setFormatter(
                 logging.Formatter(
                     "[%(asctime)s] [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
