@@ -1296,7 +1296,14 @@ def test_cli_progress_tracks_bytes_while_stream_is_pending(
 def test_cli_failed_download_preserves_json_and_console_preferences(
     tmp_path, origin, monkeypatch, capsys, flags
 ):
-    origin.routes["/root/a"] = (404, {}, b"not found")
+    # The client rejects this response without consuming its body. End the
+    # fixture connection here instead of reading another keepalive request
+    # after the client closes it (which can reset the socket on Linux).
+    origin.routes["/root/a"] = (
+        404,
+        {"Content-Length": "9", "Connection": "close"},
+        b"not found",
+    )
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(cli.tempfile, "gettempdir", lambda: str(tmp_path / "logs"))
     monkeypatch.setattr("sys.argv", ["mirror-url", "--mode", "download", origin.base + "a", *flags])
