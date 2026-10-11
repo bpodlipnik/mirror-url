@@ -10,6 +10,7 @@ import logging
 import os
 import socket
 import threading
+import time
 from collections import Counter
 from contextlib import asynccontextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -20,6 +21,7 @@ import httpx
 import pytest
 
 from mirror_url import MirrorConfig, MirrorURL, cli, download_url_list
+from mirror_url import progress as transfer_progress
 from mirror_url.async_connection import AdaptiveAsyncManager, AsyncConnectionManager
 from mirror_url.connection import ConnectionManager
 from mirror_url.destination_lock import DestinationLock
@@ -831,6 +833,284 @@ def test_cli_direct_url_honors_explicit_targets(tmp_path, origin, monkeypatch, c
     assert json.loads(capsys.readouterr().out)["success"]
     assert (destination / "nested/a").read_bytes() == b"bytes"
     assert len(list(logs.glob("download_*.log"))) == 1
+
+
+def _observe_periodic_reports(monkeypatch, stage):
+    """Release a blocked transfer only after the real timer reports twice."""
+    monkeypatch.setattr(transfer_progress, "PROGRESS_INTERVAL_SECONDS", 0.02)
+    observed = threading.Event()
+    messages = []
+    original = logging.info
+
+    def capture(message, *args, **kwargs):
+        if (
+            isinstance(message, str)
+            and message.startswith("Download progress:")
+            and "files completed" in message
+            and stage in message
+        ):
+            messages.append(message)
+            if len(messages) >= 2:
+                observed.set()
+        original(message, *args, **kwargs)
+
+    monkeypatch.setattr(logging, "info", capture)
+    return observed, messages
+
+
+def test_cli_print_logs_reports_during_network_wait_then_readable_summary(
+    tmp_path, origin, backend, monkeypatch, capsys
+):
+    observed, messages = _observe_periodic_reports(monkeypatch, "waiting for response")
+    waited = []
+
+    def waiting_response(_):
+        waited.append(observed.wait(3))
+        return 200, {}, b"downloaded bytes"
+
+    origin.routes["/root/a"] = waiting_response
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(cli.tempfile, "gettempdir", lambda: str(tmp_path / "logs"))
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "mirror-url",
+            "--mode",
+            "download",
+            origin.base + "a",
+            "--backend",
+            backend,
+            "--print-logs",
+        ],
+    )
+    cli.main()
+    captured = capsys.readouterr()
+    result = json.loads(captured.out)
+    assert result["success"] and waited == [True]
+    assert len(messages) >= 2 and "waiting for response" in "\n".join(messages)
+    assert "DOWNLOAD SUMMARY:" in captured.err and "Files downloaded: 1" in captured.err
+    assert f"Destination: {tmp_path}" in captured.err and "Average throughput:" in captured.err
+    assert "SHA-256: disabled" in captured.err and "SHA-256 time:" not in captured.err
+    assert "Download result: {" not in captured.err and '"bytes_downloaded"' not in captured.err
+    for unused in [
+        "Adaptive async",
+        "HTML cache",
+        "Resume enabled",
+        "Compatibility batch",
+        "Fast parsing",
+        "pre-warming",
+        "Memory monitoring",
+    ]:
+        assert unused not in captured.err
+    assert (tmp_path / "a").read_bytes() == b"downloaded bytes"
+    assert not any(t.name == "mirror-url-download-progress" for t in threading.enumerate())
+
+
+@pytest.mark.parametrize("stage", ["flush", "hash"])
+def test_cli_progress_remains_live_during_blocking_finalization(
+    tmp_path, origin, monkeypatch, capsys, stage
+):
+    import mirror_url.transfers as transfers
+
+    observed, messages = _observe_periodic_reports(
+        monkeypatch, "flushing file" if stage == "flush" else "hashing (SHA-256)"
+    )
+    waited = []
+    payload = b"finalization bytes"
+    origin.routes["/root/a"] = (200, {}, payload)
+    if stage == "flush":
+        original = transfers.os.fsync
+
+        def blocking(fd):
+            if os.fstat(fd).st_size == len(payload):
+                waited.append(observed.wait(3))
+            return original(fd)
+
+        monkeypatch.setattr(transfers.os, "fsync", blocking)
+    else:
+        original_hash = transfers.file_sha256
+
+        def blocking_hash(path, enabled=True):
+            waited.append(observed.wait(3))
+            return original_hash(path, enabled)
+
+        monkeypatch.setattr(transfers, "file_sha256", blocking_hash)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(cli.tempfile, "gettempdir", lambda: str(tmp_path / "logs"))
+    monkeypatch.setattr(
+        "sys.argv",
+        ["mirror-url", "--mode", "download", origin.base + "a", "--print-logs", "--verify-content"],
+    )
+    cli.main()
+    captured = capsys.readouterr()
+    result = json.loads(captured.out)
+    assert result["success"] and waited == [True]
+    assert len(messages) >= 2
+    assert ("flushing file" if stage == "flush" else "hashing (SHA-256)") in "\n".join(messages)
+    assert all("0/1 files completed" in message for message in messages)
+    assert "SHA-256 time:" in captured.err
+    assert (tmp_path / "a").read_bytes() == payload
+    assert not any(t.name == "mirror-url-download-progress" for t in threading.enumerate())
+
+
+@pytest.mark.parametrize("declared_length", [None, 6])
+def test_cli_progress_tracks_bytes_while_stream_is_pending(
+    tmp_path, origin, backend, monkeypatch, capsys, declared_length
+):
+    import mirror_url.transfers as transfers
+
+    observed, messages = _observe_periodic_reports(monkeypatch, "downloading (3.00 B")
+    waited = []
+
+    @asynccontextmanager
+    async def slow_body(self, url):
+        async def chunks():
+            yield b"abc"
+            waited.append(await asyncio.to_thread(observed.wait, 3))
+            yield b"def"
+
+        headers = {} if declared_length is None else {"Content-Length": str(declared_length)}
+        yield 200, headers, chunks()
+
+    adapter = transfers._HTTPXBackend if backend == "httpx" else transfers._AIOHTTPBackend
+    original_init = adapter.__init__
+
+    def delayed_init(self, *args, **kwargs):
+        # Earlier preparing/waiting reports must not release the body stall.
+        time.sleep(0.08)
+        original_init(self, *args, **kwargs)
+
+    monkeypatch.setattr(adapter, "__init__", delayed_init)
+    monkeypatch.setattr(adapter, "open", slow_body)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(cli.tempfile, "gettempdir", lambda: str(tmp_path / "logs"))
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "mirror-url",
+            "--mode",
+            "download",
+            origin.base + "a",
+            "--backend",
+            backend,
+            "--print-logs",
+        ],
+    )
+    cli.main()
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["success"] and waited == [True]
+    assert len(messages) >= 2
+    assert all(
+        "received 3.00 B" in message and "0/1 files completed" in message for message in messages
+    )
+    assert all(("ETA" in message) is (declared_length is not None) for message in messages)
+    assert (tmp_path / "a").read_bytes() == b"abcdef"
+    assert not any(t.name == "mirror-url-download-progress" for t in threading.enumerate())
+
+
+@pytest.mark.parametrize(
+    "flags",
+    [[], ["--print-logs", "--quiet"], ["--print-logs"], ["--print-logs", "--progress", "--quiet"]],
+)
+def test_cli_failed_download_preserves_json_and_console_preferences(
+    tmp_path, origin, monkeypatch, capsys, flags
+):
+    origin.routes["/root/a"] = (404, {}, b"not found")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(cli.tempfile, "gettempdir", lambda: str(tmp_path / "logs"))
+    monkeypatch.setattr("sys.argv", ["mirror-url", "--mode", "download", origin.base + "a", *flags])
+    with pytest.raises(SystemExit) as error:
+        cli.main()
+    captured = capsys.readouterr()
+    result = json.loads(captured.out)
+    assert error.value.code == 1 and not result["success"] and result["files_failed"] == 1
+    assert ("DOWNLOAD SUMMARY:" in captured.err) is (flags == ["--print-logs"])
+    assert ("Result: FAILED" in captured.err) is (flags == ["--print-logs"])
+    if not flags:
+        assert not captured.err
+    assert not (tmp_path / "a").exists()
+    assert not any(t.name == "mirror-url-download-progress" for t in threading.enumerate())
+
+
+@pytest.mark.parametrize("flag", ["--progress", "--progress-bar"])
+@pytest.mark.parametrize("print_logs", [False, True])
+@pytest.mark.parametrize("declared_length", [None, 6])
+def test_cli_known_url_byte_bar_and_json_stream(
+    tmp_path, origin, backend, monkeypatch, capsys, flag, print_logs, declared_length
+):
+    pytest.importorskip("tqdm")
+    import mirror_url.transfers as transfers
+
+    bars = []
+    snapshots = []
+    original = transfer_progress._create_progress_bar
+
+    def create(**settings):
+        bar = original(**settings)
+        assert bar is not None
+        bars.append(bar)
+        return bar
+
+    @asynccontextmanager
+    async def response(self, url):
+        async def chunks():
+            yield b"abc"
+            snapshots.append((bars[0].n, bars[0].total))
+            yield b"def"
+
+        headers = {} if declared_length is None else {"Content-Length": str(declared_length)}
+        yield 200, headers, chunks()
+
+    monkeypatch.setattr(transfer_progress, "_create_progress_bar", create)
+    adapter = transfers._HTTPXBackend if backend == "httpx" else transfers._AIOHTTPBackend
+    monkeypatch.setattr(adapter, "open", response)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(cli.tempfile, "gettempdir", lambda: str(tmp_path / "logs"))
+    flags = [flag] + (["--print-logs"] if print_logs else [])
+    monkeypatch.setattr(
+        "sys.argv",
+        ["mirror-url", "--mode", "download", origin.base + "a", "--backend", backend, *flags],
+    )
+    cli.main()
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["files_downloaded"] == 1
+    assert snapshots == [(3, declared_length)]
+    assert len(bars) == 1 and bars[0].n == 6 and bars[0].disable
+    assert bars[0].total == declared_length
+    assert "a:" in captured.err and ("%" in captured.err) is (declared_length is not None)
+    assert ("DOWNLOAD SUMMARY:" in captured.err) is print_logs
+    assert (tmp_path / "a").read_bytes() == b"abcdef"
+    assert not any(t.name == "mirror-url-download-progress" for t in threading.enumerate())
+
+
+def test_cli_download_summary_uses_validated_destination(tmp_path, origin, monkeypatch, capsys):
+    origin.routes["/root/CON/a"] = (200, {}, b"destination bytes")
+    destination, logs = tmp_path / "destination", tmp_path / "logs"
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "mirror-url",
+            "--mode",
+            "download",
+            origin.base + "CON/a",
+            "--url",
+            origin.base,
+            "--dir-suffix",
+            "CON",
+            "--dest-path",
+            str(destination),
+            "--log-path",
+            str(logs),
+            "--print-logs",
+        ],
+    )
+    cli.main()
+    captured = capsys.readouterr()
+    result = json.loads(captured.out)
+    target = destination / "_CON"
+    assert result["success"] and (target / "a").read_bytes() == b"destination bytes"
+    assert f"Destination: {target}" in captured.err
+    assert json.loads(Path(result["receipts"]).read_text())["target"] == str(target)
 
 
 @pytest.mark.parametrize("source", ["positional", "list", "config-direct"])

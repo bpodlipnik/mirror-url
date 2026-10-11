@@ -1,6 +1,7 @@
 """Run-wide metrics aggregation.
 
-Migrated verbatim from ``mirror_url.py`` (orig. lines 3523-3913): ``MetricsCollector``.
+Migrated verbatim from ``mirror_url.py`` (orig. lines 3523-3913):
+``MetricsCollector``. Exact-URL download results are formatted here too.
 """
 
 from __future__ import annotations
@@ -577,4 +578,38 @@ class MetricsCollector:
             return False
 
 
-__all__ = ["MetricsCollector"]
+def format_download_summary(config: MirrorConfig, summary: dict, target: Path) -> str:
+    """Render known-URL metrics using the destination already validated by the CLI."""
+    lines = [
+        "DOWNLOAD SUMMARY:",
+        "  Result: " + ("SUCCESS" if summary["success"] else "FAILED"),
+        f"  Backend: {config.backend}",
+        f"  Destination: {target.resolve()}",
+    ]
+    if summary.get("dry_run"):
+        lines.extend(["  Dry run: no downloads", f"  Files planned: {summary['files']}"])
+    else:
+        size = summary["bytes_downloaded"]
+        elapsed = summary["elapsed_seconds"]
+        throughput = (
+            format_bytes(size / elapsed, binary_units=True) + "/s" if elapsed > 0 else "n/a"
+        )
+        lines.extend(
+            [
+                f"  Files downloaded: {summary['files_downloaded']}",
+                f"  Files failed: {summary['files_failed']}",
+                f"  Downloaded bytes: {format_bytes(size, binary_units=True)} ({size} bytes)",
+                f"  Elapsed time: {elapsed:.3f}s",
+                f"  Average throughput: {throughput}",
+                "  SHA-256: "
+                + ("enabled (local receipts)" if config.verify_content else "disabled"),
+                f"  Disk flush time: {summary['stage_seconds']['fsync']:.3f}s",
+            ]
+        )
+        if config.verify_content:
+            lines.append(f"  SHA-256 time: {summary['stage_seconds']['hash']:.3f}s")
+        lines.append(f"  Ownership receipts: {summary['receipts']}")
+    return "\n".join(lines)
+
+
+__all__ = ["MetricsCollector", "format_download_summary"]

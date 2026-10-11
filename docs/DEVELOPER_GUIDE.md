@@ -661,6 +661,33 @@ normal discovery and checks, then saves results through `CacheManager`.
 HTTPX remains the default mirror implementation, including ranged resume and
 chunks. The whole-file pipeline preserves those existing partials.
 
+`progress.DownloadProgress` observes this pipeline for visible known-URL
+runs, in the existing progress module alongside the mirror item tracker.
+Both use the same optional tqdm constructor; byte and summary formatting uses
+the shared `utils.format_bytes()` with IEC labels. One timer thread waits ten
+seconds between progress messages, independently
+of the async loop so synchronous fsync and optional SHA-256 work remain visible.
+Workers update bounded active-file observations under a short lock; logging
+runs outside that lock. Retry attempts reset per-file progress, while aggregate
+received bytes include discarded attempts. Completion/failure counts update
+only after the worker result and publication receipt hook. The context stops
+and joins the timer before releasing destination ownership or closing logs,
+including exception unwinding. No timer is started for silent or quiet runs.
+
+`--progress-bar` and its explicit `--progress` alias enable per-file byte bars
+without requiring `--print-logs`. Positions are reused after workers finish;
+only active bars are retained. Body updates use tqdm's refresh throttling, while
+stage changes and timer ticks refresh waiting/flushing/hashing displays. Unknown
+lengths have no percentage or ETA. Retry bars reset to byte zero, and all bars
+close on success, failure or exception. Renderer errors do not fail transfers.
+
+The CLI uses a download-specific startup banner and
+`metrics.format_download_summary()` for readable completion logs, using the
+destination already validated by the CLI. The existing JSON result
+schema and stdout stream remain unchanged. `--print-logs` sends human logs to
+stderr; it does not duplicate the JSON result in the log. CLI logging flags
+control progress visibility, matching the shared handler configuration.
+
 The new candidate needs its own CI and full qualification runs. Frozen
 validation of an older source snapshot does not cover this implementation.
 

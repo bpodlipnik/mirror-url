@@ -223,12 +223,13 @@ def format_duration(seconds: float, show_ms: bool = False) -> str:
     return f"{int(hours)}h {int(minutes)}m {int(seconds)}s"
 
 
-def format_bytes(bytes_count: float) -> str:
+def format_bytes(bytes_count: float, *, binary_units: bool = False) -> str:
     """
     Format bytes to human-readable string.
 
     Args:
         bytes_count: Number of bytes
+        binary_units: Use IEC labels (KiB, MiB, ...) instead of legacy labels.
 
     Returns:
         Formatted string with appropriate unit
@@ -239,11 +240,12 @@ def format_bytes(bytes_count: float) -> str:
         >>> format_bytes(1048576)
         '1.00 MB'
     """
-    for unit in ["B", "KB", "MB", "GB", "TB"]:
+    units = ("B", "KiB", "MiB", "GiB", "TiB") if binary_units else ("B", "KB", "MB", "GB", "TB")
+    for unit in units:
         if bytes_count < 1024.0:
             return f"{bytes_count:.2f} {unit}"
         bytes_count /= 1024.0
-    return f"{bytes_count:.2f} PB"
+    return f"{bytes_count:.2f} {'PiB' if binary_units else 'PB'}"
 
 
 def normalize_etag(etag: str) -> str:

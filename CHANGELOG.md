@@ -4,6 +4,23 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Report known-URL download activity approximately every ten seconds with
+  `--print-logs`, including network waits, received bytes, file completion,
+  disk flushing and optional SHA-256 hashing. Stop the reporting timer before
+  releasing run ownership and closing logs, including on failure/interruption.
+- Replace the JSON download log line with a readable completion summary and
+  show only applicable settings in the download banner. Preserve the single
+  JSON result on stdout for scripts and suppress periodic messages without console logs
+  or with `--quiet`. Explain both output streams in the guides.
+- Honor `--progress-bar` in known-URL download mode and accept `--progress` as
+  an explicit alias. Show per-file received bytes and stages, with percentage
+  and ETA only for known lengths. Reuse the existing reporting modules, shared
+  byte formatter and optional tqdm renderer; close bars and timers on exit.
+
 ## [3.4.1] - 2026-10-11
 
 ### Fixed

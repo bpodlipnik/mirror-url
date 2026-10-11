@@ -1,0 +1,294 @@
+"""Reporting remains accurate during waits and before publication."""
+
+from __future__ import annotations
+
+import builtins
+import logging
+import threading
+
+import pytest
+
+from mirror_url import MirrorConfig
+from mirror_url import progress as report
+from mirror_url.metrics import format_download_summary
+from mirror_url.utils import format_bytes
+
+
+def test_progress_tracks_retry_bytes_without_crediting_unpublished_files(tmp_path, caplog):
+    caplog.set_level(logging.INFO)
+    path = tmp_path / "large.pdf"
+    progress = report.DownloadProgress(True)
+    progress.plan(1)
+    progress.begin(path)
+    progress.received(path, 1024, 2048)
+    progress.log_progress()
+    assert "0/1 files completed" in caplog.text
+    assert "1.00 KiB/2.00 KiB" in caplog.text and "ETA " in caplog.text
+    progress.begin(path, "waiting for response")
+    progress.received(path, 2048, 2048)
+    progress.stage(path, "hashing (SHA-256)")
+    caplog.clear()
+    progress.log_progress()
+    assert "received 3.00 KiB" in caplog.text
+    assert "0/1 files completed" in caplog.text and "hashing (SHA-256)" in caplog.text
+    assert "ETA " not in caplog.text
+    progress.finish(path, True)
+    progress.saving_receipts()
+    caplog.clear()
+    progress.log_progress()
+    assert "1/1 files completed" in caplog.text and "saving receipts" in caplog.text
+    assert not progress.active
+
+
+def test_unknown_lengths_failed_files_and_bounded_active_display(tmp_path, caplog):
+    caplog.set_level(logging.INFO)
+    progress = report.DownloadProgress(True)
+    progress.log_progress()
+    assert "0/? files completed" in caplog.text and "preparing downloads" in caplog.text
+    progress.plan(4)
+    for number in range(4):
+        path = tmp_path / str(number)
+        progress.begin(path)
+        progress.received(path, 10, None)
+    caplog.clear()
+    progress.log_progress()
+    assert "and 1 more active files" in caplog.text
+    assert "ETA" not in caplog.text and "/0.00 B" not in caplog.text
+    progress.finish(tmp_path / "0", False)
+    caplog.clear()
+    progress.log_progress()
+    assert "0/4 files completed, 1 failed" in caplog.text
+
+
+def test_timer_stops_and_joins_on_exception_and_repeated_runs(monkeypatch):
+    monkeypatch.setattr(report, "PROGRESS_INTERVAL_SECONDS", 0.02)
+    for _ in range(3):
+        observed = threading.Event()
+        progress = report.DownloadProgress(True)
+        monkeypatch.setattr(progress, "log_progress", observed.set)
+        with pytest.raises(RuntimeError, match="test interruption"):
+            with progress:
+                assert observed.wait(3)
+                raise RuntimeError("test interruption")
+        assert progress.thread is not None and not progress.thread.is_alive()
+    assert not any(t.name == "mirror-url-download-progress" for t in threading.enumerate())
+
+
+def test_disabled_progress_has_no_thread_state_or_output(tmp_path, caplog):
+    with report.DownloadProgress(False) as progress:
+        progress.plan(1)
+        path = tmp_path / "a"
+        progress.begin(path)
+        progress.received(path, 10, 20)
+        progress.stage(path, "flushing file")
+        progress.finish(path, True)
+        progress.saving_receipts()
+    assert progress.thread is None and not progress.active and progress.received_bytes == 0
+    assert not caplog.records
+
+
+@pytest.mark.parametrize("verify", [False, True])
+def test_readable_summary_explains_real_hash_status(tmp_path, caplog, verify):
+    caplog.set_level(logging.INFO)
+    config = MirrorConfig(
+        base_url="https://files.example/root",
+        dest_path=tmp_path,
+        log_path=tmp_path,
+        verify_content=verify,
+    )
+    summary = {
+        "success": True,
+        "files_downloaded": 1,
+        "files_failed": 0,
+        "bytes_downloaded": 9543236657,
+        "elapsed_seconds": 90.83098622504622,
+        "stage_seconds": {"fsync": 3.5375502910465, "hash": 0.00011729821562767029},
+        "receipts": str(tmp_path / "receipts.json"),
+    }
+    logging.info(format_download_summary(config, summary, tmp_path))
+    assert "DOWNLOAD SUMMARY:" in caplog.text and "Result: SUCCESS" in caplog.text
+    assert "8.89 GiB (9543236657 bytes)" in caplog.text
+    assert "100.20 MiB/s" in caplog.text and "90.831s" in caplog.text
+    assert "Disk flush time: 3.538s" in caplog.text
+    assert ("SHA-256 time:" in caplog.text) is verify
+    assert ("SHA-256: disabled" in caplog.text) is not verify
+    assert "{'" not in caplog.text
+
+
+def test_failed_zero_duration_and_dry_run_summaries(tmp_path, caplog):
+    caplog.set_level(logging.INFO)
+    config = MirrorConfig(
+        base_url="https://files.example/root", dest_path=tmp_path, log_path=tmp_path
+    )
+    logging.info(
+        format_download_summary(
+            config,
+            {
+                "success": False,
+                "files_downloaded": 0,
+                "files_failed": 1,
+                "bytes_downloaded": 0,
+                "elapsed_seconds": 0,
+                "stage_seconds": {"fsync": 0, "hash": 0},
+                "receipts": "receipts.json",
+            },
+            tmp_path,
+        )
+    )
+    assert "Result: FAILED" in caplog.text and "Average throughput: n/a" in caplog.text
+    caplog.clear()
+    logging.info(
+        format_download_summary(config, {"success": True, "dry_run": True, "files": 2}, tmp_path)
+    )
+    assert "Dry run: no downloads" in caplog.text and "Files planned: 2" in caplog.text
+    assert "Files downloaded:" not in caplog.text
+
+
+@pytest.mark.parametrize("size, expected", [(0, "0.00 B"), (1024**4, "1.00 TiB")])
+def test_binary_units(size, expected):
+    assert format_bytes(size, binary_units=True) == expected
+
+
+class RecordingBar:
+    def __init__(self, **settings):
+        self.settings = settings
+        self.total, self.n = settings["total"], 0
+        self.closed = False
+        self.stage = ""
+        self.refreshes = 0
+
+    def update(self, size):
+        self.n += size
+
+    def reset(self):
+        self.n = 0
+
+    def set_postfix_str(self, stage, refresh=False):
+        self.stage = stage
+
+    def refresh(self):
+        self.refreshes += 1
+
+    def close(self):
+        self.closed = True
+
+
+def test_mirror_and_known_url_use_shared_terminal_renderer(tmp_path, monkeypatch):
+    bars = []
+
+    def create(**settings):
+        bars.append(RecordingBar(**settings))
+        return bars[-1]
+
+    monkeypatch.setattr(report, "_create_progress_bar", create)
+    monkeypatch.setattr(report, "TQDM_AVAILABLE", True)
+    config = MirrorConfig(
+        base_url="https://files.example/root",
+        dest_path=tmp_path,
+        log_path=tmp_path,
+        progress_bar=True,
+    )
+    tracker = report.ProgressTracker(1, name="files", config=config)
+    tracker.update()
+    tracker.report_final()
+    assert bars[0].n == 1 and bars[0].closed
+    with report.DownloadProgress(False, config) as progress:
+        path = tmp_path / "large.pdf"
+        progress.begin(path)
+        progress.received(path, 1024, 2048)
+        assert bars[1].n == 1024 and bars[1].total == 2048
+        progress.begin(path, "waiting for response")
+        assert bars[1].n == 0 and bars[1].total is None
+        progress.received(path, 2048, None)
+        assert bars[1].n == 2048 and bars[1].total is None
+        assert progress.received_bytes == 3072 and progress.completed == 0
+        progress.stage(path, "flushing file")
+        assert bars[1].stage == "flushing file"
+        progress.finish(path, True)
+        assert progress.completed == 1 and bars[1].closed
+    assert progress.thread is not None and not progress.thread.is_alive()
+
+
+def test_parallel_bars_reuse_slots_and_close_on_exception(tmp_path, monkeypatch, caplog):
+    monkeypatch.setattr(report, "_create_progress_bar", RecordingBar)
+    monkeypatch.setattr(report, "TQDM_AVAILABLE", True)
+    config = MirrorConfig(
+        base_url="https://files.example/root",
+        dest_path=tmp_path,
+        log_path=tmp_path,
+        progress_bar=True,
+    )
+    caplog.set_level(logging.INFO)
+    with pytest.raises(RuntimeError):
+        with report.DownloadProgress(False, config) as progress:
+            a, b, c = [tmp_path / name for name in ("a", "b", "c")]
+            progress.begin(a)
+            progress.begin(b)
+            first = progress.active[a].bar
+            second = progress.active[b].bar
+            assert first.settings["position"] == 0 and second.settings["position"] == 1
+            progress.finish(a, False)
+            progress.begin(c)
+            third = progress.active[c].bar
+            assert third.settings["position"] == 0
+            before = second.refreshes
+            progress.log_progress()
+            assert second.refreshes > before and not caplog.records
+            raise RuntimeError("interrupted")
+    assert first.closed and second.closed and third.closed
+    assert progress.thread is not None and not progress.thread.is_alive()
+
+
+def test_missing_optional_renderer_and_quiet_behavior(tmp_path, monkeypatch, caplog):
+    monkeypatch.setattr(report, "TQDM_AVAILABLE", False)
+    config = MirrorConfig(
+        base_url="https://files.example/root",
+        dest_path=tmp_path,
+        log_path=tmp_path,
+        progress_bar=True,
+    )
+    with report.DownloadProgress(False, config) as progress:
+        assert progress.thread is None and not progress.bars
+    assert "install mirror-url[progress]" in caplog.text
+    caplog.clear()
+    config.quiet = True
+    with report.DownloadProgress(False, config) as progress:
+        assert progress.thread is None and not progress.bars
+    assert not caplog.records
+
+
+def test_terminal_renderer_failures_do_not_fail_download_reporting(tmp_path, monkeypatch):
+    class BrokenBar(RecordingBar):
+        def update(self, size):
+            raise OSError("terminal disconnected")
+
+        def close(self):
+            raise OSError("terminal disconnected")
+
+    monkeypatch.setattr(report, "_create_progress_bar", BrokenBar)
+    monkeypatch.setattr(report, "TQDM_AVAILABLE", True)
+    config = MirrorConfig(
+        base_url="https://files.example/root",
+        dest_path=tmp_path,
+        log_path=tmp_path,
+        progress_bar=True,
+    )
+    with report.DownloadProgress(False, config) as progress:
+        path = tmp_path / "a"
+        progress.begin(path)
+        assert progress.active[path].bar is None
+        progress.received(path, 10, 10)
+        progress.finish(path, True)
+        assert progress.completed == 1
+
+
+def test_shared_terminal_renderer_handles_missing_import(monkeypatch):
+    original = builtins.__import__
+
+    def unavailable(name, *args, **kwargs):
+        if name == "tqdm":
+            raise ImportError("optional dependency unavailable")
+        return original(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", unavailable)
+    assert report._create_progress_bar(total=1) is None

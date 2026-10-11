@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from mirror_url import utils
 
 
@@ -9,6 +11,14 @@ def test_format_bytes_human_readable():
     assert utils.format_bytes(0) == "0.00 B"
     assert utils.format_bytes(1536) == "1.50 KB"
     assert utils.format_bytes(1048576) == "1.00 MB"
+
+
+@pytest.mark.parametrize(
+    "size, label",
+    [(0, "B"), (1536, "KiB"), (1024**2, "MiB"), (1024**4, "TiB"), (1024**5, "PiB")],
+)
+def test_shared_byte_formatter_supports_iec_labels(size, label):
+    assert utils.format_bytes(size, binary_units=True).endswith(" " + label)
 
 
 def test_normalize_etag_strips_weak_prefix():

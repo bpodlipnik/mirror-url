@@ -584,8 +584,8 @@ The most commonly used options:
 </thead>
 <tbody>
 <tr>
-<td nowrap><samp>--progress-bar</samp></td>
-<td>Show a tqdm progress bar (needs the <code>progress</code> extra).</td>
+<td nowrap><samp>--progress-bar</samp>, <samp>--progress</samp></td>
+<td>Show tqdm progress bars (needs the <code>progress</code> extra). Known-URL downloads show received bytes and the current transfer stage.</td>
 </tr>
 <tr>
 <td nowrap><samp>--stats</samp></td>
@@ -991,6 +991,41 @@ YAML/JSON. The configuration field for the direct source is `download_url`.
 The CLI supplies the same shortcut defaults for a download config containing
 that field; standalone `MirrorConfig`/`validate_config_file()` still require
 explicit `base_url`, `dest_path` and `log_path`.
+
+### Progress and completion output
+
+With `--print-logs`, known-URL downloads log progress to stderr approximately
+every **10 seconds**, including when waiting for a response or flushing/hashing
+a completed transfer. Progress shows elapsed time, received bytes, average
+speed, completed/failed file counts and up to three active file paths with
+their current stage. A file with a known length shows received/expected bytes
+and an estimated remaining transfer time while receiving bytes; unknown lengths
+have no ETA. Received bytes include discarded retry attempts, while completed
+files count only successful publications and their receipt entries.
+
+The completion log is a readable **DOWNLOAD SUMMARY** with result, backend,
+destination, published file/byte counts, elapsed time, average throughput,
+disk flush time and receipt location. SHA-256 is explicitly enabled or disabled;
+hash time is shown only with `--verify-content`. SHA-256 receipts describe local
+bytes and do not establish agreement with a remote cryptographic digest.
+The startup banner shows applicable whole-file download settings.
+
+`--progress-bar` (also `--progress`) shows per-file byte bars, independently of
+`--print-logs`. Install the optional renderer with `pip install 'mirror-url[progress]'`.
+Known lengths show percentage and transfer ETA; unknown lengths show received
+bytes and speed. Bars also identify response waits, disk flushing and hashing.
+Retries reset the affected file's byte bar. Reaching 100% means the body has
+arrived; publication and receipt recording must still succeed.
+
+Without `--print-logs`, periodic log messages are silent and the summary remains
+in the log file. `--quiet` suppresses bars and INFO-level console progress and
+summary output.
+The CLI continues to print exactly one JSON result to stdout for scripts;
+console logs stay on stderr. For a terminal view without the JSON line:
+
+```bash
+mirror-url --mode download https://example.org/files/a.fits --print-logs >result.json
+```
 
 ### A URL list
 
@@ -1688,7 +1723,7 @@ limit tracker behavior; they do not make the heuristic a definitive detector.
   listing attempts; throughput does not establish a successful scan. Existing
   top-level metric keys remain available; `download_speed` is the older average
   over the collector's lifetime, not the new download-phase throughput.
-- **`--progress-bar`** shows a live tqdm bar for file processing (requires the `progress` extra). Directory discovery reports examined-directory counts and elapsed time while fetching listings; its total tree size is unknown, so it does not show a percentage or ETA. The final discovery rate includes listing request time.
+- **`--progress-bar` / `--progress`** shows live tqdm bars (requires the `progress` extra). Mirror mode tracks file processing; known-URL download mode tracks received bytes and transfer stages. Directory discovery reports examined-directory counts and elapsed time while fetching listings; its total tree size is unknown, so it does not show a percentage or ETA. The final discovery rate includes listing request time.
 - **Health/metrics HTTP endpoints.** Setting `--metrics-json FILE` also starts
   a local HTTP server for a non-dry-run instance, until it is cleaned up.
   `--health-check-port` alone does not enable it. The server binds to `localhost`
