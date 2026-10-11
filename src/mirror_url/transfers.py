@@ -33,9 +33,9 @@ from .download import PartialDownloadManager
 from .download_integrity import content_length, file_sha256, strong_etag
 from .exceptions import ConfigError, SecurityError, URLScopeError
 from .filename_mapping import FilenameMap, _stat_identity
+from .progress import DownloadProgress
 from .scratch import OwnedScratch
 from .security import PathSafety, SecurityValidator
-from .transfer_report import DownloadProgress
 from .transport import SecureAsyncTransport
 from .utils import _relative_url_path, sanitize_url_for_log, url_within_scope
 
@@ -543,7 +543,7 @@ def download_url_list(config: MirrorConfig) -> dict:
     try:
         with (
             guard.operation(),
-            DownloadProgress(config.print_logs and not config.quiet) as progress,
+            DownloadProgress(config.print_logs and not config.quiet, config) as progress,
         ):
             items = plan_targets(urls, scope, target, config)
             progress.plan(len(items))

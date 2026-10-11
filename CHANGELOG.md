@@ -14,8 +14,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   releasing run ownership and closing logs, including on failure/interruption.
 - Replace the JSON download log line with a readable completion summary and
   show only applicable settings in the download banner. Preserve the single
-  JSON result on stdout for scripts and suppress progress without console logs
+  JSON result on stdout for scripts and suppress periodic messages without console logs
   or with `--quiet`. Explain both output streams in the guides.
+- Honor `--progress-bar` in known-URL download mode and accept `--progress` as
+  an explicit alias. Show per-file received bytes and stages, with percentage
+  and ETA only for known lengths. Reuse the existing reporting modules, shared
+  byte formatter and optional tqdm renderer; close bars and timers on exit.
 
 ## [3.4.1] - 2026-10-11
 

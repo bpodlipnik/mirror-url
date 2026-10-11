@@ -70,8 +70,8 @@ from .exceptions import (
     PathTraversalError,
     URLScopeError,
 )
+from .metrics import format_download_summary
 from .security import PathSafety
-from .transfer_report import log_download_summary
 from .utils import _log_files, sanitize_command_line
 
 
@@ -207,6 +207,8 @@ def setup_shared_logging(
         )
         if args.print_logs and not args.quiet:
             logging.info("Download progress: updates approximately every 10 seconds")
+        if eff.progress_bar and not args.quiet:
+            logging.info("Progress bars: per-file received bytes and transfer stage")
         logging.info("=" * 50)
         return
     if TQDM_AVAILABLE and eff.progress_bar:
@@ -960,7 +962,9 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
     )
     logging_grp.add_argument("--quiet", action="store_true", help="Quiet mode (WARNING+ only)")
     logging_grp.add_argument("--verbose", action="store_true", help="Verbose mode (DEBUG)")
-    logging_grp.add_argument("--progress-bar", action="store_true", help="Enable tqdm progress bar")
+    logging_grp.add_argument(
+        "--progress-bar", "--progress", action="store_true", help="Enable tqdm progress bar"
+    )
     logging_grp.add_argument(
         "--stats",
         action="store_true",
@@ -1324,7 +1328,7 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
                 download_config.backend,
             )
             summary = download_url_list(download_config)
-            log_download_summary(download_config, summary)
+            logging.info(format_download_summary(download_config, summary, target))
         except (MirrorError, ValueError, OSError) as error:
             print(f"Download error: {error}", file=sys.stderr)
             sys.exit(1)

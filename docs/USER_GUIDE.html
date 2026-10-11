@@ -832,8 +832,8 @@ files</h3>
 </thead>
 <tbody>
 <tr>
-<td nowrap><samp>--progress-bar</samp></td>
-<td>Show a tqdm progress bar (needs the <code>progress</code> extra).</td>
+<td nowrap><samp>--progress-bar</samp>, <samp>--progress</samp></td>
+<td>Show tqdm progress bars (needs the <code>progress</code> extra). Known-URL downloads show received bytes and the current transfer stage.</td>
 </tr>
 <tr>
 <td nowrap><samp>--stats</samp></td>
@@ -1239,11 +1239,20 @@ is explicitly enabled or disabled; hash time is shown only with
 <code>--verify-content</code>. SHA-256 receipts describe local bytes and
 do not establish agreement with a remote cryptographic digest. The
 startup banner shows applicable whole-file download settings.</p>
-<p>Without <code>--print-logs</code>, progress is silent and the summary
-remains in the log file. <code>--quiet</code> suppresses INFO-level
-console progress and summary output. The CLI continues to print exactly
-one JSON result to stdout for scripts; console logs stay on stderr. For
-a terminal view without the JSON line:</p>
+<p><code>--progress-bar</code> (also <code>--progress</code>) shows
+per-file byte bars, independently of <code>--print-logs</code>. Install
+the optional renderer with
+<code>pip install 'mirror-url[progress]'</code>. Known lengths show
+percentage and transfer ETA; unknown lengths show received bytes and
+speed. Bars also identify response waits, disk flushing and hashing.
+Retries reset the affected file's byte bar. Reaching 100% means the body
+has arrived; publication and receipt recording must still succeed.</p>
+<p>Without <code>--print-logs</code>, periodic log messages are silent
+and the summary remains in the log file. <code>--quiet</code> suppresses
+bars and INFO-level console progress and summary output. The CLI
+continues to print exactly one JSON result to stdout for scripts;
+console logs stay on stderr. For a terminal view without the JSON
+line:</p>
 <div class="sourceCode" id="cb23"><pre
 class="sourceCode bash"><code class="sourceCode bash"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--mode</span> download https://example.org/files/a.fits <span class="at">--print-logs</span> <span class="op">&gt;</span>result.json</span></code></pre></div>
 <h3 id="a-url-list">A URL list</h3>
@@ -1961,8 +1970,10 @@ throughput does not establish a successful scan. Existing top-level
 metric keys remain available; <code>download_speed</code> is the older
 average over the collector's lifetime, not the new download-phase
 throughput.</p></li>
-<li><p><strong><code>--progress-bar</code></strong> shows a live tqdm
-bar for file processing (requires the <code>progress</code> extra).
+<li><p><strong><code>--progress-bar</code> /
+<code>--progress</code></strong> shows live tqdm bars (requires the
+<code>progress</code> extra). Mirror mode tracks file processing;
+known-URL download mode tracks received bytes and transfer stages.
 Directory discovery reports examined-directory counts and elapsed time
 while fetching listings; its total tree size is unknown, so it does not
 show a percentage or ETA. The final discovery rate includes listing

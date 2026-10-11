@@ -584,8 +584,8 @@ The most commonly used options:
 </thead>
 <tbody>
 <tr>
-<td nowrap><samp>--progress-bar</samp></td>
-<td>Show a tqdm progress bar (needs the <code>progress</code> extra).</td>
+<td nowrap><samp>--progress-bar</samp>, <samp>--progress</samp></td>
+<td>Show tqdm progress bars (needs the <code>progress</code> extra). Known-URL downloads show received bytes and the current transfer stage.</td>
 </tr>
 <tr>
 <td nowrap><samp>--stats</samp></td>
@@ -1010,8 +1010,16 @@ hash time is shown only with `--verify-content`. SHA-256 receipts describe local
 bytes and do not establish agreement with a remote cryptographic digest.
 The startup banner shows applicable whole-file download settings.
 
-Without `--print-logs`, progress is silent and the summary remains in the log
-file. `--quiet` suppresses INFO-level console progress and summary output.
+`--progress-bar` (also `--progress`) shows per-file byte bars, independently of
+`--print-logs`. Install the optional renderer with `pip install 'mirror-url[progress]'`.
+Known lengths show percentage and transfer ETA; unknown lengths show received
+bytes and speed. Bars also identify response waits, disk flushing and hashing.
+Retries reset the affected file's byte bar. Reaching 100% means the body has
+arrived; publication and receipt recording must still succeed.
+
+Without `--print-logs`, periodic log messages are silent and the summary remains
+in the log file. `--quiet` suppresses bars and INFO-level console progress and
+summary output.
 The CLI continues to print exactly one JSON result to stdout for scripts;
 console logs stay on stderr. For a terminal view without the JSON line:
 
@@ -1715,7 +1723,7 @@ limit tracker behavior; they do not make the heuristic a definitive detector.
   listing attempts; throughput does not establish a successful scan. Existing
   top-level metric keys remain available; `download_speed` is the older average
   over the collector's lifetime, not the new download-phase throughput.
-- **`--progress-bar`** shows a live tqdm bar for file processing (requires the `progress` extra). Directory discovery reports examined-directory counts and elapsed time while fetching listings; its total tree size is unknown, so it does not show a percentage or ETA. The final discovery rate includes listing request time.
+- **`--progress-bar` / `--progress`** shows live tqdm bars (requires the `progress` extra). Mirror mode tracks file processing; known-URL download mode tracks received bytes and transfer stages. Directory discovery reports examined-directory counts and elapsed time while fetching listings; its total tree size is unknown, so it does not show a percentage or ETA. The final discovery rate includes listing request time.
 - **Health/metrics HTTP endpoints.** Setting `--metrics-json FILE` also starts
   a local HTTP server for a non-dry-run instance, until it is cleaned up.
   `--health-check-port` alone does not enable it. The server binds to `localhost`
