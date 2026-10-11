@@ -11,7 +11,7 @@ If you only want to *use* MirrorURL (install, CLI, config, Python API), read
 repeats the essentials so you can work from it alone.
 
 - **Package:** `mirror_url` (src-layout under `src/`)
-- **Version:** 3.4.0
+- **Version:** 3.4.1
 - **Python:** 3.10 or newer; CI tests Python 3.10–3.14
 - **Runtime deps:** `httpx[http2]` (including `h2`), `pydantic` v2, `PyYAML`, `portalocker` 3.x (optional: `stringzilla`,
   `lxml`, `tqdm`, `psutil`, `aiohttp`)
@@ -467,11 +467,23 @@ divided by the download phase's elapsed time, rather than summed worker times.
 Completion freezes elapsed time; beginning another sync clears its decisions,
 publication set and phases. Listing work is measured per call, includes fetch
 wait, and is reported as summed work rather than CPU parsing time.
+`begin_discovery()` records the actual BFS strategy and worker bound;
+`record_directory_examined()` counts each distinct directory admitted by the
+coordinator, including entries at the depth limit and failed listing attempts.
+Both fields and the count reset at each sync. `discovery_throughput` divides
+that count by `phase_seconds["discovery"]`, which includes cache loading and
+file-list collection. The progress banner measures the BFS walk alone.
+Throughput is nullable when discovery did not start or its elapsed time is not
+positive. Failed scans retain their partial work and failed status; a rate is
+not evidence of successful discovery. The summary groups mode, worker count,
+examined count, elapsed time and throughput, and omits the former rate derived
+from summed listing work. Summed worker time can exceed elapsed discovery time.
 
 The text summary reports this sync's cache/subsystem activity using a baseline
 of lifetime counters. JSON retains existing metric keys and adds `metrics.run`
 with explicit outcomes, selection coverage, status, reasons, `phase_seconds`,
-`elapsed_seconds` and nullable `download_throughput`. Directory signatures,
+`elapsed_seconds`, `discovery_mode`, `discovery_workers`, `directories_examined`
+and nullable `discovery_throughput`/`download_throughput`. Directory signatures,
 in-memory listing reuse, HTML hits/misses and cache bypasses remain distinct.
 `listing_fetches` remains the logical listing GET count. `listing_get_seconds`,
 `directory_signature_head_calls`, `directory_signature_head_seconds` and
@@ -1178,5 +1190,5 @@ Preserve these constraints when extending or refactoring the current code.
 
 ---
 
-*This guide describes the architecture as of version 3.4.0. When you change the
+*This guide describes the architecture as of version 3.4.1. When you change the
 structure, update this document in the same PR.*

@@ -8,7 +8,7 @@ integrity checks and incremental caching. It also supports direct file URLs
 and exact URL lists without directory discovery. URL-scope, private-network
 and filesystem protections guard discovery and transfers.
 
-- **Version:** 3.4.0
+- **Version:** 3.4.1
 - **Python:** 3.10 or newer; CI tests Python 3.10–3.14
 - **License:** MIT
 
@@ -106,21 +106,21 @@ From a checkout of the repository on a build machine:
 
 ```bash
 pip install build
-python -m build          # produces dist/mirror_url-3.4.0-py3-none-any.whl
+python -m build          # produces dist/mirror_url-3.4.1-py3-none-any.whl
 ```
 
 Copy the wheel to the target server and install it:
 
 ```bash
 python3 -m venv /opt/mirror-url
-/opt/mirror-url/bin/pip install /tmp/mirror_url-3.4.0-py3-none-any.whl
+/opt/mirror-url/bin/pip install /tmp/mirror_url-3.4.1-py3-none-any.whl
 /opt/mirror-url/bin/mirror-url --help
 ```
 
 To include the optional speed extras:
 
 ```bash
-/opt/mirror-url/bin/pip install "/tmp/mirror_url-3.4.0-py3-none-any.whl[fast]"
+/opt/mirror-url/bin/pip install "/tmp/mirror_url-3.4.1-py3-none-any.whl[fast]"
 ```
 
 Available extras: `fast` (stringzilla + lxml), `progress` (tqdm),
@@ -129,24 +129,24 @@ Available extras: `fast` (stringzilla + lxml), `progress` (tqdm),
 ### From a Git repository
 
 ```bash
-pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.4.0"
+pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.4.1"
 # private repo over SSH:
-pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.4.0"
+pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.4.1"
 ```
 
 ### As an isolated CLI with pipx
 
 ```bash
-pipx install /tmp/mirror_url-3.4.0-py3-none-any.whl
-# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.4.0"
+pipx install /tmp/mirror_url-3.4.1-py3-none-any.whl
+# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.4.1"
 ```
 
 ### With Docker
 
 ```dockerfile
 FROM python:3.12-slim
-COPY dist/mirror_url-3.4.0-py3-none-any.whl /tmp/
-RUN pip install --no-cache-dir "/tmp/mirror_url-3.4.0-py3-none-any.whl[fast]"
+COPY dist/mirror_url-3.4.1-py3-none-any.whl /tmp/
+RUN pip install --no-cache-dir "/tmp/mirror_url-3.4.1-py3-none-any.whl[fast]"
 ENTRYPOINT ["mirror-url"]
 ```
 
@@ -1647,8 +1647,23 @@ limit tracker behavior; they do not make the heuristic a definitive detector.
   download phase's wall-clock duration, including concurrent transfers, retries,
   pacing and publication. It is `n/a` when nothing was published. **Total
   duration** covers `sync()` after manager setup; initial construction and final
-  shutdown are outside that interval. Listing fetch/parse work includes network
-  wait and is a sum of individual operations, not CPU parsing time.
+  shutdown are outside that interval. The summary reports the actual **Discovery
+  mode** and worker count, **Directories examined**, **Discovery elapsed time**
+  and **Discovery throughput** together. Throughput divides examined directories
+  by the discovery phase's elapsed time, including cache loading and file-list
+  collection. It is `n/a` when discovery was not started or no positive duration
+  was measured. The progress banner times the directory walk alone.
+  **Listing fetch/parse work (sum)** includes network wait and sums individual
+  operations; concurrent operations overlap, so this value can exceed elapsed
+  time. It is neither CPU parsing time nor the throughput denominator.
+
+  ```text
+  Discovery mode: parallel (4 workers)
+  Directories examined: 42
+  Discovery elapsed time: 6.276s
+  Discovery throughput: 6.7 dirs/s
+  Listing fetch/parse work (sum): 11.947s
+  ```
 
   Cache reporting separates directory signatures loaded, in-memory parsed
   listing reuse, HTML-listing hits/misses and bypass reasons. Directory listing
@@ -1667,7 +1682,10 @@ limit tracker behavior; they do not make the heuristic a definitive detector.
   Quick mode, connection failures and discovery-only surveys have shorter summaries.
 - **`--metrics-json FILE`** writes the full metrics summary to JSON (skipped in
   `--dry-run`). Its `metrics.run` object contains the per-sync outcomes, result,
-  phase timings and `download_throughput` (`null` when unavailable). Existing
+  phase timings, `discovery_mode`, `discovery_workers`, `directories_examined`,
+  `discovery_throughput` and `download_throughput` (throughputs are `null` when
+  unavailable). Examined directories include depth-limit entries and failed
+  listing attempts; throughput does not establish a successful scan. Existing
   top-level metric keys remain available; `download_speed` is the older average
   over the collector's lifetime, not the new download-phase throughput.
 - **`--progress-bar`** shows a live tqdm bar for file processing (requires the `progress` extra). Directory discovery reports examined-directory counts and elapsed time while fetching listings; its total tree size is unknown, so it does not show a percentage or ETA. The final discovery rate includes listing request time.

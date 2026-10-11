@@ -370,7 +370,18 @@ class MetricsCollector:
                 )
             if run["reasons"]:
                 lines.append(f"{prefix}  Result details: {run['reasons']}")
-            for phase in ("discovery", "metadata", "download preparation", "downloads", "cleanup"):
+            mode = run["discovery_mode"]
+            workers = run["discovery_workers"]
+            strategy = f"{mode} ({workers} worker{'s' if workers != 1 else ''})" if mode else "n/a"
+            lines.append(f"{prefix}  Discovery mode: {strategy}")
+            lines.append(f"{prefix}  Directories examined: {run['directories_examined']}")
+            lines.append(
+                f"{prefix}  Discovery elapsed time: {run['phase_seconds'].get('discovery', 0):.3f}s"
+            )
+            discovery_rate = run["discovery_throughput"]
+            rate = f"{discovery_rate:.1f} dirs/s" if discovery_rate is not None else "n/a"
+            lines.append(f"{prefix}  Discovery throughput: {rate}")
+            for phase in ("metadata", "download preparation", "downloads", "cleanup"):
                 lines.append(
                     f"{prefix}  {phase.capitalize()} time: {run['phase_seconds'].get(phase, 0):.3f}s"
                 )
@@ -420,11 +431,9 @@ class MetricsCollector:
 
         # Parse metrics
         if summary["parse_time_seconds"] > 0:
-            parse_speed = summary["directories_processed"] / summary["parse_time_seconds"]
             lines.append(
                 f"{prefix}  Listing fetch/parse work (sum): {summary['parse_time_seconds']:.3f}s"
             )
-            lines.append(f"{prefix}  Listing processing rate: {parse_speed:.1f} dirs/s")
 
         # Cache hit/miss metrics
         lines.append(

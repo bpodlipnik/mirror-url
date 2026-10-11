@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.4.1] - 2026-10-11
+
+### Fixed
+
+- Group actual discovery mode, worker count, examined directories, elapsed time
+  and wall-clock throughput in the summary. Remove the misleading rate based on
+  summed listing work; retain summed work and existing lifetime JSON metrics.
+  Add per-sync discovery fields to JSON, reset them on repeat syncs, and report
+  partial or unavailable discovery without implying success.
+- Explain discovery throughput and overlapping worker timings in both guides.
+
 ## [3.4.0] - 2026-10-11
 
 ### Changed

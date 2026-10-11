@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier, local
@@ -10,6 +11,7 @@ import httpx
 import pytest
 
 from mirror_url import MirrorConfig, MirrorURL
+from mirror_url.enums import ScanMode
 from mirror_url.metrics import MetricsCollector
 from mirror_url.run_report import RunReport
 from test_http_mirror_workflows import config as config
@@ -270,6 +272,111 @@ def test_concurrent_listing_durations_remain_independent_and_retain_json_samples
     assert sum(summary["parse_times"]) == summary["parse_time_seconds"] == 10
     assert summary["listing_fetches"] == 2
     assert summary["listing_get_seconds"] == 6
+
+
+@pytest.mark.parametrize("mode,workers", [("sequential", 1), ("parallel", 4)])
+def test_discovery_throughput_uses_elapsed_time_and_preserves_summed_work(
+    monkeypatch, mode, workers
+):
+    now = [100.0]
+    monkeypatch.setattr("mirror_url.run_report.time.perf_counter", lambda: now[0])
+    metrics = MetricsCollector()
+    # Earlier runs must not contribute to either this run's numerator or work.
+    metrics.increment("directories_processed", 50)
+    metrics.add_parse_time(80.0)
+    metrics.run_report.start(metrics.metrics, 0)
+    with metrics.run_report.phase("discovery"):
+        metrics.run_report.begin_discovery(mode, workers)
+        for _ in range(3):
+            metrics.run_report.record_directory_examined()
+            metrics.increment("directories_processed")
+            metrics.add_parse_time(4.0)
+        now[0] += 6.0
+    metrics.run_report.finish("success")
+    now[0] += 1000  # Rendering after completion must not change throughput.
+    report = metrics.report()
+    assert "Directories examined: 3" in report
+    assert "Discovery elapsed time: 6.000s" in report
+    assert "Discovery throughput: 0.5 dirs/s" in report
+    assert "Listing fetch/parse work (sum): 12.000s" in report
+    assert "Listing processing rate:" not in report
+    summary = metrics.get_summary()
+    assert summary["parse_time_seconds"] == 92.0
+    assert summary["directories_processed"] == 53
+    assert summary["run"]["discovery_throughput"] == 0.5
+    assert summary["run"]["directories_examined"] == 3
+    assert summary["run"]["discovery_workers"] == workers
+    metrics.run_report.start(metrics.metrics, 0)
+    reset = metrics.get_summary()["run"]
+    assert reset["discovery_mode"] is None
+    assert reset["discovery_workers"] == reset["directories_examined"] == 0
+    assert reset["discovery_throughput"] is None
+
+
+def test_failed_discovery_reports_partial_work_without_success_credit(monkeypatch):
+    now = [0.0]
+    monkeypatch.setattr("mirror_url.run_report.time.perf_counter", lambda: now[0])
+    metrics = MetricsCollector()
+    metrics.run_report.start(metrics.metrics, 0)
+    with pytest.raises(RuntimeError), metrics.run_report.phase("discovery"):
+        metrics.run_report.begin_discovery("parallel", 4)
+        metrics.run_report.record_directory_examined()
+        now[0] = 2.0
+        raise RuntimeError("listing failed")
+    metrics.run_report.finish("failed", "listing failed")
+    report = metrics.report()
+    assert "Result: FAILED" in report
+    assert "Directories examined: 1" in report
+    assert "Discovery elapsed time: 2.000s" in report
+    assert "Discovery throughput: 0.5 dirs/s" in report
+
+
+@pytest.mark.parametrize(
+    "started,seconds,expected", [(False, 2.0, None), (True, 0.0, None), (True, 2.0, 0.0)]
+)
+def test_unavailable_or_empty_discovery_never_invents_throughput(
+    monkeypatch, started, seconds, expected
+):
+    now = [0.0]
+    monkeypatch.setattr("mirror_url.run_report.time.perf_counter", lambda: now[0])
+    metrics = MetricsCollector()
+    metrics.run_report.start(metrics.metrics, 0)
+    with metrics.run_report.phase("discovery"):
+        if started:
+            metrics.run_report.begin_discovery("sequential", 1)
+        now[0] = seconds
+    metrics.run_report.finish("success")
+    assert metrics.get_summary()["run"]["discovery_throughput"] == expected
+    rendered = "n/a" if expected is None else "0.0 dirs/s"
+    assert f"Discovery throughput: {rendered}" in metrics.report()
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("mode,workers", [("sequential", 1), ("parallel", 4)])
+def test_repeat_sync_discovery_text_and_export_match_real_local_http_work(
+    remote, config, tmp_path, mode, workers
+):
+    remote.files = {"a/file": b"a", "b/file": b"b", "file": b"root"}
+    config.scan_mode = ScanMode(mode)
+    config.cache_html = False
+    config.use_shared_log = True
+    config.sequential_downloads = True
+    with MirrorURL(config) as mirror:
+        for _ in range(2):
+            assert mirror.sync(), mirror.metrics.get_summary()
+            run = mirror.metrics.get_summary()["run"]
+            assert run["discovery_mode"] == mode
+            assert run["discovery_workers"] == workers
+            assert run["directories_examined"] == 3
+            assert run["discovery_throughput"] == 3 / run["phase_seconds"]["discovery"]
+            text = mirror.metrics.report()
+            assert f"Discovery mode: {mode} ({workers} worker" in text
+            assert "Directories examined: 3" in text
+            assert f"Discovery throughput: {run['discovery_throughput']:.1f} dirs/s" in text
+            assert "Listing processing rate:" not in text
+            exported = tmp_path / "metrics.json"
+            assert mirror.metrics.export_json(exported, config)
+            assert json.loads(exported.read_text())["metrics"]["run"] == run
 
 
 @pytest.mark.integration
