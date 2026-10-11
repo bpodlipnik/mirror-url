@@ -6,7 +6,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Changed
+## [3.4.5] - 2026-10-11
+
+### Fixed
 
 - Use the synchronous HTTPX reader in a background thread when a whole-file
   batch has one worker. Batch raw bytes before handing them to the existing
