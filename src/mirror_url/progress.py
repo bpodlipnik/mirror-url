@@ -423,6 +423,9 @@ class _ActiveFile:
     expected: Optional[int] = None
     reused: int = 0
     chunks: Dict[int, int] = field(default_factory=dict)
+    chunk_total: Optional[int] = None
+    active_chunks: set[int] = field(default_factory=set)
+    completed_chunks: set[int] = field(default_factory=set)
     stage: str = "preparing"
     bar: Any = None
     position: int = 0
@@ -452,6 +455,7 @@ class DownloadProgress:
         self.total: Optional[int] = None
         self.completed = self.failed = self.received_bytes = 0
         self.batch_stage = "preparing downloads"
+        self._announced_bars: Optional[bool] = None
 
     def __enter__(self):
         if self.enabled or self.bars:
@@ -487,7 +491,13 @@ class DownloadProgress:
             if reset:
                 file.bar.initial = 0
                 file.bar.reset()
-            file.bar.set_postfix_str(file.stage, refresh=False)
+            stage = file.stage
+            if file.chunk_total is not None:
+                stage += (
+                    f", chunks {len(file.completed_chunks)}/{file.chunk_total} completed, "
+                    f"{len(file.active_chunks)} active"
+                )
+            file.bar.set_postfix_str(stage, refresh=False)
             file.bar.update(file.received - file.bar.n)
             if reset or refresh or changed_total:
                 file.bar.refresh()
@@ -499,6 +509,26 @@ class DownloadProgress:
     def plan(self, count: int) -> None:
         with self.lock:
             self.total = count
+
+    def _announce_display(self) -> None:
+        """Describe the renderer that actually opened, including fallback."""
+        if not self.enabled:
+            return
+        with self.lock:
+            if not self.active:
+                return
+            bars = all(
+                file.bar is not None and not getattr(file.bar, "disable", False)
+                for file in self.active.values()
+            )
+            if bars == self._announced_bars:
+                return
+            self._announced_bars = bars
+        logging.info(
+            "Progress display: live byte bars; periodic status saved in the log file"
+            if bars
+            else "Progress display: console status approximately every 10 seconds"
+        )
 
     def begin(self, path: Path, stage: str = "preparing") -> None:
         if self.enabled or self.bars:
@@ -520,8 +550,36 @@ class DownloadProgress:
                         leave=False,
                         position=file.position,
                     )
-                self.active[path] = file
-                self._update_bar(file, reset=True)
+            self.active[path] = file
+            self._update_bar(file, reset=True)
+        self._announce_display()
+
+    def chunk_plan(self, path: Path, count: int) -> None:
+        if self.enabled or self.bars:
+            with self.lock:
+                file = self.active.get(path)
+                if file is not None:
+                    file.chunk_total = count
+                    self._update_bar(file, refresh=True)
+
+    def chunk_activity(
+        self, path: Optional[Path], chunk: int, active: bool, success: bool = False
+    ) -> None:
+        if (self.enabled or self.bars) and path is not None:
+            with self.lock:
+                file = self.active.get(path)
+                if file is None:
+                    return
+                if active:
+                    if file.received == 0:
+                        file.stage = "waiting for chunk responses"
+                    file.active_chunks.add(chunk)
+                    file.completed_chunks.discard(chunk)
+                else:
+                    file.active_chunks.discard(chunk)
+                    if success:
+                        file.completed_chunks.add(chunk)
+                self._update_bar(file, refresh=True)
 
     def received(self, path: Path, size: int, expected: Optional[int]) -> None:
         if self.enabled or self.bars:
@@ -592,6 +650,12 @@ class DownloadProgress:
                 if file.expected is not None:
                     amount += "/" + format_bytes(file.expected, binary_units=True)
                 eta = ""
+                chunks = ""
+                if file.chunk_total is not None:
+                    chunks = (
+                        f"; chunks {len(file.completed_chunks)}/{file.chunk_total} completed, "
+                        f"{len(file.active_chunks)} active"
+                    )
                 age = now - file.started
                 if (
                     file.stage == "downloading"
@@ -601,7 +665,7 @@ class DownloadProgress:
                 ):
                     remaining = max(0, file.expected - file.received)
                     eta = f", ETA {remaining / ((file.received - file.reused) / age):.0f}s"
-                details.append(f"{name}: {file.stage} ({amount}{eta})")
+                details.append(f"{name}: {file.stage} ({amount}{eta}{chunks})")
             if len(self.active) > 3:
                 details.append(f"and {len(self.active) - 3} more active files")
             detail = "; ".join(details) or self.batch_stage
@@ -616,6 +680,7 @@ class DownloadProgress:
                 for file in self.active.values()
             )
         if self.enabled:
+            self._announce_display()
             logging.info(message, extra={"progress_bar_active": visible_bars})
 
 

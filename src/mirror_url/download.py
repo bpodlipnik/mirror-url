@@ -115,30 +115,32 @@ class ParallelDownloadManager:
             self.enabled = False
             self.use_streaming = False
             self.auto_mode = False
-            logging.info("📥 Sequential mode selected")
+            logging.debug("📥 Sequential mode selected")
 
         # Check for streaming parallel mode
         elif hasattr(config, "streaming_parallel") and config.streaming_parallel:
             self.enabled = True
             self.use_streaming = True
             self.auto_mode = False
-            logging.info("🚀 Streaming parallel mode selected")
+            logging.debug("🚀 Streaming parallel mode selected")
 
         # Check for traditional parallel mode
         elif config.parallel_downloads:
             self.enabled = True
             self.use_streaming = False
             self.auto_mode = False
-            logging.info("📦 Traditional parallel mode (temp files)")
+            logging.debug("📦 Traditional parallel mode (temp files)")
 
         # Auto-select mode (no arguments)
         else:
             self.enabled = False  # Start with disabled, auto-select will decide
             self.use_streaming = False
             self.auto_mode = True
-            logging.info("🤖 Auto-select mode (will choose best method at runtime)")
+            logging.debug("🤖 Auto-select mode (will choose best method at runtime)")
 
         self.max_chunks_per_file = config.max_chunks_per_file
+        with self.metrics.lock:
+            self.metrics.metrics["chunk_mode_requested"] = self.enabled
         self.min_chunk_size = config.min_chunk_size_mb * 1024 * 1024
         self.max_parallel_chunks = config.max_parallel_chunks_total
 
@@ -157,15 +159,13 @@ class ParallelDownloadManager:
         ):
             self.executor = concurrency_manager.shared_pool
             self.own_executor = False
-            logging.info("📦 Using shared thread pool for parallel downloads")
+            logging.debug("📦 Using shared thread pool for parallel downloads")
         else:
             self.executor = ThreadPoolExecutor(
                 max_workers=capped_workers, thread_name_prefix="mirror_download"
             )
             self.own_executor = True
-            logging.info(
-                f"📦 Using DEDICATED download thread pool: {capped_workers} threads (capped)"
-            )
+            logging.debug(f"Chunk executor capacity: {capped_workers} workers")
 
         # Per-IP semaphore tracking
         self._ip_semaphores: Dict[str, Semaphore] = {}
@@ -268,10 +268,11 @@ class ParallelDownloadManager:
         self.stats_lock = RLock()
         self._shutdown = False
 
-        logging.info(
-            f"📦 Parallel download manager: {max_chunk_threads} threads, "
-            f"max_chunks={self.max_chunks_per_file}, min_chunk={config.min_chunk_size_mb}MB, "
-            f"total_chunks={self.max_parallel_chunks}"
+        logging.debug(
+            "Chunk policy: %s chunks per file; minimum size %s MiB; worker capacity %s",
+            self.max_chunks_per_file,
+            config.min_chunk_size_mb,
+            max_chunk_threads,
         )
 
         self._cleanup_thread = threading.Thread(
@@ -474,6 +475,14 @@ class ParallelDownloadManager:
             )
             chunks.append(chunk)
         download.chunks = chunks
+        progress = self.progress or get_download_progress(self.mirror)
+        progress.chunk_plan(local_path, chunk_count)
+        logging.info(
+            "Chunk plan: %s: %s chunks selected (%s)",
+            str(local_path).replace("\n", "\\n").replace("\r", "\\r"),
+            chunk_count,
+            "streaming" if download.staging_path is not None else "temporary files",
+        )
         with self.lock:
             self.active_downloads[local_path] = download
         with self.stats_lock:
@@ -577,7 +586,14 @@ class ParallelDownloadManager:
                     limit = self.config.max_retries if self.config.mode == "download" else 2
                     if attempt == limit:
                         raise
-                    logging.debug(f"Chunk {chunk.chunk_id} retry: {e}")
+                    self.metrics.increment("chunk_retries")
+                    logging.warning(
+                        "Retrying chunk %s/%s (retry %s): %s",
+                        chunk.chunk_id + 1,
+                        chunk.total_chunks,
+                        attempt + 1,
+                        e,
+                    )
                     time.sleep(
                         exponential_backoff(attempt, self.config.retry_delay)
                         if self.config.mode == "download"
@@ -817,7 +833,10 @@ class ParallelDownloadManager:
             chunk.status = "failed"
             return False
 
+        progress = self.progress or get_download_progress(self.mirror)
+        self.metrics.chunk_started()
         try:
+            progress.chunk_activity(chunk.progress_path, chunk.chunk_id, True)
             if chunk.direct_write:
                 return self.download_chunk_streaming(chunk)  # Uses direct file write
             else:
@@ -829,9 +848,15 @@ class ParallelDownloadManager:
             return False
         finally:
             try:
-                ip_semaphore.release()
-            except ValueError:
-                pass
+                self.metrics.chunk_finished()
+                progress.chunk_activity(
+                    chunk.progress_path, chunk.chunk_id, False, chunk.status == "completed"
+                )
+            finally:
+                try:
+                    ip_semaphore.release()
+                except ValueError:
+                    pass
 
     def _retry_failed_chunks(self, download: ParallelFileDownload) -> bool:
         """Retry failed chunks sequentially to avoid deadlocks."""
@@ -841,6 +866,7 @@ class ParallelDownloadManager:
                 chunk.retries += 1
                 chunk.status = "pending"
                 if chunk.retries <= max_retries:
+                    self.metrics.increment("chunk_retries")
                     wait_time = exponential_backoff(chunk.retries - 1)
                     time.sleep(wait_time)
                     # FIX (NoneType crash): streaming chunks have temp_path=None.
@@ -1209,7 +1235,8 @@ class ParallelDownloadManager:
             return {
                 "enabled": self.enabled,
                 "active_files": active,
-                "active_chunks": total_chunks,  # ✅ KEY FIX: This key was missing
+                "planned_chunks": total_chunks,
+                "active_chunks": self.metrics.get_summary()["active_chunks"],
                 "max_chunks_per_file": self.max_chunks_per_file,
                 "min_chunk_size_mb": self.min_chunk_size / (1024 * 1024),
                 "max_parallel_chunks": self.max_parallel_chunks,

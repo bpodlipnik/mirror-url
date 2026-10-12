@@ -24,6 +24,16 @@ from .utils import format_bytes, format_duration, sanitize_url_for_log
 if TYPE_CHECKING:  # pragma: no cover - typing only, avoids an import cycle
     from .config import MirrorConfig
 
+CHUNK_METRICS = (
+    "chunk_downloads",
+    "chunk_assemblies",
+    "chunk_failures",
+    "chunk_retries",
+    "parallel_files",
+    "total_chunks",
+    "peak_parallel_chunks",
+)
+
 
 class MetricsCollector:
     """Collect and report metrics with performance tracking"""
@@ -112,6 +122,9 @@ class MetricsCollector:
             "chunk_retries": 0,
             "parallel_files": 0,
             "total_chunks": 0,
+            "active_chunks": 0,
+            "peak_parallel_chunks": 0,
+            "chunk_mode_requested": False,
             # NEW v3.0.6 metrics
             "auto_concurrency_enabled": False,
             "auto_concurrency_adjustments": 0,
@@ -162,6 +175,29 @@ class MetricsCollector:
         """Add bytes downloaded"""
         with self.lock:
             self.metrics["bytes_downloaded"] += bytes_count
+
+    def chunk_started(self) -> None:
+        """Count a worker only after it acquires its origin's semaphore."""
+        with self.lock:
+            self.metrics["active_chunks"] += 1
+            active = self.metrics["active_chunks"]
+            self.metrics["peak_parallel_chunks"] = max(self.metrics["peak_parallel_chunks"], active)
+            self.run_report.record_chunk_workers(active)
+
+    def chunk_finished(self) -> None:
+        with self.lock:
+            self.metrics["active_chunks"] -= 1
+
+    def chunk_summary(self) -> dict:
+        with self.lock:
+            result = {
+                key: self.run_report.delta(self.metrics, key)
+                if self.run_report.started is not None
+                else self.metrics[key]
+                for key in CHUNK_METRICS
+            }
+            result["peak_parallel_chunks"] = self.run_report.snapshot()["peak_parallel_chunks"]
+            return result
 
     def add_error(self, error: str, error_type: str = "unknown") -> None:
         """Add error to metrics - THREAD SAFE"""
@@ -276,6 +312,7 @@ class MetricsCollector:
         *,
         run: Optional[dict] = None,
         known_urls: bool = False,
+        values: Optional[dict] = None,
     ) -> str:
         """
         Generate detailed metrics report.
@@ -293,6 +330,8 @@ class MetricsCollector:
             Formatted metrics report
         """
         summary = self.get_summary()
+        if values is not None:
+            summary.update(values)
         active_report = run is not None or self.run_report.started is not None
         if run is not None:
             summary["run"] = run
@@ -334,6 +373,7 @@ class MetricsCollector:
                 "chunk_downloads",
                 "chunk_assemblies",
                 "chunk_failures",
+                "chunk_retries",
                 "parallel_files",
                 "total_chunks",
                 "fast_parses",
@@ -483,16 +523,22 @@ class MetricsCollector:
             lines.append(f"{prefix}  Rate limit delays: {summary['rate_limit_delays']}")
 
         # NEW v3.0.0 metrics
-        if summary.get("chunk_downloads", 0) > 0:
+        chunks_used = summary["chunk_mode_requested"] or summary.get("total_chunks", 0) > 0
+        if chunks_used or summary.get("chunk_downloads", 0) > 0:
             lines.append(f"{prefix}  Chunk downloads: {summary['chunk_downloads']}")
-        if summary.get("chunk_assemblies", 0) > 0:
-            lines.append(f"{prefix}  Chunk assemblies: {summary['chunk_assemblies']}")
+        if chunks_used or summary.get("chunk_assemblies", 0) > 0:
+            lines.append(f"{prefix}  Files finalized from chunks: {summary['chunk_assemblies']}")
         if summary.get("chunk_failures", 0) > 0:
             lines.append(f"{prefix}  Chunk failures: {summary['chunk_failures']}")
-        if summary.get("parallel_files", 0) > 0:
+        if chunks_used or summary.get("parallel_files", 0) > 0:
             lines.append(f"{prefix}  Parallel files: {summary['parallel_files']}")
-        if summary.get("total_chunks", 0) > 0:
+        if chunks_used:
             lines.append(f"{prefix}  Total chunks: {summary['total_chunks']}")
+        peak = summary.get("run", {}).get("peak_parallel_chunks", summary["peak_parallel_chunks"])
+        if chunks_used or peak:
+            lines.append(f"{prefix}  Peak parallel chunks: {peak}")
+        if summary.get("chunk_retries", 0) > 0:
+            lines.append(f"{prefix}  Chunk retries: {summary['chunk_retries']}")
 
         # NEW v3.0.6: Auto-concurrency metrics
         if summary.get("auto_concurrency_enabled", False):
@@ -611,7 +657,12 @@ def _format_run_summary(
 
 
 def format_download_summary(
-    config: MirrorConfig, summary: dict, target: Path, run: Optional[dict] = None
+    config: MirrorConfig,
+    summary: dict,
+    target: Path,
+    run: Optional[dict] = None,
+    *,
+    metrics: Optional[MetricsCollector] = None,
 ) -> str:
     """Use the shared summary layout and measured known-URL coordinator phases."""
     if run is None:
@@ -630,16 +681,22 @@ def format_download_summary(
             missing_files_downloaded="n/a",
             unclassified_downloads="n/a",
         )
-    metrics = MetricsCollector()
+    metrics = metrics or MetricsCollector()
     # Mirror's renderer receives the same zero subsystem counters for work
     # this pipeline does not perform, plus the actual known-URL observations.
-    metrics.metrics.update(
-        files_downloaded=summary.get("files_downloaded", 0),
-        files_failed=summary.get("files_failed", 0),
-        bytes_downloaded=summary.get("bytes_downloaded", 0),
-        files=summary.get("files", 0),
-    )
-    return metrics.report(run=run, known_urls=True)
+    values = {
+        "files_downloaded": summary.get("files_downloaded", 0),
+        "files_failed": summary.get("files_failed", 0),
+        "bytes_downloaded": summary.get("bytes_downloaded", 0),
+        "files": summary.get("files", 0),
+    }
+    chunks = summary.get("chunk_metrics", {})
+    values.update({key: chunks[key] for key in CHUNK_METRICS if key in chunks})
+    if "chunk_metrics" in summary:
+        values["chunk_mode_requested"] = True
+    if "peak_parallel_chunks" in chunks:
+        run = dict(run, peak_parallel_chunks=chunks["peak_parallel_chunks"])
+    return metrics.report(run=run, known_urls=True, values=values)
 
 
 def log_run_completion(success: bool, *, prefix: str = "", reasons: str = "") -> None:

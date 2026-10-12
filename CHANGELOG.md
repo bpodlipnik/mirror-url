@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Share the live transfer metrics collector with the known-URL summary. Report
+  selected chunks, validated chunk completions, finalized files, retries and
+  observed peak parallel workers in both modes. Keep cumulative API metrics
+  while reporting each run's own activity.
+- Replace INFO-level chunk-capacity announcements with actual per-file plans.
+  Show active/completed chunks in the shared byte bars and periodic status;
+  announce the renderer that actually opened, including console fallback.
+  Keep configured limits in debug output.
+
 ## [3.5.0] - 2026-10-12
 
 ### Added

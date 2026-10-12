@@ -424,6 +424,8 @@ class AsyncTransfers:
         scope: str,
         scratch: OwnedScratch,
         progress: Optional[DownloadProgress] = None,
+        *,
+        metrics: Optional[MetricsCollector] = None,
     ):
         self.config, self.target, self.scope, self.scratch = config, target, scope, scratch
         self.concurrency = 1 if config.sequential_downloads else config.max_concurrent_downloads
@@ -435,6 +437,7 @@ class AsyncTransfers:
         self._stage_lock = threading.Lock()
         self.progress = progress or DownloadProgress(False)
         self.closed_connection_pools = 0
+        self.metrics = metrics or MetricsCollector()
 
     def _reserve_space(self, local: Path, size: int) -> None:
         # One filesystem query per batch, before its first payload write.
@@ -740,6 +743,7 @@ class AsyncTransfers:
         self._space_remaining = None
         self._space_reserved.clear()
         workers = min(self.concurrency, len(items))
+        logging.info("File download plan: %s files; %s file workers", len(items), workers)
         chunked = self.config.parallel_downloads or self.config.streaming_parallel
         backend = (_AIOHTTPBackend if self.config.backend == "aiohttp" else _HTTPXBackend)(
             self.config, max(workers, 1) + (self.config.max_parallel_chunks_total if chunked else 0)
@@ -772,7 +776,7 @@ class AsyncTransfers:
                 connection = _ChunkConnection(backend, self)
                 manager = ParallelDownloadManager(
                     self.config,
-                    MetricsCollector(),
+                    self.metrics,
                     connection,
                     connection,
                     scratch=self.scratch,
@@ -810,7 +814,12 @@ def _save_receipts(path: Path, data: dict) -> None:
         temporary.unlink(missing_ok=True)
 
 
-def download_url_list(config: MirrorConfig, *, run_report: Optional[RunReport] = None) -> dict:
+def download_url_list(
+    config: MirrorConfig,
+    *,
+    run_report: Optional[RunReport] = None,
+    metrics: Optional[MetricsCollector] = None,
+) -> dict:
     """GET exact URLs without discovery/freshness; explicit chunk modes probe range metadata.
 
     Existing files require a matching prior receipt or explicit overwrite.
@@ -840,8 +849,10 @@ def download_url_list(config: MirrorConfig, *, run_report: Optional[RunReport] =
         raise ValueError("URL list is empty")
     resources = [target, PathSafety._resolve_destination_root(config.log_path)]
     guard = DestinationLock(resources, parent=current_run_lock())
-    report = run_report if run_report is not None else RunReport()
-    report.start({}, 0)
+    metrics = metrics or MetricsCollector()
+    report = run_report if run_report is not None else metrics.run_report
+    metrics.run_report = report
+    report.start(metrics.metrics, 0)
     report.begin_phase("download preparation")
     outcome: Optional[dict] = None
     try:
@@ -902,7 +913,7 @@ def download_url_list(config: MirrorConfig, *, run_report: Optional[RunReport] =
                     if old.get("sha256") is not None and file_sha256(local) != old["sha256"]:
                         raise ValueError("Existing file no longer matches its SHA-256 receipt")
             scratch = OwnedScratch(target, state, None, guard)
-            engine = AsyncTransfers(config, target, scope, scratch, progress)
+            engine = AsyncTransfers(config, target, scope, scratch, progress, metrics=metrics)
 
             def published(result: TransferResult):
                 receipts["files"][str(result.path)] = {
@@ -940,6 +951,8 @@ def download_url_list(config: MirrorConfig, *, run_report: Optional[RunReport] =
                     if not r.success
                 ],
             }
+            if config.parallel_downloads or config.streaming_parallel:
+                outcome["chunk_metrics"] = metrics.chunk_summary()
             return outcome
     except BaseException:
         # Context cleanup can fail after a successful worker result was built.
