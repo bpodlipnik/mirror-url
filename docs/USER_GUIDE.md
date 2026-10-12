@@ -960,14 +960,38 @@ mount aliases and external writers need separate coordination.
 
 ## Known-URL downloads
 
-URL-list mode downloads every selected URL
-with a whole-file GET; it performs no discovery, HEAD freshness checks,
-ETag reuse or ranged resume. It never deletes obsolete local files. Use normal
+Download mode downloads every selected URL. By default it uses a whole-file
+GET; it performs no discovery, freshness checks, ETag cache reuse or ranged
+resume. It never deletes obsolete local files. Use normal
 mirror mode when you need incremental synchronization.
+
+With HTTPX, `--parallel-downloads` downloads eligible files in concurrent
+chunks stored in temporary files, then assembles and publishes them.
+`--streaming-parallel` writes concurrent chunks into one staging file before
+publication. Both work with a single direct URL and with `--url-list`, and use
+the same verified chunk engine as mirror mode:
+
+```bash
+mirror-url --mode download https://example.org/data/large.bin \
+  --streaming-parallel --max-chunks 8 --print-logs --progress-bar
+```
+
+Explicit chunk modes add a HEAD probe for range metadata, not a freshness
+check. Chunking requires a known size large enough for at least two chunks,
+byte Range support and a strong ETag. Otherwise the file uses a whole-file GET.
+Each range must return matching HTTP 206, Content-Range, length and ETag;
+invalid range responses fail the file and preserve its previous destination.
+`--max-concurrent-downloads` limits files, `--max-chunks` limits chunks per file,
+and `--max-parallel-chunks` limits active chunk workers across the batch.
+The shared engine also limits untrusted origins to four active chunks per IP.
+aiohttp remains a whole-file backend and rejects both chunk flags.
 
 Known-URL downloads sample destination free space once per batch, before the
 first payload write. A shared budget reserves each declared file length and
 charges unknown-length responses as bytes arrive, while keeping write headroom.
+Traditional chunks reserve twice the file size for chunks plus assembly;
+streaming chunks reserve one file size. Chunk scratch remains inside the
+destination; `--chunk-assembly-dir` is rejected in download mode.
 Published files remain charged; removing a failed attempt's owned staging
 returns its reservation. This is internal accounting, not a filesystem
 allocation. If another program consumes the space, write or flush errors still
@@ -1033,7 +1057,7 @@ followed by the separator, completion message, processed scope (`ROOT` for
 the direct shortcut) and connection-pool closure count. Download mode reports
 zero parser/cache work and counts pools only after their backend closes.
 The startup banner records the backend, destination, SHA-256 setting and
-applicable whole-file download settings. JSON results retain the receipt
+applicable download settings, including the selected chunk mode. JSON results retain the receipt
 location and summed fsync/hash work. These work sums can exceed elapsed time
 during concurrent downloads and overlap the download phase. SHA-256 receipts
 describe local bytes and do not establish agreement with a remote digest.
@@ -1093,8 +1117,12 @@ An existing file is redownloaded only when its identity matches the receipt
 from this mode, or `--overwrite` explicitly permits replacement. With
 `--verify-content`, its saved SHA-256 must match too. Failed transfers leave
 the original bytes intact. Connection and payload interruptions have bounded
-whole-file retries; HTTP failures are reported without status retries. Only a
-complete HTTP 200 response with a matching declared length is published. When
+whole-file retries, or retries of the affected range in chunk modes;
+`--max-retries` bounds retries per range without a second recovery budget.
+HTTP and range-validation failures are reported without status retries. A
+whole-file transfer requires a complete HTTP 200 response with a matching
+declared length; a chunk transfer requires every validated range before
+assembly or publication. When
 the server omits the length, the backend must report a clean stream end;
 SHA-256 records local bytes, not proof of a remote reference digest.
 
@@ -1110,7 +1138,7 @@ set, prints a JSON summary with downloaded/failed file counts, bytes, elapsed
 time, pacing waits, fsync/hash time and any failures. A
 failed file makes the command exit nonzero. `--dry-run` validates the list
 without network access or download state creation. Discovery/listing/filter
-flags, chunk modes, auto-concurrency, missing-only mode and cleanup policies
+flags, auto-concurrency, missing-only mode and cleanup policies
 other than `safe` are rejected in download mode. For normal mirroring,
 `--backend aiohttp` supports whole-file transfers; chunk modes and
 auto-concurrency require HTTPX, and existing partials are preserved.

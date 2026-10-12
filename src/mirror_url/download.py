@@ -27,17 +27,17 @@ import time
 import uuid
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 from threading import RLock, Semaphore
-from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterator, List, Optional, Protocol
 from urllib.parse import urlparse
 
 import httpx
 
 from .circuit_breaker import ChunkCircuitBreaker
 from .concurrency import UnifiedConcurrencyManager
-from .connection import ConnectionManager
 from .constants import (
     PARTIAL_MAX_AGE_HOURS,
     PARTIAL_SUFFIX,
@@ -54,8 +54,8 @@ from .download_integrity import (
 from .enums import DownloadMethod
 from .exceptions import ChunkAssemblyError, ChunkDownloadError
 from .models import ChunkInfo, ParallelFileDownload
-from .progress import get_download_progress
-from .rate_limiter import BandwidthLimiter, ChunkAwareRateLimiter
+from .progress import DownloadProgress, get_download_progress
+from .rate_limiter import ChunkAwareRateLimiter
 from .scratch import OwnedScratch
 from .utils import bounded_executor_shutdown, exponential_backoff, format_bytes
 
@@ -63,6 +63,14 @@ if TYPE_CHECKING:  # pragma: no cover - typing only, avoids an import cycle
     from ._core._typing import MirrorHost
     from .config import MirrorConfig
     from .metrics import MetricsCollector
+
+
+class ChunkConnection(Protocol):
+    def request(self, url: str, **kwargs: Any) -> Any: ...
+
+
+class ChunkBandwidth(Protocol):
+    def throttle(self, bytes_count: int) -> None: ...
 
 
 class ParallelDownloadManager:
@@ -74,10 +82,14 @@ class ParallelDownloadManager:
         self,
         config: MirrorConfig,
         metrics: MetricsCollector,
-        connection_manager: ConnectionManager,
-        bandwidth_limiter: BandwidthLimiter,
+        connection_manager: ChunkConnection,
+        bandwidth_limiter: Optional[ChunkBandwidth],
         concurrency_manager: UnifiedConcurrencyManager = None,
         mirror: Optional[MirrorHost] = None,
+        *,
+        scratch: Optional[OwnedScratch] = None,
+        progress: Optional[DownloadProgress] = None,
+        record_stage: Optional[Callable[[str, float], None]] = None,
     ):
         """Initialize parallel download manager."""
         self.config = config
@@ -87,7 +99,11 @@ class ParallelDownloadManager:
         self.concurrency_manager = concurrency_manager
         self.mirror = mirror
         self._destination_lock = getattr(mirror, "_destination_lock", None)
-        self.scratch: Optional[OwnedScratch] = None
+        self.scratch = scratch
+        self.progress = progress
+        self.record_stage = record_stage
+        if scratch is not None:
+            self._destination_lock = scratch._destination_lock
 
         # Determine download mode from config
         self.enabled = False
@@ -202,6 +218,8 @@ class ParallelDownloadManager:
         # Assembly directory
         if config.chunk_assembly_dir:
             self.assembly_dir = config.chunk_assembly_dir
+        elif scratch is not None:
+            self.assembly_dir = scratch.chunk_root
         elif (
             self._destination_lock is not None
             and mirror is not None
@@ -366,16 +384,22 @@ class ParallelDownloadManager:
 
     @destination_operation
     def create_chunks(
-        self, url: str, local_path: Path, file_size: int
+        self,
+        url: str,
+        local_path: Path,
+        file_size: int,
+        *,
+        response: Optional[httpx.Response] = None,
     ) -> Optional[ParallelFileDownload]:
         """Create chunk tasks for a file, using appropriate mode."""
         chunk_count = self.get_chunk_count(file_size)
         if chunk_count <= 1:
             return None
         try:
-            response = self.connection_manager.request(
-                url, method="HEAD", headers={"Accept-Encoding": "identity"}
-            )
+            if response is None:
+                response = self.connection_manager.request(
+                    url, method="HEAD", headers={"Accept-Encoding": "identity"}
+                )
             etag = strong_etag(response.headers)
             if (
                 response.status_code != 200
@@ -469,7 +493,7 @@ class ParallelDownloadManager:
     @destination_operation
     def _download_verified_chunk(self, chunk: ChunkInfo, *, streaming: bool) -> bool:
         chunk.status = "downloading"
-        progress = get_download_progress(self.mirror)
+        progress = self.progress or get_download_progress(self.mirror)
         parsed = urlparse(chunk.file_url)
         hostname = parsed.hostname
         if hostname is None:
@@ -533,7 +557,8 @@ class ParallelDownloadManager:
                                 self.bandwidth_limiter.throttle(len(data))
                         f.flush()
                         if not streaming:
-                            os.fsync(f.fileno())
+                            with self._measure_flush():
+                                os.fsync(f.fileno())
                     if downloaded != chunk.size:
                         raise ChunkDownloadError(
                             f"Chunk length mismatch: {downloaded} != {chunk.size}"
@@ -549,10 +574,15 @@ class ParallelDownloadManager:
                     return True
                 except (httpx.RequestError, OSError) as e:
                     chunk.retries += 1
-                    if attempt == 2:
+                    limit = self.config.max_retries if self.config.mode == "download" else 2
+                    if attempt == limit:
                         raise
                     logging.debug(f"Chunk {chunk.chunk_id} retry: {e}")
-                    time.sleep(exponential_backoff(attempt))
+                    time.sleep(
+                        exponential_backoff(attempt, self.config.retry_delay)
+                        if self.config.mode == "download"
+                        else exponential_backoff(attempt)
+                    )
                     attempt += 1
                 finally:
                     if response is not None:
@@ -657,7 +687,7 @@ class ParallelDownloadManager:
 
         if failed > 0:
             # Try to recover failed chunks
-            if failed <= len(download.chunks) // 2:
+            if self.config.mode != "download" and failed <= len(download.chunks) // 2:
                 logging.warning(f"Retrying {failed} failed chunks for {download.final_path.name}")
                 return self._retry_failed_chunks(download)
             else:
@@ -673,7 +703,7 @@ class ParallelDownloadManager:
     @destination_operation
     def _finish_streaming(self, download: ParallelFileDownload) -> bool:
         """Publish only after all validated chunks are complete and flushed."""
-        progress = get_download_progress(self.mirror)
+        progress = self.progress or get_download_progress(self.mirror)
         staging_work = download.staging_path.parent if download.staging_path else None
         try:
             if not download.staging_path or any(c.status != "completed" for c in download.chunks):
@@ -682,18 +712,10 @@ class ParallelDownloadManager:
                 raise ChunkAssemblyError("Streaming size mismatch")
             progress.stage(download.final_path, "flushing file")
             with open(download.staging_path, "r+b") as f:
-                os.fsync(f.fileno())
-            progress.stage(
-                download.final_path,
-                "hashing (SHA-256)" if self.config.verify_content else "verifying file",
-            )
-            digest = file_sha256(
-                download.staging_path, enabled=getattr(self.config, "verify_content", False)
-            )
-            progress.stage(download.final_path, "publishing")
-            os.replace(download.staging_path, download.final_path)
+                with self._measure_flush():
+                    os.fsync(f.fileno())
+            digest = self._publish_staging(download, download.staging_path)
             download.staging_path = None
-            self._restore_server_timestamp(download)
             download.status = "completed"
             try:
                 self.metrics.increment("chunk_assemblies")
@@ -858,7 +880,7 @@ class ParallelDownloadManager:
         # ====================================================================
         # PHASE 1: VALIDATE INPUT STATE & SNAPSHOT
         # ====================================================================
-        progress = get_download_progress(self.mirror)
+        progress = self.progress or get_download_progress(self.mirror)
         with download.lock:
             if not download.chunks:
                 logging.error(f"No chunks to assemble for {download.final_path}")
@@ -899,14 +921,16 @@ class ParallelDownloadManager:
             download.final_path.parent.mkdir(parents=True, exist_ok=True)
             if self.scratch is not None:
                 temp_assembly = self.scratch.staging(download.final_path, "assembling")
+            download.assembly_path = temp_assembly
 
             # ====================================================================
             # PHASE 3: HANDLE 0-BYTE FILES
             # ====================================================================
             if file_size == 0:
                 with open(temp_assembly, "wb") as f:
-                    f.flush()
-                    os.fsync(f.fileno())
+                    with self._measure_flush():
+                        f.flush()
+                        os.fsync(f.fileno())
             else:
                 # ====================================================================
                 # PHASE 4: PRE-ALLOCATE AND ASSEMBLE
@@ -915,8 +939,9 @@ class ParallelDownloadManager:
                 with open(temp_assembly, "wb") as f:
                     f.seek(file_size - 1)
                     f.write(b"\0")
-                    f.flush()
-                    os.fsync(f.fileno())
+                    with self._measure_flush():
+                        f.flush()
+                        os.fsync(f.fileno())
 
                 # Decide whether to use mmap (failsafe for >50GB files)
                 USE_MMAP = file_size < self.MMAP_MAX_FILE_SIZE
@@ -971,14 +996,15 @@ class ParallelDownloadManager:
 
                         # Flush to disk
                         progress.stage(download.final_path, "flushing file")
-                        if mm is not None:
-                            mm.flush()
-                        else:
-                            f.flush()
-                            try:
-                                os.fsync(f.fileno())
-                            except OSError:
-                                pass  # fsync unsupported on some FS
+                        with self._measure_flush():
+                            if mm is not None:
+                                mm.flush()
+                            else:
+                                f.flush()
+                                try:
+                                    os.fsync(f.fileno())
+                                except OSError:
+                                    pass  # fsync unsupported on some FS
                     finally:
                         # Always close mmap safely
                         if mm is not None:
@@ -1011,17 +1037,8 @@ class ParallelDownloadManager:
             # The assembly file is in the destination directory, so a
             # failed replace must leave the old file intact. A copy/move
             # fallback could destroy it before that fallback completes.
-            progress.stage(
-                download.final_path,
-                "hashing (SHA-256)" if self.config.verify_content else "verifying file",
-            )
-            digest = file_sha256(
-                temp_assembly, enabled=getattr(self.config, "verify_content", False)
-            )
-            progress.stage(download.final_path, "publishing")
-            os.replace(temp_assembly, download.final_path)
+            digest = self._publish_staging(download, temp_assembly)
             temp_file_moved = True
-            self._restore_server_timestamp(download)
 
             # ====================================================================
             # PHASE 7: UPDATE METRICS AND CACHE (Non-fatal)
@@ -1096,6 +1113,30 @@ class ParallelDownloadManager:
                 self.cleanup_chunks(download)
             except Exception as e:
                 logging.warning(f"Chunk cleanup error (non-fatal): {e}")
+
+    @contextmanager
+    def _measure_flush(self):
+        started = time.perf_counter()
+        try:
+            yield
+        finally:
+            if self.record_stage is not None:
+                self.record_stage("fsync", started)
+
+    def _publish_staging(self, download: ParallelFileDownload, staging: Path) -> Optional[str]:
+        """Share chunk verification/assembly while allowing the caller's publication policy."""
+        if download.publish is not None:
+            return download.publish(download, staging)
+        progress = self.progress or get_download_progress(self.mirror)
+        progress.stage(
+            download.final_path,
+            "hashing (SHA-256)" if self.config.verify_content else "verifying file",
+        )
+        digest = file_sha256(staging, enabled=self.config.verify_content)
+        progress.stage(download.final_path, "publishing")
+        os.replace(staging, download.final_path)
+        self._restore_server_timestamp(download)
+        return digest
 
     def _restore_server_timestamp(self, download: ParallelFileDownload) -> None:
         """Restore mtime before saving the cache's local file identity."""

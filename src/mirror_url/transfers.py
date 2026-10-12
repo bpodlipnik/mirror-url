@@ -1,4 +1,4 @@
-"""Bounded whole-file transfers with shared publication and URL-list policy.
+"""Bounded transfers with shared publication and URL-list policy.
 
 Backends only provide response headers and raw bytes. Scope, redirects, pacing,
 staging, length checks, receipts and publication belong to this common layer.
@@ -17,7 +17,9 @@ import socket
 import stat
 import sys
 import tempfile
+import threading
 import time
+from concurrent.futures import wait
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from email.utils import parsedate_to_datetime
@@ -29,10 +31,11 @@ import httpx
 
 from .config import MirrorConfig
 from .destination_lock import DestinationLock, current_run_lock
-from .download import PartialDownloadManager
+from .download import ParallelDownloadManager, PartialDownloadManager
 from .download_integrity import content_length, file_sha256, strong_etag
 from .exceptions import ConfigError, SecurityError, URLScopeError
 from .filename_mapping import FilenameMap, _stat_identity
+from .metrics import MetricsCollector
 from .progress import DownloadProgress
 from .run_report import RunReport
 from .scratch import OwnedScratch
@@ -209,7 +212,7 @@ class _HTTPXBackend:
         limits = httpx.Limits(max_connections=concurrency, max_keepalive_connections=concurrency)
         self.sync_client: Optional[httpx.Client] = None
         self.client: Optional[httpx.AsyncClient] = None
-        if concurrency == 1:
+        if concurrency == 1 or config.parallel_downloads or config.streaming_parallel:
             self.sync_client = httpx.Client(
                 transport=SecureTransport(http2=config.http2, limits=limits),
                 http2=config.http2,
@@ -229,7 +232,9 @@ class _HTTPXBackend:
             )
 
     @staticmethod
-    async def _thread_call(call: Callable[[], Any]) -> Any:
+    async def _thread_call(
+        call: Callable[[], Any], on_cancel: Optional[Callable[[], None]] = None
+    ) -> Any:
         # Cancellation cannot abandon an in-flight reader while its response
         # or owned staging is being closed. Drain the bounded network operation
         # first, including repeated cancellation during worker shutdown.
@@ -237,6 +242,8 @@ class _HTTPXBackend:
         try:
             return await asyncio.shield(operation)
         except asyncio.CancelledError:
+            if on_cancel is not None:
+                on_cancel()
             while not operation.done():
                 try:
                     await asyncio.shield(operation)
@@ -365,6 +372,48 @@ class _AIOHTTPBackend:
             yield r.status, r.headers, r.content.iter_chunked(256 * 1024)
 
 
+class _ChunkConnection:
+    """Adapt the existing chunk engine to the known-URL client's scoped request budget."""
+
+    def __init__(self, backend: _HTTPXBackend, engine: AsyncTransfers):
+        assert backend.sync_client is not None
+        self.client, self.engine = backend.sync_client, engine
+        self.loop = asyncio.get_running_loop()
+
+    def request(self, url, method="GET", stream=False, headers=None, **options):
+        for hop in range(11):
+            validate_url(url, self.engine.scope)
+            asyncio.run_coroutine_threadsafe(self.engine.pacer.wait(), self.loop).result()
+            request = self.client.build_request(
+                method,
+                url,
+                headers=headers,
+                timeout=options.get("timeout", self.engine.config.timeout),
+            )
+            response = self.client.send(request, stream=True, follow_redirects=False)
+            if response.status_code in (301, 302, 303, 307, 308):
+                location = response.headers.get("Location")
+                response.close()
+                if hop == 10 or not location:
+                    raise ValueError("Missing redirect target or too many redirects")
+                url = urljoin(url, location)
+                continue
+            if not stream:
+                try:
+                    response.read()
+                except BaseException:
+                    response.close()
+                    raise
+            return response
+        raise RuntimeError("Redirect budget exhausted")  # pragma: no cover
+
+    def throttle(self, bytes_count):
+        if self.engine.bandwidth.bytes_per_second:
+            asyncio.run_coroutine_threadsafe(
+                self.engine.bandwidth.wait(bytes_count), self.loop
+            ).result()
+
+
 class AsyncTransfers:
     """A pooled client and a fixed worker set for one complete transfer batch."""
 
@@ -383,6 +432,7 @@ class AsyncTransfers:
         self._space_remaining: Optional[int] = None
         self._space_reserved: Dict[Path, int] = {}
         self.stage_seconds = {"fsync": 0.0, "hash": 0.0}
+        self._stage_lock = threading.Lock()
         self.progress = progress or DownloadProgress(False)
         self.closed_connection_pools = 0
 
@@ -405,6 +455,172 @@ class AsyncTransfers:
             # Published bytes remain charged for the rest of the batch. Only
             # proven removal of owned staging returns a failed attempt's budget.
             self._space_remaining += reserved - retained
+
+    def _record_stage(self, stage: str, started: float) -> None:
+        elapsed = time.perf_counter() - started
+        with self._stage_lock:
+            self.stage_seconds[stage] += elapsed
+
+    def _publish(
+        self, url, local, staging, size, etag, mtime, original, inode, *, cancelled=None
+    ) -> TransferResult:
+        """Use the same identity, hash, timestamp and atomic-publication checks for every mode."""
+        if staging.stat().st_size != size:
+            raise ValueError("Staged length does not match received bytes")
+        staged_identity = _identity(staging)
+        if staged_identity is None or staged_identity[:2] != inode:
+            raise ValueError("Owned staging file changed during transfer")
+        self.progress.stage(
+            local, "hashing (SHA-256)" if self.config.verify_content else "publishing"
+        )
+        started = time.perf_counter()
+        digest = file_sha256(staging, self.config.verify_content)
+        self._record_stage("hash", started)
+        self.progress.stage(local, "publishing")
+        if _identity(staging) != staged_identity:
+            raise ValueError("Owned staging file changed during hashing")
+        if mtime is not None:
+            with staging.open("r+b") as file:
+                info = os.fstat(file.fileno())
+                opened_identity = _stat_identity(info)
+                if (
+                    not stat.S_ISREG(info.st_mode)
+                    or info.st_nlink != 1
+                    or opened_identity != staged_identity
+                ):
+                    raise ValueError("Owned staging file changed before timestamp update")
+                _set_file_timestamp(file.fileno(), mtime)
+        current_staging = _identity(staging)
+        if current_staging is None or current_staging[:3] != staged_identity[:3]:
+            raise ValueError("Owned staging file changed before publication")
+        checked = PathSafety.safe_join(
+            self.target,
+            *local.relative_to(self.target).parts,
+            create_base=False,
+            max_depth=self.config.max_depth,
+            max_filename_len=self.config.max_filename_len,
+        )
+        if checked != local or _identity(local) != original:
+            raise ValueError("Destination changed during transfer; preserving existing entry")
+        if cancelled is not None and cancelled.is_set():
+            raise ValueError("Chunk transfer cancelled before publication")
+        os.replace(staging, local)
+        return TransferResult(url, local, True, size, etag, digest, mtime)
+
+    async def _one_chunked(self, manager, connection, backend, url, local, published):
+        original = _identity(local)
+        checked = PathSafety.safe_join(
+            self.target,
+            *local.relative_to(self.target).parts,
+            create_base=False,
+            max_depth=self.config.max_depth,
+            max_filename_len=self.config.max_filename_len,
+        )
+        if checked != local:
+            raise ValueError("Destination path changed before transfer")
+        local.parent.mkdir(parents=True, exist_ok=True)
+        self.progress.stage(local, "checking range support")
+        probe_response = []
+
+        def probe():
+            for attempt in range(self.config.max_retries + 1):
+                try:
+                    response = connection.request(
+                        url, method="HEAD", headers={"Accept-Encoding": "identity"}
+                    )
+                    probe_response.append(response)
+                    return response
+                except backend.retryable:
+                    if attempt == self.config.max_retries:
+                        raise
+                    time.sleep(self.config.retry_delay * 2**attempt)
+
+        try:
+            response = await _HTTPXBackend._thread_call(probe)
+        except BaseException:
+            if probe_response:
+                probe_response[0].close()
+            raise
+        try:
+            size = content_length(response.headers)
+            if (
+                response.status_code != 200
+                or size is None
+                or manager.get_chunk_count(size) <= 1
+                or response.headers.get("Accept-Ranges", "").lower() != "bytes"
+                or strong_etag(response.headers) is None
+            ):
+                logging.info(
+                    "Range transfer unavailable for %s; using whole-file GET",
+                    sanitize_url_for_log(url),
+                )
+                result = await self._one(backend, url, local)
+                if published is not None:
+                    published(result)
+                return result
+            self._reserve_space(local, size * (1 if manager.use_streaming else 2))
+            cancelled = threading.Event()
+            result = None
+
+            def publish(download, staging):
+                nonlocal result
+                if cancelled.is_set():
+                    raise ValueError("Chunk transfer cancelled before publication")
+                info = staging.lstat()
+                result = self._publish(
+                    url,
+                    local,
+                    staging,
+                    size,
+                    download.server_etag,
+                    download.server_last_modified,
+                    original,
+                    (info.st_dev, info.st_ino),
+                    cancelled=cancelled,
+                )
+                # The thread can finish during cancellation. Record publication
+                # before returning to the event loop so its receipt is retained.
+                if published is not None:
+                    published(result)
+                return result.sha256
+
+            # Each file carries its publication policy; other workers may be
+            # creating or finishing their own plans concurrently.
+            download = None
+            workspaces = []
+            try:
+                download = manager.create_chunks(url, local, size, response=response)
+                if download is None:
+                    raise ValueError("Range plan could not be created")
+                download.publish = publish
+                workspaces = [
+                    p
+                    for p in (
+                        download.temp_dir,
+                        download.staging_path.parent if download.staging_path else None,
+                    )
+                    if p
+                ]
+                if manager.use_streaming and download.staging_path is None:
+                    self._reserve_space(local, size)
+
+                accepted = await _HTTPXBackend._thread_call(
+                    lambda: manager.download_parallel(download), on_cancel=cancelled.set
+                )
+                if not accepted or result is None:
+                    raise ValueError("Verified parallel chunk transfer failed")
+                return result
+            finally:
+                if download is not None:
+                    await _HTTPXBackend._thread_call(lambda: wait(download.futures))
+                    manager.cleanup_chunks(download)
+                    if download.assembly_path is not None:
+                        workspaces.append(download.assembly_path.parent)
+                if any(work.exists() for work in workspaces):
+                    raise ValueError("Owned chunk cleanup failed; preserved for investigation")
+                self._release_space(local, size if result is not None else 0)
+        finally:
+            response.close()
 
     async def _one(self, backend, url: str, local: Path) -> TransferResult:
         original = _identity(local)
@@ -475,25 +691,7 @@ class AsyncTransfers:
                                 started = time.perf_counter()
                                 file.flush()
                                 os.fsync(file.fileno())
-                                self.stage_seconds["fsync"] += time.perf_counter() - started
-                            if staging.stat().st_size != size:
-                                raise ValueError("Staged length does not match received bytes")
-                            staged_identity = _identity(staging)
-                            if staged_identity is None or staged_identity[:2] != (
-                                staged_inode.st_dev,
-                                staged_inode.st_ino,
-                            ):
-                                raise ValueError("Owned staging file changed during transfer")
-                            self.progress.stage(
-                                local,
-                                "hashing (SHA-256)" if self.config.verify_content else "publishing",
-                            )
-                            started = time.perf_counter()
-                            digest = file_sha256(staging, self.config.verify_content)
-                            self.stage_seconds["hash"] += time.perf_counter() - started
-                            self.progress.stage(local, "publishing")
-                            if _identity(staging) != staged_identity:
-                                raise ValueError("Owned staging file changed during hashing")
+                                self._record_stage("fsync", started)
                             mtime = None
                             if headers.get("Last-Modified"):
                                 try:
@@ -502,41 +700,18 @@ class AsyncTransfers:
                                     ).timestamp()
                                 except (ValueError, TypeError, OverflowError):
                                     pass
-                            if mtime is not None:
-                                with staging.open("r+b") as file:
-                                    info = os.fstat(file.fileno())
-                                    opened_identity = _stat_identity(info)
-                                    if (
-                                        not stat.S_ISREG(info.st_mode)
-                                        or info.st_nlink != 1
-                                        or opened_identity != staged_identity
-                                    ):
-                                        raise ValueError(
-                                            "Owned staging file changed before timestamp update"
-                                        )
-                                    _set_file_timestamp(file.fileno(), mtime)
-                            current_staging = _identity(staging)
-                            if (
-                                current_staging is None
-                                or current_staging[:3] != staged_identity[:3]
-                            ):
-                                raise ValueError("Owned staging file changed before publication")
-                            checked = PathSafety.safe_join(
-                                self.target,
-                                *relative.parts,
-                                create_base=False,
-                                max_depth=self.config.max_depth,
-                                max_filename_len=self.config.max_filename_len,
+                            result = self._publish(
+                                url,
+                                local,
+                                staging,
+                                size,
+                                strong_etag(headers),
+                                mtime,
+                                original,
+                                (staged_inode.st_dev, staged_inode.st_ino),
                             )
-                            if checked != local or _identity(local) != original:
-                                raise ValueError(
-                                    "Destination changed during transfer; preserving existing entry"
-                                )
-                            os.replace(staging, local)
                             published_size = size
-                            return TransferResult(
-                                url, local, True, size, strong_etag(headers), digest, mtime
-                            )
+                            return result
                 except backend.retryable:
                     if attempt == self.config.max_retries:
                         raise
@@ -565,33 +740,57 @@ class AsyncTransfers:
         self._space_remaining = None
         self._space_reserved.clear()
         workers = min(self.concurrency, len(items))
+        chunked = self.config.parallel_downloads or self.config.streaming_parallel
         backend = (_AIOHTTPBackend if self.config.backend == "aiohttp" else _HTTPXBackend)(
-            self.config, max(workers, 1)
+            self.config, max(workers, 1) + (self.config.max_parallel_chunks_total if chunked else 0)
         )
+        manager = connection = None
         iterator, results = iter(items), []
 
         async def worker():
             for url, local in iterator:
                 self.progress.begin(local)
                 try:
-                    result = await self._one(backend, url, local)
-                    if published is not None:
-                        published(result)
+                    if manager is not None:
+                        result = await self._one_chunked(
+                            manager, connection, backend, url, local, published
+                        )
+                    else:
+                        result = await self._one(backend, url, local)
+                        if published is not None:
+                            published(result)
                 except Exception as error:
                     result = TransferResult(url, local, False, error=str(error))
                     logging.error("Download failed for %s: %s", sanitize_url_for_log(url), error)
                 results.append(result)
                 self.progress.finish(local, result.success)
 
-        tasks = [asyncio.create_task(worker()) for _ in range(workers)]
+        tasks = []
         try:
+            if chunked:
+                assert isinstance(backend, _HTTPXBackend)
+                connection = _ChunkConnection(backend, self)
+                manager = ParallelDownloadManager(
+                    self.config,
+                    MetricsCollector(),
+                    connection,
+                    connection,
+                    scratch=self.scratch,
+                    progress=self.progress,
+                    record_stage=self._record_stage,
+                )
+            tasks = [asyncio.create_task(worker()) for _ in range(workers)]
             await asyncio.gather(*tasks)
         finally:
             for task in tasks:
                 task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
-            await backend.close()
-            self.closed_connection_pools += 1
+            try:
+                if manager is not None:
+                    await _HTTPXBackend._thread_call(manager.shutdown)
+            finally:
+                await backend.close()
+                self.closed_connection_pools += 1
         return results
 
 
@@ -612,7 +811,7 @@ def _save_receipts(path: Path, data: dict) -> None:
 
 
 def download_url_list(config: MirrorConfig, *, run_report: Optional[RunReport] = None) -> dict:
-    """GET exact URLs from a list or one direct URL without discovery or freshness HEADs.
+    """GET exact URLs without discovery/freshness; explicit chunk modes probe range metadata.
 
     Existing files require a matching prior receipt or explicit overwrite.
     Failed whole-file attempts restart from byte zero. Unknown state is kept.

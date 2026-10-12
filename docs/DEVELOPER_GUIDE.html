@@ -1006,23 +1006,27 @@ only for omitted target fields. Explicit scope/paths win. CLI source
 selection clears the other configured source; the model and transfer
 entry point reject two sources or no source. Standalone models still
 require all three target fields.</p>
-<p><code>transfers.py</code> owns the shared async whole-file pipeline.
-Its backend adapters provide raw bytes and response headers; the
-controller owns redirects, a monotonic request budget, aggregate
-bandwidth, fixed workers, full filename preflight, disk headroom, retry
-bounds, scratch leases and atomic publication. The HTTPX adapter selects its reader using the actual worker count. One worker
-uses <code>SecureTransport</code> and a synchronous HTTPX client, running header/body/close
-operations through <code>asyncio.to_thread</code>. Raw bytes are grouped into small bounded
-batches with a short batching window, reducing thread handoffs and file writes
-without requiring slow streams to fill a complete block. Multiple workers use
-<code>SecureAsyncTransport</code>. Both readers only supply response headers and raw bytes;
-<code>AsyncTransfers._one</code> remains the sole transfer policy. Cancellation drains an
-in-flight thread operation before response closure and staging cleanup, even
-when shutdown cancels a worker again. The optional aiohttp resolver returns
-the validated public address directly to its connector, preserving the
-original hostname for Host and TLS. aiohttp requests retain encoded URL
-paths, use HTTP/1.1 and disable implicit redirects, decompression,
-cookies and proxies.</p>
+<p><code>transfers.py</code> owns the shared async whole-file pipeline
+and the known-URL chunk adapter. Its backend adapters provide raw bytes
+and response headers; the controller owns redirects, a monotonic request
+budget, aggregate bandwidth, fixed workers, full filename preflight,
+disk headroom, retry bounds, scratch leases and atomic publication. For
+whole-file mode, the HTTPX adapter selects its reader using the actual
+worker count. One worker uses <code>SecureTransport</code> and a
+synchronous HTTPX client, running header/body/close operations through
+<code>asyncio.to_thread</code>. Raw bytes are grouped into small bounded
+batches with a short batching window, reducing thread handoffs and file
+writes without requiring slow streams to fill a complete block. Multiple
+workers use <code>SecureAsyncTransport</code>. Both readers only supply
+response headers and raw bytes; <code>AsyncTransfers._one</code>
+provides whole-file policy and <code>_publish</code> provides the shared
+identity, hash, timestamp and atomic-publication policy. Cancellation
+drains an in-flight thread operation before response closure and staging
+cleanup, even when shutdown cancels a worker again. The optional aiohttp
+resolver returns the validated public address directly to its connector,
+preserving the original hostname for Host and TLS. aiohttp requests
+retain encoded URL paths, use HTTP/1.1 and disable implicit redirects,
+decompression, cookies and proxies.</p>
 <p>The controller samples <code>shutil.disk_usage(target).free</code>
 once per batch, at the first accepted response before payload writes,
 and subtracts worker write headroom. The shared in-memory budget
@@ -1035,6 +1039,14 @@ No per-MiB filesystem queries occur. This budget does not allocate disk
 extents or exclude other writers; write/fsync failures continue through
 the existing preservation and receipt rules. The same budget serves
 known-URL downloads and the aiohttp mirror transfer batch.</p>
+<p>Explicit HTTPX chunk modes in known-URL downloads also use this
+budget: traditional chunks reserve twice the file length before
+workspace allocation, while streaming chunks reserve one length. A
+streaming pre-allocation fallback reserves the additional assembly
+length before chunk writes. The probe, retries and redirects share the
+batch's monotonic request pacer; chunks and whole-file fallbacks share
+its bandwidth budget. Published lengths stay charged after temporary
+chunks and assembly work are removed.</p>
 <p><code>download_url_list(MirrorConfig(mode="download", ...))</code>
 takes destination/log ownership before creating state. It consumes
 either <code>url_list</code> or one <code>download_url</code> through
@@ -1047,20 +1059,37 @@ It never calls the scanner or metadata freshness layer.
 then saves results through <code>CacheManager</code>. HTTPX remains the
 default mirror implementation, including ranged resume and chunks. The
 whole-file pipeline preserves those existing partials.</p>
-<p><code>progress.DownloadProgress</code> observes both known-URL and mirror
-transfers. <code>ReportMixin.sync()</code> owns its context for the download
-phase and passes the same observer to aiohttp workers and HTTPX whole-file/ranged
-workers. Sequential body writes and concurrent chunk writes update received
-bytes before publication; chunk retries replace only their own range in the file
-position, while discarded traffic remains in aggregate received bytes. Retained
-resume bytes advance the file position without adding to this run's traffic or
-transfer rate. Chunk observations use the published destination name, independent
-of staging paths. The single metadata <code>ProgressTracker</code> clears before
-transfers start, and all transfer bars and the timer close before the summary.
-Both trackers use the same tqdm constructor; the base
-package requires <code>tqdm</code>, while the <code>progress</code>
-extra remains a compatibility alias. Renderer failures still degrade
-safely. Byte formatting uses the shared
+<p><code>AsyncTransfers._one_chunked</code> adapts the same
+<code>ParallelDownloadManager</code> used by mirror mode, rather than
+implementing another range engine. <code>_ChunkConnection</code> uses
+the known-URL HTTPX client's pinned transport, validates every redirect
+against the selected scope, preserves Range/If-Range and paces each
+request. A HEAD probe supplies size, range support and a strong
+representation validator to <code>create_chunks</code>; no scanner,
+freshness or cache lookup runs. Ineligible files use <code>_one</code>.
+<code>ParallelFileDownload.publish</code> delegates completed staging to
+<code>_publish</code> and immediately records ownership for completed
+files, including when cancellation arrives before the event loop
+receives the worker result. Chunk workers drain before scratch cleanup,
+client closure and lock release; cancellation prevents pending
+publication. Known-URL chunk retries respect <code>max_retries</code>
+without the mirror engine's additional failed-chunk recovery pass. The
+default whole-file and aiohttp paths remain available.</p>
+<p><code>progress.DownloadProgress</code> observes both known-URL and
+mirror transfers. <code>ReportMixin.sync()</code> owns its context for
+the download phase and passes the same observer to aiohttp workers and
+HTTPX whole-file/ranged workers. Sequential body writes and concurrent
+chunk writes update received bytes before publication; chunk retries
+replace only their own range in the file position, while discarded
+traffic remains in aggregate received bytes. Retained resume bytes
+advance the file position without adding to this run's traffic or
+transfer rate. Chunk observations use the published destination name,
+independent of staging paths. The single metadata
+<code>ProgressTracker</code> clears before transfers start, and all
+transfer bars and the timer close before the summary. Both trackers use
+the same tqdm constructor; the base package requires <code>tqdm</code>,
+while the <code>progress</code> extra remains a compatibility alias.
+Renderer failures still degrade safely. Byte formatting uses the shared
 <code>utils.format_bytes()</code>; completion summaries follow mirror
 units and live byte progress uses IEC labels. One timer thread waits ten
 seconds between progress messages, independently of the async loop so
@@ -1081,12 +1110,13 @@ waiting/flushing/hashing displays. Unknown lengths have no percentage or
 ETA. Retry bars reset to byte zero, and all bars close on success,
 failure or exception. Renderer errors do not fail transfers. Periodic
 observations mark whether every active file has a visible bar. The
-shared console <code>ProgressConsoleHandler</code> writes ordinary messages
-through public <code>tqdm.write()</code> so logs do not overwrite active bars.
-Its <code>ConsoleProgressFilter</code> suppresses periodic observations on stderr while the file handler retains
-them. Missing, failed or disabled bars and receipt-saving without an
-active bar retain console updates; warnings and completion summaries
-always pass through the filter.</p>
+shared console <code>ProgressConsoleHandler</code> writes ordinary
+messages through public <code>tqdm.write()</code> so logs do not
+overwrite active bars. Its <code>ConsoleProgressFilter</code> suppresses
+periodic observations on stderr while the file handler retains them.
+Missing, failed or disabled bars and receipt-saving without an active
+bar retain console updates; warnings and completion summaries always
+pass through the filter.</p>
 <p>The CLI uses a download-specific startup banner and
 <code>metrics.format_download_summary()</code> for readable completion
 logs, using the destination already validated by the CLI. Mirror and

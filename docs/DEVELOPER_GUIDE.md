@@ -641,17 +641,19 @@ omitted target fields. Explicit scope/paths win. CLI source selection clears
 the other configured source; the model and transfer entry point reject two
 sources or no source. Standalone models still require all three target fields.
 
-`transfers.py` owns the shared async whole-file pipeline. Its backend adapters
+`transfers.py` owns the shared async whole-file pipeline and the known-URL chunk
+adapter. Its backend adapters
 provide raw bytes and response headers; the controller owns redirects, a
 monotonic request budget, aggregate bandwidth, fixed workers, full filename
 preflight, disk headroom, retry bounds, scratch leases and atomic publication.
-The HTTPX adapter selects its reader using the actual worker count. One worker
+For whole-file mode, the HTTPX adapter selects its reader using the actual worker count. One worker
 uses `SecureTransport` and a synchronous HTTPX client, running header/body/close
 operations through `asyncio.to_thread`. Raw bytes are grouped into small bounded
 batches with a short batching window, reducing thread handoffs and file writes
 without requiring slow streams to fill a complete block. Multiple workers use
 `SecureAsyncTransport`. Both readers only supply response headers and raw bytes;
-`AsyncTransfers._one` remains the sole transfer policy. Cancellation drains an
+`AsyncTransfers._one` provides whole-file policy and `_publish` provides the
+shared identity, hash, timestamp and atomic-publication policy. Cancellation drains an
 in-flight thread operation before response closure and staging cleanup, even
 when shutdown cancels a worker again. The optional aiohttp resolver
 returns the validated public address directly to its connector, preserving the
@@ -670,6 +672,14 @@ other writers; write/fsync failures continue through the existing preservation
 and receipt rules. The same budget serves known-URL downloads and the aiohttp
 mirror transfer batch.
 
+Explicit HTTPX chunk modes in known-URL downloads also use this budget:
+traditional chunks reserve twice the file length before workspace allocation,
+while streaming chunks reserve one length. A streaming pre-allocation fallback
+reserves the additional assembly length before chunk writes. The probe, retries
+and redirects share the batch's monotonic request pacer; chunks and whole-file
+fallbacks share its bandwidth budget. Published lengths stay charged after
+temporary chunks and assembly work are removed.
+
 `download_url_list(MirrorConfig(mode="download", ...))` takes destination/log
 ownership before creating state. It consumes either `url_list` or one
 `download_url` through the same plan, backend, scratch and publication path.
@@ -680,6 +690,20 @@ explicit overwrite. It never calls the scanner or metadata freshness layer.
 normal discovery and checks, then saves results through `CacheManager`.
 HTTPX remains the default mirror implementation, including ranged resume and
 chunks. The whole-file pipeline preserves those existing partials.
+
+`AsyncTransfers._one_chunked` adapts the same `ParallelDownloadManager` used by
+mirror mode, rather than implementing another range engine. `_ChunkConnection`
+uses the known-URL HTTPX client's pinned transport, validates every redirect
+against the selected scope, preserves Range/If-Range and paces each request.
+A HEAD probe supplies size, range support and a strong representation validator
+to `create_chunks`; no scanner, freshness or cache lookup runs. Ineligible
+files use `_one`. `ParallelFileDownload.publish` delegates completed staging
+to `_publish` and immediately records ownership for completed files, including
+when cancellation arrives before the event loop receives the worker result.
+Chunk workers drain before scratch cleanup, client closure and lock release;
+cancellation prevents pending publication. Known-URL chunk retries respect
+`max_retries` without the mirror engine's additional failed-chunk recovery pass.
+The default whole-file and aiohttp paths remain available.
 
 `progress.DownloadProgress` observes both known-URL and mirror transfers.
 `ReportMixin.sync()` owns its context for the download phase and passes the

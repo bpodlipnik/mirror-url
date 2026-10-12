@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Support HTTPX `--parallel-downloads` and `--streaming-parallel` chunks for
+  direct and URL-list downloads, using the same verified range engine as mirror
+  mode. Probe range metadata only when chunking is requested; use whole-file
+  fallback for ineligible files. Retain scoped redirects, bounded chunk retries,
+  byte progress, atomic publication, ownership receipts and the single-sample
+  disk budget, including temporary assembly space.
+
 ## [3.4.6] - 2026-10-11
 
 ### Fixed
