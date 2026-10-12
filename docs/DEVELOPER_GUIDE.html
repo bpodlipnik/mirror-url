@@ -841,6 +841,15 @@ connection-manager call, including failures, retries and pacing within
 that call. Counts exclude additional transport redirect/retry attempts.
 Text uses per-sync deltas; JSON retains collector totals for these
 keys.</p>
+<p>Normal sync finalization goes directly from the transfer phase to
+obsolete-file cleanup and cache persistence. Do not walk the whole
+destination to produce a completion statistic: that includes unrelated
+files, delays unchanged runs and does not measure allocated filesystem
+space. <code>get_directory_size()</code> remains an explicit library
+helper, but sync does not call it. Keep the initial filesystem
+free-space check and the planned-batch preflight before any payload GET.
+Transfer budgets still reserve staging and assembly space;
+published-byte counters supply the summary's downloaded-byte total.</p>
 <p>At the start of <code>get_remote_files()</code>, clear
 <code>DirectoryScanner.fresh_listing_headers</code> and
 <code>fresh_listing_content_signatures</code>. Populate these maps only
