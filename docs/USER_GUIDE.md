@@ -194,7 +194,7 @@ mirror-url --config mirror.yaml
 
 Either supply `--url`, `--dest-path`, and `--log-path`, **or** point at a config
 file with `--config`. You can also use
-`mirror-url --mode download FILE_URL` with shortcut defaults, described under
+`mirror-url --mode download FILE [FILE ...]` with shortcut defaults, described under
 [known-URL downloads](#known-url-downloads).
 Run `mirror-url --help` for the complete, authoritative list of options.
 The most commonly used options:
@@ -220,15 +220,15 @@ The most commonly used options:
 <tbody>
 <tr>
 <td nowrap><samp>--url URL</samp></td>
-<td>Base URL to mirror. For a direct file URL in download mode, defaults to that URL's parent directory.</td>
+<td>Remote root for discovery, download inputs and local relative paths. Absolute positional download URLs sharing one parent can infer that root.</td>
 </tr>
 <tr>
 <td nowrap><samp>--dest-path DIR</samp></td>
-<td>Local destination directory. A direct file URL defaults to the current directory.</td>
+<td>Local destination directory. Positional download files default to the current directory.</td>
 </tr>
 <tr>
 <td nowrap><samp>--log-path DIR</samp></td>
-<td>Directory for logs and the cache file. A direct file URL defaults to a destination-specific folder under the system temporary directory.</td>
+<td>Directory for logs and the cache file. Positional download files default to a destination-specific folder under the system temporary directory.</td>
 </tr>
 <tr>
 <td nowrap><samp>--config FILE</samp></td>
@@ -236,15 +236,15 @@ The most commonly used options:
 </tr>
 <tr>
 <td nowrap><samp>--mode mirror|download</samp></td>
-<td>Normal mirroring (default) or exact known URLs from <code>--url-list</code> or one positional <code>FILE_URL</code>.</td>
+<td>Normal mirroring (default) or explicitly supplied download files from <code>--url-list</code> or positional arguments.</td>
 </tr>
 <tr>
-<td nowrap><samp>FILE_URL</samp></td>
-<td>One absolute file URL, for download mode. Cannot be combined with <code>--url-list</code>.</td>
+<td nowrap><samp>FILE [FILE ...]</samp></td>
+<td>Download files as paths relative to <code>--url</code> or absolute URLs. Cannot be combined with <code>--url-list</code>.</td>
 </tr>
 <tr>
 <td nowrap><samp>--url-list FILE</samp></td>
-<td>One absolute file URL per line, for download mode. Blank lines and lines beginning with <code>#</code> are ignored.</td>
+<td>UTF-8 download list: one path relative to <code>--url</code> or absolute URL per line. Blank lines and lines beginning with <code>#</code> are ignored.</td>
 </tr>
 <tr>
 <td nowrap><samp>--overwrite</samp></td>
@@ -968,7 +968,7 @@ mirror mode when you need incremental synchronization.
 With HTTPX, `--parallel-downloads` downloads eligible files in concurrent
 chunks stored in temporary files, then assembles and publishes them.
 `--streaming-parallel` writes concurrent chunks into one staging file before
-publication. Both work with a single direct URL and with `--url-list`, and use
+publication. Both work with positional files and with `--url-list`, and use
 the same verified chunk engine as mirror mode:
 
 ```bash
@@ -1003,7 +1003,31 @@ asynchronous reader for concurrent files. Both paths use the same progress,
 retry, integrity, ownership and publication rules; network waits do not block
 the event loop. Download mode still omits discovery and freshness checks.
 
-### One file URL
+### File inputs and the remote root
+
+`--url` is the remote root in both modes. Mirror mode discovers files below it;
+download mode receives an explicit selection. Local paths are relative to this
+root in either mode. Supply one or more filenames or paths:
+
+```bash
+mirror-url --mode download --url https://example.org/data/ \
+  a.bin nested/b.bin --dest-path ./downloads --log-path ./logs
+```
+
+This downloads `./downloads/a.bin` and `./downloads/nested/b.bin`. Changing the
+root to `https://example.org/` requires inputs `data/a.bin` and
+`data/nested/b.bin`, and retains `data/` locally. `--dir-suffix` narrows the
+permitted selection; file inputs still include that suffix relative to `--url`.
+For example, `--url https://example.org/data/ --dir-suffix selected` accepts
+`selected/a.bin`, with destination `./downloads/selected/a.bin`.
+
+Relative paths are literal names, case-sensitive and without glob expansion.
+Quote names containing spaces on the command line. Characters such as `%`, `?`
+and `#` in relative paths belong to filenames and are URL-encoded for requests.
+Absolute URLs retain their existing URL encoding and query strings. Reject
+leading slashes, `.`/`..` path components and paths outside the selected scope.
+
+### Absolute URL shortcut
 
 Use the direct shortcut to download one file:
 
@@ -1024,11 +1048,15 @@ mirror-url --mode download https://example.org/files/a.fits \
 
 An explicit `--url` sets the allowed scope and retains paths relative to that
 base. Query strings remain in the HTTP request but are excluded from the local
-filename. Supply exactly one positional URL or one `--url-list` file. Selecting
-one source explicitly on the CLI replaces the other source configured in
-YAML/JSON. The configuration field for the direct source is `download_url`.
-The CLI supplies the same shortcut defaults for a download config containing
-that field; standalone `MirrorConfig`/`validate_config_file()` still require
+filename. Multiple absolute URLs may omit `--url` when they share one parent
+directory; different parents require an explicit root. Relative positional
+inputs require `--url`, and use the same destination/log defaults as the
+absolute shortcut. Supply positional files or one `--url-list` file, not both.
+Selecting a source explicitly on the CLI replaces other sources configured in
+YAML/JSON. `download_files` is a list of relative paths or absolute URLs;
+`download_url` remains compatible for a single absolute URL.
+The CLI supplies the same shortcut defaults for download configs containing
+either field; standalone `MirrorConfig`/`validate_config_file()` still require
 explicit `base_url`, `dest_path` and `log_path`.
 
 ### Progress and completion output
@@ -1103,18 +1131,18 @@ For a terminal view, use `--print-logs`; to capture JSON instead:
 mirror-url --mode download https://example.org/files/a.fits >result.json
 ```
 
-### A URL list
+### A file list
 
 ```text
-# urls.txt
-https://example.org/files/a.bin
-https://example.org/files/nested/b.bin
+# files.txt
+a.bin
+nested/b.bin
 ```
 
 ```bash
 python -m mirror_url --mode download --backend httpx \
-  --url https://example.org/files/ --url-list urls.txt \
-  --dest-path ./downloads --log-path ./logs --concurrency 20 \
+  --url https://example.org/files/ --url-list files.txt \
+  --dest-path ./downloads --log-path ./logs --max-concurrent-downloads 20 \
   --requests-per-second 0 --request-delay 0 --verify-content
 ```
 
@@ -1124,7 +1152,12 @@ in your development environment, then change `--backend httpx` to
 Do not expect bare-client benchmark timings: filesystem checks, durable staging
 and optional SHA-256 hashing are included here.
 
-All URLs and redirect hops must stay below the selected base URL, on its exact
+Existing lists of absolute URLs still work, and a list may mix absolute URLs
+with root-relative paths. Lists use UTF-8 (an initial BOM is accepted), trim
+surrounding whitespace and ignore blank/comment lines. A filename beginning
+with `#` can be supplied positionally or as an encoded absolute URL in the list.
+
+All resolved URLs and redirect hops must stay below the selected base URL, on its exact
 origin. One optional `--dir-suffix` narrows that scope and appends the suffix
 to the destination. Nested file paths are retained. The full list is checked
 for filename collisions before any GET. Direct IP URLs, private DNS answers,

@@ -161,13 +161,13 @@ def validate_config_file(config_path: Path) -> Tuple[bool, Optional[str]]:
         return False, f"Config load error: {e}"
 
 
-def _check_file_path(value: str) -> str:
+def _root_relative_file_path(value: str, option: str) -> str:
     """Validate a literal remote file path relative to the configured base URL."""
     value = value.strip()
     try:
         scheme = urlsplit(value).scheme
     except ValueError as error:
-        raise ConfigError(f"Invalid check_files path: {value!r}") from error
+        raise ConfigError(f"Invalid {option} path: {value!r}") from error
     if (
         not value
         or value.startswith("/")
@@ -181,8 +181,12 @@ def _check_file_path(value: str) -> str:
         )
         != value
     ):
-        raise ConfigError(f"check_files requires file paths relative to --url: {value!r}")
+        raise ConfigError(f"{option} requires file paths relative to --url: {value!r}")
     return value
+
+
+def _check_file_path(value: str) -> str:
+    return _root_relative_file_path(value, "check_files")
 
 
 def _expand_check_files(values: List[str]) -> List[str]:
@@ -228,6 +232,7 @@ class MirrorConfig(BaseModel):
     backend: Literal["httpx", "aiohttp"] = "httpx"
     url_list: Optional[Path] = None
     download_url: Optional[str] = None
+    download_files: List[str] = Field(default_factory=list)
     overwrite: bool = False
     workers: int = Field(default=DEFAULT_WORKERS, ge=1, le=MAX_WORKERS_HARD_LIMIT)
     timeout: int = Field(default=DEFAULT_TIMEOUT, ge=MIN_TIMEOUT, le=MAX_TIMEOUT)
@@ -405,6 +410,13 @@ class MirrorConfig(BaseModel):
                 raise ConfigError("download_url cannot be empty")
         return v
 
+    @field_validator("download_files")
+    @classmethod
+    def trim_download_files(cls, values: List[str]) -> List[str]:
+        if any(not value.strip() for value in values):
+            raise ConfigError("download_files requires nonempty file paths or URLs")
+        return [value.strip() for value in values]
+
     @field_validator("dir_suffix", mode="before")
     @classmethod
     def normalize_dir_suffix(cls, v: Any) -> Any:
@@ -493,10 +505,19 @@ class MirrorConfig(BaseModel):
         object.__setattr__(self, "base_url", url)
 
         if self.mode == "download":
-            if self.url_list is None and self.download_url is None:
-                raise ConfigError("download mode requires --url-list or a direct URL")
-            if self.url_list is not None and self.download_url is not None:
-                raise ConfigError("a direct URL and --url-list are mutually exclusive")
+            sources = sum(
+                (
+                    self.url_list is not None,
+                    self.download_url is not None,
+                    bool(self.download_files),
+                )
+            )
+            if not sources:
+                raise ConfigError("download mode requires --url-list or download files")
+            if sources != 1:
+                raise ConfigError(
+                    "download_files, download_url and --url-list are mutually exclusive"
+                )
             if self.list_dirs or self.list_files or self.benchmark or self.quick:
                 raise ConfigError(
                     "download mode cannot list, benchmark discovery, or use quick mode"
@@ -519,8 +540,13 @@ class MirrorConfig(BaseModel):
                 raise ConfigError(
                     "download mode uses exact URLs without discovery or freshness filters"
                 )
-        elif self.url_list is not None or self.download_url is not None or self.overwrite:
-            raise ConfigError("a direct URL, --url-list and --overwrite require --mode download")
+        elif (
+            self.url_list is not None
+            or self.download_url is not None
+            or self.download_files
+            or self.overwrite
+        ):
+            raise ConfigError("download files, --url-list and --overwrite require --mode download")
         if self.backend == "aiohttp" and (
             self.parallel_downloads or self.streaming_parallel or self.auto_concurrency
         ):
@@ -893,6 +919,7 @@ def load_config_from_args(args: argparse.Namespace, silent: bool = False) -> Mir
         "backend": getattr(args, "backend", "httpx"),
         "url_list": getattr(args, "url_list", None),
         "download_url": getattr(args, "download_url", None),
+        "download_files": getattr(args, "download_files", []),
         "overwrite": getattr(args, "overwrite", False),
         "cache_html": getattr(args, "cache_html", True),
         "html_cache_max_age": getattr(args, "html_cache_max_age", HTML_CACHE_MAX_AGE_HOURS),

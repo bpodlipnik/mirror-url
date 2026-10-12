@@ -636,19 +636,33 @@ precedence tests. Keep those observable contracts intact during refactoring.
 ## The configuration system
 
 Transfer configuration includes `mode` (`mirror` or `download`),
-`backend` (`httpx` or `aiohttp`), `url_list`, `overwrite` and
+`backend` (`httpx` or `aiohttp`), `url_list`, `download_files`, `download_url`, `overwrite` and
 `requests_per_second`. The default rate remains 20 requests/second with 50 ms
 minimum spacing. `effective_request_interval` is the maximum of both limits;
 zero for both explicitly requests unpaced traffic. Neither option changes
 security policy. CLI overrides use the existing explicit-argument precedence
 rules for YAML/JSON too.
 
-The single-URL shortcut uses `download_url` as an alternative to
-`url_list`. `--mode download FILE_URL` supplies the parent URL, current working
-directory and a destination-specific system temporary log folder only for
-omitted target fields. Explicit scope/paths win. CLI source selection clears
-the other configured source; the model and transfer entry point reject two
-sources or no source. Standalone models still require all three target fields.
+Download mode accepts exactly one source: `url_list`, nonempty `download_files`
+or the compatible single-absolute-URL field `download_url`. Positional
+`FILE [FILE ...]` arguments populate `download_files`; CLI source selection
+clears both other configured sources. The model and transfer entry point reject
+conflicting sources or no source. Positional/configured file inputs supply
+current-directory and temporary-log defaults for omitted targets. Absolute
+URLs sharing one parent can infer it; relative files and different-parent URL
+batches require an explicit root. Standalone models still require all three
+target fields.
+
+`resolve_download_files()` resolves literal relative paths against `base_url`,
+never the suffix-adjusted scope. It reuses `_root_relative_file_path()` with
+`check_files` to reject traversal before normalization, then quotes literal
+filename characters. Absolute URLs retain their encoding and queries. Lists
+are read as UTF-8 with optional BOM, ignoring blank/comment lines. Pass the full
+resolved batch through the existing `plan_targets()` for selected-scope,
+reserved-state and filename collision checks before any payload request.
+`dir_suffix` only narrows scope and appends the corresponding local suffix;
+it never changes how input paths are rooted. Resolution does not create a new
+transfer engine or bypass receipt, redirect, path or publication policy.
 
 `transfers.py` owns the shared async whole-file pipeline and the known-URL chunk
 adapter. Its backend adapters
@@ -690,8 +704,8 @@ fallbacks share its bandwidth budget. Published lengths stay charged after
 temporary chunks and assembly work are removed.
 
 `download_url_list(MirrorConfig(mode="download", ...))` takes destination/log
-ownership before creating state. It consumes either `url_list` or one
-`download_url` through the same plan, backend, scratch and publication path.
+ownership before creating state. It consumes `url_list`, `download_files` or
+one `download_url` through the same plan, backend, scratch and publication path.
 Receipts are namespaced by the scoped base URL
 under `.mirror-url-state`, and existing payloads require a matching receipt or
 explicit overwrite. It never calls the scanner or metadata freshness layer.

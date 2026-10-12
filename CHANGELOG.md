@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Accept multiple positional files in download mode and root-relative file
+  paths in `--url-list`. Resolve literal paths against `--url`, retaining the
+  same local directory layout as mirror mode. Keep absolute URLs and the
+  single-URL configuration API compatible. A suffix narrows selection without
+  re-rooting file paths; validate the complete batch before any payload request.
+
 ## [3.5.2] - 2026-10-12
 
 ### Fixed
