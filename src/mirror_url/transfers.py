@@ -25,11 +25,11 @@ from dataclasses import dataclass
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import quote, urljoin, urlsplit, urlunsplit
 
 import httpx
 
-from .config import MirrorConfig
+from .config import MirrorConfig, _root_relative_file_path
 from .destination_lock import DestinationLock, current_run_lock
 from .download import ParallelDownloadManager, PartialDownloadManager
 from .download_integrity import content_length, file_sha256, strong_etag
@@ -147,6 +147,25 @@ def plan_targets(
         selected[key] = url
         plan.append((url, local))
     return plan
+
+
+def resolve_download_files(entries: Iterable[str], root: str) -> List[str]:
+    """Resolve literal file paths against --url, retaining absolute URL compatibility."""
+    parsed = urlsplit(root)
+    base = urlunsplit((parsed.scheme, parsed.netloc, parsed.path.rstrip("/") + "/", "", ""))
+    urls = []
+    for entry in entries:
+        if not isinstance(entry, str) or not entry.strip():
+            raise ConfigError("download files require nonempty strings")
+        entry = entry.strip()
+        if entry.startswith(("http://", "https://")):
+            urls.append(entry)
+        else:
+            path = _root_relative_file_path(entry, "download files")
+            # Quote literal names before joining: ?, # and % belong to names,
+            # and the shared validator rejects traversal before URL normalization.
+            urls.append(base + quote(path, safe="/"))
+    return urls
 
 
 def _identity(path: Path) -> Optional[Tuple[int, ...]]:
@@ -825,8 +844,13 @@ def download_url_list(
     Existing files require a matching prior receipt or explicit overwrite.
     Failed whole-file attempts restart from byte zero. Unknown state is kept.
     """
-    if config.mode != "download" or (config.url_list is None) == (config.download_url is None):
+    sources = sum(
+        (config.url_list is not None, config.download_url is not None, bool(config.download_files))
+    )
+    if config.mode != "download" or sources != 1:
         raise ConfigError("download_url_list requires mode=download and exactly one URL source")
+    if not isinstance(config.download_files, list):
+        raise ConfigError("download_files requires a list of file paths or URLs")
     require_backend(config.backend)
     target = config.dest_path
     for part in filter(None, config.dir_suffix.split("/")):
@@ -839,12 +863,14 @@ def download_url_list(
     if config.download_url is not None:
         urls = [config.download_url]
     else:
-        assert config.url_list is not None
-        urls = [
-            line.strip()
-            for line in config.url_list.read_text(encoding="utf-8").splitlines()
-            if line.strip() and not line.lstrip().startswith("#")
-        ]
+        entries = config.download_files
+        if config.url_list is not None:
+            entries = [
+                line.strip()
+                for line in config.url_list.read_text(encoding="utf-8-sig").splitlines()
+                if line.strip() and not line.lstrip().startswith("#")
+            ]
+        urls = resolve_download_files(entries, config.base_url)
     if not urls:
         raise ValueError("URL list is empty")
     resources = [target, PathSafety._resolve_destination_root(config.log_path)]

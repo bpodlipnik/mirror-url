@@ -79,7 +79,7 @@ from .metrics import (
 )
 from .progress import ProgressConsoleHandler
 from .security import PathSafety
-from .utils import _log_files, sanitize_command_line
+from .utils import _log_files, sanitize_command_line, sanitize_url_for_log
 
 
 def setup_shared_logging(
@@ -198,6 +198,7 @@ def setup_shared_logging(
     if eff.metrics_json:
         logging.info(f"📊 Metrics: {eff.metrics_json}")
     if getattr(eff, "mode", None) == "download":
+        logging.info("Remote root: %s", sanitize_url_for_log(eff.url))
         logging.info("Destination: %s", eff.dest_path)
         chunked = eff.parallel_downloads or eff.streaming_parallel
         transfer = (
@@ -374,9 +375,11 @@ def _cli_overrides(args: argparse.Namespace, explicit: set) -> dict:
             out.update({mode: mode == dest for mode in ("list_dirs", "list_files")})
             out[dest] = True
             out[dest + "_n"] = value or 0
-        elif dest in ("download_url", "url_list"):
+        elif dest in ("download_url", "download_files", "url_list"):
             out[dest] = value
-            out["url_list" if dest == "download_url" else "download_url"] = None
+            for source in ("download_url", "download_files", "url_list"):
+                if source != dest:
+                    out[source] = [] if source == "download_files" else None
         elif dest in _DOWNLOAD_MODE_DESTS:
             # The three modes are mutually exclusive: choosing one on the
             # command line must also switch off the others set in the file.
@@ -404,26 +407,45 @@ def _cli_overrides(args: argparse.Namespace, explicit: set) -> dict:
 def _direct_download_defaults(
     args: argparse.Namespace, values: dict, selected_mode: str, parser: argparse.ArgumentParser
 ) -> None:
-    """Supply targets for a single URL without changing explicit scope or paths."""
+    """Supply download defaults while keeping --url as the root for every input."""
     direct_url = values.get("download_url")
-    if direct_url is None:
+    files = values.get("download_files", [])
+    if direct_url is None and not files:
         return
     if selected_mode != "download":
         parser.error("a direct URL requires --mode download")
-    if values.get("url_list") is not None:
-        parser.error("a direct URL and --url-list are mutually exclusive")
+    if values.get("url_list") is not None or (direct_url is not None and files):
+        parser.error("download files and --url-list are mutually exclusive")
     try:
-        if not isinstance(direct_url, str) or not direct_url.strip():
+        if direct_url is not None and (not isinstance(direct_url, str) or not direct_url.strip()):
             raise ValueError("the direct URL must be a nonempty string")
-        direct_url = direct_url.strip()
-        parsed = urlsplit(direct_url)
-        if parsed.scheme not in ("http", "https") or not parsed.hostname:
-            raise ValueError("the direct URL must be an absolute HTTP(S) file URL")
-        if not parsed.path or parsed.path.endswith("/"):
-            raise ValueError("the direct URL must name a file")
+        if direct_url is not None:
+            direct_url = direct_url.strip()
+            files = [direct_url]
+        elif not isinstance(files, list) or any(
+            not isinstance(value, str) or not value.strip() for value in files
+        ):
+            raise ValueError("download files require a list of nonempty strings")
+        else:
+            files = [value.strip() for value in files]
+        parents = set()
+        for value in files:
+            parsed = urlsplit(value)
+            if parsed.scheme:
+                if parsed.scheme not in ("http", "https") or not parsed.hostname:
+                    raise ValueError("the direct URL must be an absolute HTTP(S) file URL")
+                if not parsed.path or parsed.path.endswith("/"):
+                    raise ValueError("the direct URL must name a file")
+                parent = parsed.path.rsplit("/", 1)[0] + "/"
+                parents.add(urlunsplit((parsed.scheme, parsed.netloc, parent, "", "")))
+            elif direct_url is not None:
+                raise ValueError("the direct URL must be an absolute HTTP(S) file URL")
+            elif not args.url:
+                raise ValueError("relative download files require --url")
         if not args.url:
-            parent = parsed.path.rsplit("/", 1)[0] + "/"
-            args.url = urlunsplit((parsed.scheme, parsed.netloc, parent, "", ""))
+            if len(parents) != 1:
+                raise ValueError("download URLs in different directories require --url")
+            args.url = parents.pop()
         if not args.dest_path:
             args.dest_path = Path.cwd()
         if not args.log_path:
@@ -431,7 +453,10 @@ def _direct_download_defaults(
                 :16
             ]
             args.log_path = Path(tempfile.gettempdir()) / f"mirror-url-download-{destination_key}"
-        args.download_url = direct_url
+        if direct_url is not None:
+            args.download_url = direct_url
+        else:
+            args.download_files = files
     except ValueError as error:
         parser.error(str(error))
 
@@ -463,7 +488,8 @@ def _main(ownership: ExitStack) -> None:
         epilog=r"""
 ARGUMENT SOURCES:
   Supply --config FILE, or --url URL --dest-path DIR --log-path DIR.
-  --mode download FILE_URL infers the parent URL, downloads into the current
+  --mode download FILE [FILE ...] accepts paths relative to --url or absolute URLs.
+  Absolute URLs sharing one parent infer that root, download into the current
   directory and logs to a destination-specific folder in the system temp dir.
   Explicit --url, --dest-path and --log-path override these shortcut defaults.
   CLI-only --list-dirs/--list-files need only --url. Other runs require URL,
@@ -514,21 +540,24 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
 
     basic = parser.add_argument_group("Target Options")
     basic.add_argument(
-        "download_url",
-        nargs="?",
-        metavar="FILE_URL",
-        help="One absolute file URL; requires --mode download and cannot be combined with --url-list",
+        "download_files",
+        nargs="*",
+        metavar="FILE",
+        help="Files relative to --url or absolute URLs; requires --mode download; mutually exclusive with --url-list",
     )
-    basic.add_argument("--url", help="Base URL; defaults to the direct file URL's parent directory")
+    basic.add_argument(
+        "--url",
+        help="Remote root for discovery and download paths; absolute download URLs sharing one parent can infer it",
+    )
     basic.add_argument(
         "--dest-path",
         type=Path,
-        help="Destination directory (direct file URL defaults to the current directory)",
+        help="Destination directory (positional download files default to the current directory)",
     )
     basic.add_argument(
         "--log-path",
         type=Path,
-        help="Logs/cache directory (direct file URL defaults to system temp; keep outside destination)",
+        help="Logs/cache directory (positional download files default to system temp; keep outside destination)",
     )
     basic.add_argument(
         "--config",
@@ -539,7 +568,7 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
         "--mode",
         choices=["mirror", "download"],
         default="mirror",
-        help="Mirror a listing, or GET one direct URL/an exact URL list without discovery/freshness checks",
+        help="Mirror a listing, or download supplied files without discovery/freshness checks",
     )
     basic.add_argument(
         "--backend",
@@ -550,7 +579,7 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
     basic.add_argument(
         "--url-list",
         type=Path,
-        help="UTF-8 file of absolute URLs, one per line; requires --mode download",
+        help="UTF-8 list of file paths relative to --url or absolute URLs, one per line; requires --mode download",
     )
     basic.add_argument(
         "--overwrite",
@@ -1204,8 +1233,8 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
     ):
         parser.error("--list-dirs and --list-files are mutually exclusive")
 
-    if "download_url" in explicit_dests and "url_list" in explicit_dests:
-        parser.error("a direct URL and --url-list are mutually exclusive")
+    if "download_files" in explicit_dests and "url_list" in explicit_dests:
+        parser.error("download files and --url-list are mutually exclusive")
 
     # Handle config file
     config_dict = {}
