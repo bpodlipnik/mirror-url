@@ -924,9 +924,13 @@ def test_cli_download_json_config_and_override(tmp_path, origin, backend, monkey
     output = json.loads(capsys.readouterr().out)
     assert output["success"] and output["effective_request_interval"] == 0
     logs = list(config.log_path.glob("download_*.log"))
-    assert len(logs) == 1 and "discovery and freshness checks omitted" in logs[0].read_text(
-        encoding="utf-8"
-    )
+    assert len(logs) == 1
+    text = logs[0].read_text(encoding="utf-8")
+    assert "File download plan: 1 files; 1 file workers" in text
+    assert "Discovery mode: not performed" in text and "Metadata time: not performed" in text
+    assert [(method, path) for method, path, _headers, _client in origin.requests] == [
+        ("GET", "/root/a")
+    ]
 
 
 def test_cli_invalid_file_not_silently_ignored(tmp_path, origin, monkeypatch, capsys):
@@ -1712,14 +1716,14 @@ def test_backend_close_failure_cannot_emit_success_or_pool_closure(
 
     monkeypatch.setattr(adapter, "close", close)
     reports = []
-    original_report = cli.RunReport
+    original_metrics = cli.MetricsCollector
 
-    def report():
-        value = original_report()
-        reports.append(value)
+    def metrics():
+        value = original_metrics()
+        reports.append(value.run_report)
         return value
 
-    monkeypatch.setattr(cli, "RunReport", report)
+    monkeypatch.setattr(cli, "MetricsCollector", metrics)
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(cli.tempfile, "gettempdir", lambda: str(tmp_path / "logs"))
     monkeypatch.setattr(
