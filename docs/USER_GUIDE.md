@@ -1056,11 +1056,21 @@ The summary ends with the same cache and parser counters as mirror mode,
 followed by the separator, completion message, processed scope (`ROOT` for
 the direct shortcut) and connection-pool closure count. Download mode reports
 zero parser/cache work and counts pools only after their backend closes.
-The startup banner records the backend, destination, SHA-256 setting and
-applicable download settings, including the selected chunk mode. JSON results retain the receipt
+The startup banner records the backend, destination and SHA-256 setting.
+Configured limits are in debug output (`--verbose`). The transfer phase reports
+the actual selected-file/worker count and each eligible file's chunk plan. JSON results retain the receipt
 location and summed fsync/hash work. These work sums can exceed elapsed time
 during concurrent downloads and overlap the download phase. SHA-256 receipts
 describe local bytes and do not establish agreement with a remote digest.
+
+For chunked transfers, both modes report **Total chunks** selected in this
+run, **Chunk downloads** completed and validated, **Files finalized from
+chunks** published, and **Peak parallel chunks** observed. Eight chunks can
+produce one finalized file; peak concurrency is measured after workers acquire
+the per-origin semaphore, including response waits, retry waits and disk work.
+It is separate from the configured executor capacity. JSON download results
+retain these counters in `chunk_metrics`; `chunk_assemblies` remains the
+compatible JSON key for finalized files.
 
 `--progress-bar` (also `--progress`) shows per-file byte bars, independently of
 `--print-logs`. The normal installation includes the `tqdm` renderer.
@@ -1068,7 +1078,9 @@ With both options, each file has one updating console bar; periodic progress
 stays in the log file instead of adding console lines while bars are active.
 If a bar cannot be displayed, the ten-second console messages remain available.
 Known lengths show percentage and transfer ETA; unknown lengths show received
-bytes and speed. Bars also identify response waits, disk flushing and hashing.
+bytes and speed. Bars also identify response waits, disk flushing and hashing. Chunked bars
+show completed/selected chunk counts and currently active chunk workers.
+The progress announcement describes the display that actually opened.
 Retries reset the affected file's byte bar. Reaching 100% means the body has
 arrived; publication and receipt recording must still succeed.
 

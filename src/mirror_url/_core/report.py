@@ -516,6 +516,7 @@ class ReportMixin(MirrorHost):
                                 self.target_base_url,
                                 self.scratch_manager,
                                 transfer_progress,
+                                metrics=self.metrics,
                             )
 
                             def published(result: TransferResult) -> None:

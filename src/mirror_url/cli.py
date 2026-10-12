@@ -71,13 +71,13 @@ from .exceptions import (
     URLScopeError,
 )
 from .metrics import (
+    MetricsCollector,
     format_download_summary,
     log_connection_pools_closed,
     log_processed_result,
     log_run_completion,
 )
 from .progress import ProgressConsoleHandler
-from .run_report import RunReport
 from .security import PathSafety
 from .utils import _log_files, sanitize_command_line
 
@@ -207,23 +207,24 @@ def setup_shared_logging(
             if eff.parallel_downloads
             else "whole-file streaming"
         )
-        logging.info("Backend: %s (%s)", eff.backend, transfer)
+        logging.info("Backend: %s", eff.backend)
+        logging.debug("Requested transfer method: %s", transfer)
         concurrency = 1 if eff.sequential_downloads else eff.max_concurrent_downloads
-        logging.info("Max concurrent file downloads: %s", concurrency)
-        logging.info(
+        logging.debug("Configured file-worker capacity: %s", concurrency)
+        logging.debug(
             "Max connection retries: %s (restart %s)",
             eff.max_retries,
             "chunk" if chunked else "whole file",
         )
         if chunked:
-            logging.info(
-                "Chunks: max %s per file, max %s active, minimum size %s MiB",
+            logging.debug(
+                "Configured chunk limits: max %s per file, max %s worker slots, minimum size %s MiB",
                 eff.max_chunks,
                 eff.max_parallel_chunks,
                 eff.min_chunk_size,
             )
         rate = eff.requests_per_second
-        logging.info(
+        logging.debug(
             "Request spacing: %.1fms", max(1 / rate if rate else 0, eff.request_delay) * 1000
         )
         if eff.bandwidth_limit:
@@ -231,10 +232,6 @@ def setup_shared_logging(
         logging.info(
             "SHA-256: %s", "enabled (local receipts)" if eff.verify_content else "disabled"
         )
-        if args.print_logs and not args.quiet:
-            logging.info("Download progress: updates approximately every 10 seconds")
-        if eff.progress_bar and not args.quiet:
-            logging.info("Progress bars: per-file received bytes and transfer stage")
         logging.info("=" * 50)
         return
     if TQDM_AVAILABLE and eff.progress_bar:
@@ -1353,16 +1350,19 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
             display_settings.dest_path = target
             setup_shared_logging(args, display_settings)
             ownership.callback(_close_run_handlers, list(logging.root.handlers))
-            logging.info(
+            logging.debug(
                 "Known-URL download: backend=%s, discovery and freshness checks omitted",
                 download_config.backend,
             )
             if download_config.parallel_downloads or download_config.streaming_parallel:
-                logging.info("Range metadata probes enabled for parallel chunk downloads")
-            report = RunReport()
-            summary = download_url_list(download_config, run_report=report)
+                logging.debug("Range metadata probes enabled for parallel chunk downloads")
+            metrics = MetricsCollector()
+            report = metrics.run_report
+            summary = download_url_list(download_config, metrics=metrics)
             run = report.snapshot(summary.get("bytes_downloaded", 0))
-            logging.info(format_download_summary(download_config, summary, target, run))
+            logging.info(
+                format_download_summary(download_config, summary, target, run, metrics=metrics)
+            )
             logging.info("-" * 50)
             log_run_completion(summary["success"])
             log_processed_result(summary["success"], download_config.dir_suffix, 1, 1)

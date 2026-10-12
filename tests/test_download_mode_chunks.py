@@ -8,17 +8,19 @@ import json
 import socket
 import threading
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from mirror_url import MirrorConfig, cli, download_url_list, transfers
+from mirror_url import MirrorConfig, MirrorURL, cli, download_url_list, transfers
 from mirror_url.destination_lock import DestinationLock
 from mirror_url.download import PartialDownloadManager
 from mirror_url.exceptions import ConfigError
-from mirror_url.progress import DownloadProgress
+from mirror_url.metrics import format_download_summary
+from mirror_url.progress import DownloadProgress, get_download_progress
 from mirror_url.scratch import OwnedScratch
 from mirror_url.security import SecurityValidator
 from mirror_url.transfers import AsyncTransfers, _identity
@@ -61,6 +63,7 @@ def ranges(monkeypatch):
             self.serve(True)
 
         def serve(self, body):
+            payload = state.payload
             range_header = self.headers.get("Range")
             with lock:
                 state.requests.append((self.command, self.path, dict(self.headers)))
@@ -72,6 +75,10 @@ def ranges(monkeypatch):
                 "Accept-Ranges": "bytes",
                 "Last-Modified": "Wed, 07 Oct 2026 00:00:00 GMT",
             }
+            if self.path == "/root/":
+                data = b'<html><body><a href="a">a</a></body></html>'
+                headers["Content-Type"] = "text/html"
+                headers["ETag"] = '"listing"'
             if state.fault == "weak":
                 headers["ETag"] = 'W/"v1"'
             if state.fault == "no-ranges":
@@ -215,6 +222,10 @@ def test_exact_downloads_have_concurrent_ranges_and_owned_receipts(
         for headers in requests
     )
     assert result["stage_seconds"]["fsync"] > 0 and result["stage_seconds"]["hash"] > 0
+    assert result["chunk_metrics"]["total_chunks"] == 3
+    assert result["chunk_metrics"]["chunk_downloads"] == 3
+    assert result["chunk_metrics"]["chunk_assemblies"] == 1
+    assert result["chunk_metrics"]["peak_parallel_chunks"] == 3
     assert {path for path, _, _, _ in observations} == {local}
     assert {chunk for _, chunk, _, _ in observations} == {0, 1, 2}
     assert all(expected == len(ranges.payload) for _, _, _, expected in observations)
@@ -238,6 +249,10 @@ def test_ineligible_files_fall_back_to_whole_file(tmp_path, ranges, chunk_mode, 
     assert (config.dest_path / "a").read_bytes() == ranges.payload
     assert [method for method, _, _ in ranges.requests] == ["HEAD", "GET"]
     assert all("Range" not in headers for _, _, headers in ranges.requests)
+    assert result["chunk_metrics"]["total_chunks"] == 0
+    summary = format_download_summary(config, result, config.dest_path)
+    assert "Total chunks: 0" in summary and "Peak parallel chunks: 0" in summary
+    assert "Files finalized from chunks: 0" in summary
     assert_no_scratch(config.dest_path)
 
 
@@ -255,6 +270,9 @@ def test_invalid_ranges_fail_without_publication_or_whole_file_fallback(
     assert not result["success"] and result["files_failed"] == 1
     assert local.read_bytes() == b"old" and _identity(local) == before
     assert receipt(result, local) is None
+    assert result["chunk_metrics"]["chunk_downloads"] == 0
+    assert result["chunk_metrics"]["chunk_assemblies"] == 0
+    assert result["chunk_metrics"]["chunk_failures"] == 3
     assert len(ranges.requests) == 4
     assert all("Range" in headers for method, _, headers in ranges.requests if method == "GET")
     assert_no_scratch(config.dest_path)
@@ -268,6 +286,7 @@ def test_chunk_retry_budget_restarts_exact_range(tmp_path, ranges, chunk_mode, r
     assert result["success"] is recover
     gets = [key for key in ranges.counts if key[0] == "GET"]
     assert len(gets) == 3 and all(ranges.counts[key] == 2 for key in gets)
+    assert result["chunk_metrics"]["chunk_retries"] == 3
     assert_no_scratch(config.dest_path)
 
 
@@ -601,9 +620,100 @@ def test_cli_chunk_flags_use_shared_summary_and_truthful_banner(
     cli.main()
     output = capsys.readouterr()
     assert output.out == ""
-    assert "parallel chunks" in output.err and "Range metadata probes enabled" in output.err
+    assert "Chunk plan:" in output.err and "3 chunks selected" in output.err
+    assert "File download plan: 1 files; 1 file workers" in output.err
+    assert "Chunk downloads: 3" in output.err and "Files finalized from chunks: 1" in output.err
+    assert "Total chunks: 3" in output.err and "Peak parallel chunks: 3" in output.err
+    assert "Download progress: updates" not in output.err
+    assert "Max concurrent file downloads:" not in output.err
+    assert "DEDICATED download thread pool" not in output.err
+    assert "worker capacity 50" not in output.err
     assert "SUMMARY:" in output.err and "Sync completed successfully" in output.err
     assert "Closed all 1 connection pools" in output.err
     assert "Remote files found: not performed" in output.err
     assert "Metadata time: not performed" in output.err
     assert (tmp_path / "dest/a").read_bytes() == ranges.payload
+
+
+@pytest.mark.parametrize("mode", ["download", "mirror"])
+def test_both_modes_report_eight_selected_and_four_admitted_chunks(
+    tmp_path, ranges, chunk_mode, mode, monkeypatch, caplog
+):
+    import logging
+
+    from test_transfer_reporting import RecordingBar
+
+    ranges.payload = b"range bytes" * (8 * 1024**2 // 11) + b"padding!"
+    assert len(ranges.payload) == 8 * 1024**2
+    ranges.hold, ranges.threshold = True, 4
+    config = configuration(
+        tmp_path, ranges, chunk_mode, max_chunks_per_file=8, progress_bar=True, print_logs=True
+    )
+    if mode == "mirror":
+        config.mode, config.url_list = "mirror", None
+    monkeypatch.setattr("mirror_url.progress._create_progress_bar", RecordingBar)
+    monkeypatch.setattr("mirror_url.progress.TQDM_AVAILABLE", True)
+    caplog.set_level(logging.INFO)
+    managers = []
+    manager_type = transfers.ParallelDownloadManager
+    actual_init = manager_type.__init__
+
+    def capture(manager, *args, **kwargs):
+        actual_init(manager, *args, **kwargs)
+        managers.append(manager)
+
+    monkeypatch.setattr(manager_type, "__init__", capture)
+
+    def logs():
+        if mode == "mirror":
+            return "".join(
+                p.read_text(encoding="utf-8") for p in config.log_path.glob("mirror_url_*.log")
+            )
+        return caplog.text
+
+    def run():
+        if mode == "download":
+            return download_url_list(config)
+        with MirrorURL(config) as mirror:
+            assert mirror.sync()
+            return {
+                "chunk_metrics": mirror.metrics.chunk_summary(),
+                "summary": mirror.metrics.report(),
+            }
+
+    with ThreadPoolExecutor(max_workers=1) as worker:
+        pending = worker.submit(run)
+        try:
+            assert ranges.together.wait(5)
+            assert len(managers) == 1
+            manager = managers[0]
+            assert manager.get_stats()["active_chunks"] == 4
+            assert manager.get_stats()["planned_chunks"] == 8
+            reporter = manager.progress or get_download_progress(manager.mirror)
+            with reporter.lock:
+                file = reporter.active[config.dest_path / "a"]
+                assert file.chunk_total == 8 and len(file.active_chunks) == 4
+                assert not file.completed_chunks
+                assert "chunks 0/8 completed, 4 active" in file.bar.stage
+            reporter.log_progress()
+            assert "chunks 0/8 completed, 4 active" in logs()
+        finally:
+            ranges.release.set()
+        result = pending.result(timeout=15)
+    assert result["chunk_metrics"]["total_chunks"] == 8
+    assert result["chunk_metrics"]["chunk_downloads"] == 8
+    assert result["chunk_metrics"]["chunk_assemblies"] == 1
+    assert result["chunk_metrics"]["peak_parallel_chunks"] == 4
+    assert managers[0].get_stats()["active_chunks"] == 0
+    summary = result.get("summary") or format_download_summary(config, result, config.dest_path)
+    for text in (
+        "Chunk downloads: 8",
+        "Files finalized from chunks: 1",
+        "Total chunks: 8",
+        "Peak parallel chunks: 4",
+    ):
+        assert text in summary
+    assert "8 chunks selected" in logs()
+    assert "DEDICATED download thread pool" not in logs()
+    assert (config.dest_path / "a").read_bytes() == ranges.payload
+    assert_no_scratch(config.dest_path)

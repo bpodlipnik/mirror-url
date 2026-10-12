@@ -300,9 +300,16 @@ def test_bars_replace_console_ticks_but_keep_file_log_and_fallback(tmp_path, mon
             path = tmp_path / "a.pdf"
             progress.plan(1)
             progress.begin(path)
+            announcement = (
+                "live byte bars; periodic status saved in the log file"
+                if renderer == "active"
+                else "console status approximately every 10 seconds"
+            )
+            assert announcement in console.getvalue()
             progress.received(path, 10, 20)
             for _ in range(3):
                 progress.log_progress()
+            assert console.getvalue().count("Progress display:") == 1
             assert file_log.getvalue().count("Download progress:") == 3
             assert console.getvalue().count("Download progress:") == (
                 0 if renderer == "active" else 3
@@ -631,3 +638,67 @@ def test_metadata_ticks_keep_file_logs_without_duplicating_visible_bar(tmp_path,
             logging.root.removeHandler(handler)
             handler.close()
         logging.root.setLevel(previous_level)
+
+
+def test_chunk_concurrency_peak_resets_for_each_run():
+    metrics = MetricsCollector()
+    metrics.run_report.start(metrics.metrics, 0)
+    metrics.increment("chunk_downloads", 8)
+    metrics.increment("total_chunks", 8)
+    assert metrics.chunk_summary()["total_chunks"] == 8
+    for _ in range(4):
+        metrics.chunk_started()
+    assert metrics.chunk_summary()["peak_parallel_chunks"] == 4
+    for _ in range(4):
+        metrics.chunk_finished()
+    assert metrics.metrics["active_chunks"] == 0
+    metrics.run_report.start(metrics.metrics, 0)
+    assert metrics.chunk_summary()["total_chunks"] == 0
+    assert metrics.chunk_summary()["chunk_downloads"] == 0
+    metrics.chunk_started()
+    metrics.chunk_finished()
+    assert metrics.chunk_summary()["peak_parallel_chunks"] == 1
+    assert "Peak parallel chunks: 1" in metrics.report()
+    metrics.run_report.start(metrics.metrics, 0)
+    assert metrics.chunk_summary()["peak_parallel_chunks"] == 0
+    assert "Peak parallel chunks: 4" not in metrics.report()
+
+
+def test_completed_or_disabled_progress_ignores_late_chunk_observations(tmp_path):
+    path = tmp_path / "a"
+    progress = report.DownloadProgress(True)
+    progress.begin(path)
+    progress.chunk_plan(path, 8)
+    progress.chunk_activity(path, 0, True)
+    progress.chunk_activity(path, 0, False, True)
+    progress.finish(path, False)
+    progress.chunk_plan(path, 8)
+    progress.chunk_activity(path, 0, False)
+    assert not progress.active
+    disabled = report.DownloadProgress(False)
+    disabled.chunk_plan(path, 8)
+    disabled.chunk_activity(path, 0, True)
+    assert not disabled.active
+
+
+def test_summary_reuses_collector_without_overwriting_lifetime_counters(tmp_path):
+    config = MirrorConfig(base_url="https://files.example/", dest_path=tmp_path, log_path=tmp_path)
+    metrics = MetricsCollector()
+    metrics.increment("chunk_downloads", 12)
+    before = dict(metrics.metrics)
+    summary = {
+        "success": True,
+        "files_downloaded": 1,
+        "files_failed": 0,
+        "bytes_downloaded": 1,
+        "chunk_metrics": {
+            "chunk_downloads": 8,
+            "chunk_assemblies": 1,
+            "parallel_files": 1,
+            "total_chunks": 8,
+            "peak_parallel_chunks": 4,
+        },
+    }
+    text = format_download_summary(config, summary, tmp_path, metrics=metrics)
+    assert "Chunk downloads: 8" in text and "Peak parallel chunks: 4" in text
+    assert metrics.metrics == before

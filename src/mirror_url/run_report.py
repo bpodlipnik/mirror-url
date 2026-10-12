@@ -30,6 +30,7 @@ class RunReport:
         self.discovery_workers = 0
         self.directories_examined = 0
         self.closed_connection_pools = 0
+        self.peak_parallel_chunks = 0
 
     def start(self, metrics: dict, selected_configured: int) -> None:
         with self._lock:
@@ -49,6 +50,12 @@ class RunReport:
             self.discovery_mode = None
             self.discovery_workers = self.directories_examined = 0
             self.closed_connection_pools = 0
+            self.peak_parallel_chunks = 0
+
+    def record_chunk_workers(self, active: int) -> None:
+        """Observe admitted chunk workers, rather than executor capacity."""
+        with self._lock:
+            self.peak_parallel_chunks = max(self.peak_parallel_chunks, active)
 
     def begin_discovery(self, mode: str, workers: int) -> None:
         """Record the actual BFS strategy, separately from parser activity."""
@@ -135,6 +142,7 @@ class RunReport:
                 "unclassified_downloads": downloads["unclassified"],
                 "metadata_checks_unresolved": checks["uncertain"],
                 "downloads_planned": checks["missing"] + checks["changed"] + checks["uncertain"],
+                "peak_parallel_chunks": self.peak_parallel_chunks,
                 "phase_seconds": dict(self.phases),
                 "elapsed_seconds": elapsed,
                 "discovery_mode": self.discovery_mode,

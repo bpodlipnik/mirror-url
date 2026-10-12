@@ -5,9 +5,9 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import time
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
+from threading import Event
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 from urllib.parse import unquote, urlparse
@@ -192,26 +192,32 @@ def test_cleanup_preserves_unselected_paths_and_metadata(mirror, policy):
 
 def test_async_cold_dns_cache_completes_without_blocking_loop(monkeypatch):
     calls = []
-
-    def resolve(host):
-        time.sleep(0.02)
-        calls.append(host)
-        return "8.8.8.8"
-
+    release = Event()
     send = AsyncMock(return_value=response())
-    monkeypatch.setattr(
-        "mirror_url.transport.SecurityValidator.resolve_and_validate_hostname", resolve
-    )
     monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", send)
 
     async def run():
+        loop = asyncio.get_running_loop()
+        resolving = asyncio.Event()
+
+        def resolve(host):
+            loop.call_soon_threadsafe(resolving.set)
+            # The resolver may finish only after the loop handles its signal.
+            assert release.wait(5), "DNS resolution blocked the event loop"
+            calls.append(host)
+            return "8.8.8.8"
+
+        monkeypatch.setattr(
+            "mirror_url.transport.SecurityValidator.resolve_and_validate_hostname", resolve
+        )
         transport = SecureAsyncTransport()
         request = httpx.Request("HEAD", "https://example.com:8443/root/a")
         ticks = []
 
         async def tick():
-            await asyncio.sleep(0.005)
+            await resolving.wait()
             ticks.append(len(calls))
+            release.set()
 
         try:
             await asyncio.wait_for(
@@ -220,7 +226,7 @@ def test_async_cold_dns_cache_completes_without_blocking_loop(monkeypatch):
                     transport.handle_async_request(request),
                     tick(),
                 ),
-                1,
+                10,
             )
             assert ticks == [0]
             assert calls == ["example.com"]
@@ -229,6 +235,7 @@ def test_async_cold_dns_cache_completes_without_blocking_loop(monkeypatch):
             assert sent.headers["Host"] == "example.com:8443"
             assert sent.extensions["sni_hostname"] == "example.com"
         finally:
+            release.set()
             await transport.aclose()
 
     asyncio.run(run())

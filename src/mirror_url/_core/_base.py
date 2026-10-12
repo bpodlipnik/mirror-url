@@ -554,9 +554,9 @@ class _MirrorBase(MirrorHost):
 
         # Log parallel download settings
         if config.parallel_downloads and self.parallel_manager:
-            logging.info(
-                f"{prefix}🚀 Parallel chunk downloads: ENABLED (max {config.max_chunks_per_file} chunks, "
-                f"min {config.min_chunk_size_mb}MB)"
+            logging.debug(
+                f"{prefix}Configured chunk limits: {config.max_chunks_per_file} chunks per file, "
+                f"minimum size {config.min_chunk_size_mb} MiB"
             )
 
         # Log cache file
