@@ -702,13 +702,6 @@ class ReportMixin(MirrorHost):
 
             run.end_phase()
 
-            # FIX v2.0.1: Skip directory size check in dry-run if directory doesn't exist
-            if self.target_dir and self.target_dir.exists():
-                disk_size = self.get_directory_size(self.target_dir) / (1024 * 1024)
-                logging.info(f"{prefix}On-disk size: {disk_size:.2f} MB")
-            else:
-                logging.info(f"{prefix}On-disk size: 0.00 MB (directory not created)")
-
             run.begin_phase("cleanup")
             # FIX v2.0.1: Skip cleanup in dry-run mode (already handled above)
             if not self.config.dry_run:

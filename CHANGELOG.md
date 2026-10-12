@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Finish mirror syncs without recursively sizing the whole destination after
+  transfers, including unchanged runs. Keep filesystem free-space checks before
+  downloads and report this run's downloaded bytes from transfer counters.
+
 ## [3.5.1] - 2026-10-12
 
 ### Fixed

@@ -493,6 +493,15 @@ failures, retries and pacing within that call. Counts exclude additional
 transport redirect/retry attempts. Text uses per-sync deltas; JSON retains
 collector totals for these keys.
 
+Normal sync finalization goes directly from the transfer phase to obsolete-file
+cleanup and cache persistence. Do not walk the whole destination to produce a
+completion statistic: that includes unrelated files, delays unchanged runs and
+does not measure allocated filesystem space. `get_directory_size()` remains an
+explicit library helper, but sync does not call it. Keep the initial filesystem
+free-space check and the planned-batch preflight before any payload GET. Transfer
+budgets still reserve staging and assembly space; published-byte counters supply
+the summary's downloaded-byte total.
+
 At the start of `get_remote_files()`, clear `DirectoryScanner.fresh_listing_headers`
 and `fresh_listing_content_signatures`. Populate these maps only after a current
 GET returns HTTP 200 and the listing parses successfully; discard both of the

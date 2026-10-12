@@ -1052,6 +1052,13 @@ their scan, freshness and obsolete-file counters remain zero. Files requested
 records the supplied URL count. Existing-file downloads are counted from local file presence;
 they do not imply the remote file changed.
 
+Neither mode recursively sizes the whole destination for completion output.
+**Downloaded bytes** counts files successfully published in this run; it is not
+the destination's total size or allocated disk space. Mirror mode checks
+filesystem free space before discovery and again for the planned downloads
+before starting transfers. Download mode reserves space from a shared batch
+budget. These checks do not enumerate unrelated destination files.
+
 The summary ends with the same cache and parser counters as mirror mode,
 followed by the separator, completion message, processed scope (`ROOT` for
 the direct shortcut) and connection-pool closure count. Download mode reports
