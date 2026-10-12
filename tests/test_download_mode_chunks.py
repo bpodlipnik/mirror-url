@@ -666,7 +666,9 @@ def test_both_modes_report_eight_selected_and_four_admitted_chunks(
 
     def logs():
         if mode == "mirror":
-            return "".join(p.read_text() for p in config.log_path.glob("mirror_url_*.log"))
+            return "".join(
+                p.read_text(encoding="utf-8") for p in config.log_path.glob("mirror_url_*.log")
+            )
         return caplog.text
 
     def run():
