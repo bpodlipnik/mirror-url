@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import socket
 import threading
 from collections import Counter
@@ -109,6 +110,8 @@ def ranges(monkeypatch):
                     headers["Connection"] = "close"
                     data = data[:31]
             headers.setdefault("Content-Length", str(len(data)))
+            if not body and state.fault == "no-length":
+                headers.pop("Content-Length")
             self.send_response(code)
             for key, value in headers.items():
                 self.send_header(key, value)
@@ -240,12 +243,19 @@ def test_exact_downloads_have_concurrent_ranges_and_owned_receipts(
     assert download_url_list(config)["success"]
 
 
-@pytest.mark.parametrize("fault", ["weak", "no-ranges", "no-head", "small"])
-def test_ineligible_files_fall_back_to_whole_file(tmp_path, ranges, backend, chunk_mode, fault):
+@pytest.mark.parametrize(
+    "fault", ["weak", "no-ranges", "no-head", "small", "no-length", "one-chunk"]
+)
+def test_ineligible_files_fall_back_to_whole_file(
+    tmp_path, ranges, backend, chunk_mode, fault, caplog
+):
+    caplog.set_level(logging.INFO)
     ranges.fault = fault
     config = configuration(tmp_path, ranges, chunk_mode, backend=backend)
     if fault == "small":
         config.min_chunk_size_mb = 4
+    if fault == "one-chunk":
+        config.max_chunks_per_file = 1
     result = download_url_list(config)
     assert result["success"]
     assert (config.dest_path / "a").read_bytes() == ranges.payload
@@ -255,6 +265,59 @@ def test_ineligible_files_fall_back_to_whole_file(tmp_path, ranges, backend, chu
     summary = format_download_summary(config, result, config.dest_path)
     assert "Total chunks: 0" in summary and "Peak parallel chunks: 0" in summary
     assert "Files finalized from chunks: 0" in summary
+    reason = {
+        "weak": "no strong ETag",
+        "no-ranges": "does not advertise byte ranges",
+        "no-head": "HEAD returned HTTP 405",
+        "small": "below the 8.00 MB needed for two chunks",
+        "no-length": "no valid Content-Length",
+        "one-chunk": "--max-chunks is 1",
+    }[fault]
+    assert reason in caplog.text
+    assert "Range transfer unavailable" not in caplog.text
+    assert sum(r.getMessage().startswith("Downloaded:") for r in caplog.records) == 1
+    assert hashlib.sha256(ranges.payload).hexdigest() in caplog.text
+    assert_no_scratch(config.dest_path)
+
+
+@pytest.mark.parametrize("mode", ["download", "mirror"])
+@pytest.mark.parametrize("method", ["whole-file", "parallel_downloads", "streaming_parallel"])
+@pytest.mark.parametrize("verify", [False, True])
+def test_all_transfer_paths_share_completion_and_hash_reporting(
+    tmp_path, ranges, backend, mode, method, verify, caplog
+):
+    caplog.set_level(logging.INFO)
+    options = {method: True} if method != "whole-file" else {}
+    config = job(tmp_path, ranges, backend=backend, verify_content=verify, **options)
+    config.mode = mode
+    config.min_chunk_size_mb = 1
+    config.max_chunks_per_file = 3
+    if mode == "mirror":
+        config.url_list = None
+        with MirrorURL(config) as mirror:
+            assert mirror.sync()
+            summary = mirror.metrics.report()
+            proof = mirror.cache_manager.get_file_metadata(config.dest_path / "a")
+            if verify:
+                assert mirror.sync()
+                assert "SHA-256 hashes recorded: 0" in mirror.metrics.report()
+        logs = "".join(p.read_text(encoding="utf-8") for p in config.log_path.glob("*.log"))
+    else:
+        result = download_url_list(config)
+        assert result["success"] and result["sha256_hashes_recorded"] == int(verify)
+        summary = format_download_summary(config, result, config.dest_path)
+        proof = receipt(result, config.dest_path / "a")
+        logs = caplog.text
+    expected = hashlib.sha256(ranges.payload).hexdigest() if verify else None
+    assert proof.get("sha256") == expected
+    assert (config.dest_path / "a").read_bytes() == ranges.payload
+    assert logs.count("Downloaded:") == 1
+    assert (f"; SHA-256: {expected}" in logs) is verify
+    assert (
+        "SHA-256 receipt hashing: " + ("enabled" if verify else "disabled (use --verify-content)")
+        in summary
+    )
+    assert f"SHA-256 hashes recorded: {int(verify)}" in summary
     assert_no_scratch(config.dest_path)
 
 

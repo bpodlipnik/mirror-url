@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Explain why a requested parallel transfer uses a whole-file GET, including
+  file size, chunk limits and missing or unsupported range metadata. Log every
+  published file through the shared completion helper, including whole-file
+  fallbacks with either backend.
+- Keep SHA-256 opt-in through `--verify-content`. Show its setting and this run's
+  recorded hash count in the shared mirror/download summary, and include the
+  actual computed digest in each hashed file's completion line.
+
 ## [3.7.0] - 2026-10-13
 
 ### Added

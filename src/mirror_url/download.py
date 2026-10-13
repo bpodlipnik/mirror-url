@@ -53,6 +53,7 @@ from .download_integrity import (
 )
 from .enums import DownloadMethod
 from .exceptions import ChunkAssemblyError, ChunkDownloadError
+from .metrics import log_file_downloaded
 from .models import ChunkInfo, ParallelFileDownload
 from .progress import DownloadProgress, get_download_progress
 from .rate_limiter import ChunkAwareRateLimiter
@@ -752,7 +753,7 @@ class ParallelDownloadManager:
             try:
                 self.metrics.increment("chunk_assemblies")
                 if self.mirror:
-                    self.metrics.run_report.record_publication(download.url)
+                    self.metrics.run_report.record_publication(download.url, sha256=digest)
                     self.mirror.files_processed.increment(1)
                     self.mirror.total_downloaded_size.add(download.file_size)
                     if hasattr(self.mirror, "cache_manager") and (
@@ -769,7 +770,7 @@ class ParallelDownloadManager:
                         self.mirror.fs_cache.invalidate(download.final_path)
             except Exception as e:
                 logging.warning(f"Cache/metrics update failed after streaming publication: {e}")
-            logging.info(f"Downloaded: {download.final_path} ({format_bytes(download.file_size)})")
+            log_file_downloaded(download.final_path, download.file_size, digest)
             logging.info(f"✅ Streaming complete: {download.final_path.name}")
             return True
         except (OSError, ChunkAssemblyError) as e:
@@ -1088,7 +1089,7 @@ class ParallelDownloadManager:
             try:
                 self.metrics.increment("chunk_assemblies")
                 if self.mirror:
-                    self.metrics.run_report.record_publication(download.url)
+                    self.metrics.run_report.record_publication(download.url, sha256=digest)
                     self.mirror.files_processed.increment(1)
                     self.mirror.total_downloaded_size.add(file_size)
                     if hasattr(self.mirror, "cache_manager") and (
@@ -1118,7 +1119,7 @@ class ParallelDownloadManager:
             # merged into "Successfully assembled") so grepping logs for
             # "^Downloaded: " reliably finds every downloaded file,
             # regardless of which code path fetched it.
-            logging.info(f"Downloaded: {download.final_path} ({format_bytes(file_size)})")
+            log_file_downloaded(download.final_path, file_size, digest)
             logging.info(
                 f"✅ Successfully assembled {download.final_path.name} ({format_bytes(file_size)})"
             )

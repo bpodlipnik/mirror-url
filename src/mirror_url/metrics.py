@@ -621,6 +621,16 @@ def _format_run_summary(
         lines.append(f"{prefix}  {label}: {run['unclassified_downloads']}")
     if known_urls and run["status"] != "dry run":
         lines.append(f"{prefix}  Files downloaded: {summary['files_downloaded']}")
+    hashing = run.get("verify_content")
+    setting = (
+        "enabled"
+        if hashing
+        else "disabled (use --verify-content)"
+        if hashing is False
+        else "not configured"
+    )
+    lines.append(f"{prefix}  SHA-256 receipt hashing: {setting}")
+    lines.append(f"{prefix}  SHA-256 hashes recorded: {run.get('sha256_hashes_recorded', 'n/a')}")
     if run["metadata_checks_unresolved"]:
         lines.append(f"{prefix}  Unresolved freshness checks: {run['metadata_checks_unresolved']}")
     if run["reasons"]:
@@ -665,6 +675,7 @@ def format_download_summary(
     metrics: Optional[MetricsCollector] = None,
 ) -> str:
     """Use the shared summary layout and measured known-URL coordinator phases."""
+    provided_run = run is not None
     if run is None:
         # Older callers have only the JSON result, without per-phase observations.
         run = RunReport().snapshot()
@@ -681,6 +692,11 @@ def format_download_summary(
             missing_files_downloaded="n/a",
             unclassified_downloads="n/a",
         )
+    run = dict(run, verify_content=config.verify_content)
+    if "sha256_hashes_recorded" in summary:
+        run["sha256_hashes_recorded"] = summary["sha256_hashes_recorded"]
+    elif not provided_run:
+        run["sha256_hashes_recorded"] = "n/a"
     metrics = metrics or MetricsCollector()
     # Mirror's renderer receives the same zero subsystem counters for work
     # this pipeline does not perform, plus the actual known-URL observations.
@@ -697,6 +713,12 @@ def format_download_summary(
     if "peak_parallel_chunks" in chunks:
         run = dict(run, peak_parallel_chunks=chunks["peak_parallel_chunks"])
     return metrics.report(run=run, known_urls=True, values=values)
+
+
+def log_file_downloaded(path: Path, size: int, sha256: Optional[str] = None) -> None:
+    """Report a published file once, including its computed local digest."""
+    digest = f"; SHA-256: {sha256}" if sha256 is not None else ""
+    logging.info("Downloaded: %s (%s)%s", path, format_bytes(size), digest)
 
 
 def log_run_completion(success: bool, *, prefix: str = "", reasons: str = "") -> None:
@@ -723,6 +745,7 @@ def log_connection_pools_closed(count: int) -> None:
 __all__ = [
     "MetricsCollector",
     "format_download_summary",
+    "log_file_downloaded",
     "log_run_completion",
     "log_processed_result",
     "log_connection_pools_closed",

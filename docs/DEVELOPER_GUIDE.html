@@ -1123,13 +1123,23 @@ uses <code>MetricsCollector.report</code> in both modes; JSON-only
 callers can feed <code>chunk_metrics</code> to the same renderer. Chunk
 plans are logged by <code>create_chunks</code> after representation
 validation and staging selection. Constructor capacity/policy messages
-stay at DEBUG. The semaphore wrapper brackets each admitted worker with
-shared metrics and progress observations, releasing admission even if an
-observer raises. <code>get_stats</code> distinguishes
-<code>planned_chunks</code> from actual <code>active_chunks</code>. Run
-peaks reset on <code>RunReport.start</code>; cumulative counters retain
-API compatibility while console and download-result counters use each
-run's own activity.</p>
+stay at DEBUG. <code>AsyncTransfers._one_chunked</code> logs the first
+failed eligibility condition before a whole-file fallback, reusing the
+manager's chunk-count decision without an extra circuit-breaker check.
+All whole-file, assembled and streaming paths use
+<code>metrics.log_file_downloaded</code>, including the computed digest
+only when available. <code>RunReport.record_publication</code> counts
+SHA-256-bearing publications once per URL and resets those observations
+at each run. Both summary modes render the hashing setting and actual
+recorded count through the same formatter; neither implies agreement
+with a remote cryptographic digest. The semaphore wrapper brackets each
+admitted worker with shared metrics and progress observations, releasing
+admission even if an observer raises. <code>get_stats</code>
+distinguishes <code>planned_chunks</code> from actual
+<code>active_chunks</code>. Run peaks reset on
+<code>RunReport.start</code>; cumulative counters retain API
+compatibility while console and download-result counters use each run's
+own activity.</p>
 <p><code>progress.DownloadProgress</code> observes both known-URL and
 mirror transfers. <code>ReportMixin.sync()</code> owns its context for
 the download phase and passes the same observer to aiohttp workers and
