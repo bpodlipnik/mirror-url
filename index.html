@@ -1,0 +1,1004 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="MirrorURL v3.7.3 documentation: mirror public HTTP(S) archives or download known files with HTTPX or aiohttp, verified parallel chunks, optional SHA-256 receipts, and a Python API.">
+    <link rel="canonical" href="https://star.mps.mpg.de/mirror_url/index.html">
+    <title>MirrorURL v3.7.3 Documentation - HTTP(S) Directory Mirroring</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #1a1a2e;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+        
+        .badge-container {
+            margin-top: 20px;
+        }
+
+        /* Header */
+        .header {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: white;
+            padding: 60px 40px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 3em;
+            margin-bottom: 10px;
+            font-weight: 800;
+        }
+
+        .header .version {
+            display: inline-block;
+            background: rgba(255,255,255,0.2);
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            margin-top: 10px;
+        }
+
+        .header p {
+            font-size: 1.2em;
+            margin-top: 20px;
+            opacity: 0.9;
+        }
+
+        .subtitle {
+            font-size: 0.9em;
+            margin-top: 10px;
+            opacity: 0.8;
+        }
+
+        /* Navigation */
+        .nav {
+            background: #f8f9fa;
+            padding: 15px 40px;
+            border-bottom: 1px solid #e1e8ed;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+
+        .nav a {
+            color: #1a1a2e;
+            text-decoration: none;
+            font-weight: 500;
+            padding: 5px 10px;
+            border-radius: 5px;
+            transition: all 0.3s;
+        }
+
+        .nav a:hover {
+            background: #667eea;
+            color: white;
+        }
+
+        /* Content */
+        .content {
+            padding: 40px;
+        }
+
+        /* Sections */
+        .section {
+            margin-bottom: 50px;
+            scroll-margin-top: 80px;
+        }
+
+        .section h2 {
+            font-size: 2em;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 3px solid #667eea;
+            color: #1a1a2e;
+        }
+
+        .section h3 {
+            font-size: 1.4em;
+            margin-top: 30px;
+            margin-bottom: 15px;
+            color: #667eea;
+        }
+
+        .section h4 {
+            font-size: 1.2em;
+            margin-top: 20px;
+            margin-bottom: 10px;
+            color: #764ba2;
+        }
+
+        /* Code blocks */
+        pre {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 20px;
+            border-radius: 10px;
+            overflow-x: auto;
+            margin: 20px 0;
+            font-family: 'Courier New', 'Monaco', monospace;
+            font-size: 0.9em;
+            line-height: 1.5;
+        }
+
+        code {
+            background: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Courier New', 'Monaco', monospace;
+            font-size: 0.9em;
+            color: #e83e8c;
+        }
+
+        pre code {
+            background: none;
+            color: inherit;
+            padding: 0;
+        }
+
+        /* Tables */
+        .table-wrapper {
+            overflow-x: auto;
+            margin: 20px 0;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+        }
+
+        th, td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid #e1e8ed;
+        }
+
+        th {
+            background: #667eea;
+            color: white;
+            font-weight: 600;
+        }
+
+        tr:hover {
+            background: #f8f9fa;
+        }
+
+        /* Cards */
+        .card-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin: 20px 0;
+        }
+
+        .card {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            border: 1px solid #e1e8ed;
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }
+
+        .card h4 {
+            margin-top: 0;
+            color: #667eea;
+        }
+
+        /* Alert boxes */
+        .alert {
+            padding: 15px 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+            border-left: 4px solid;
+        }
+
+        .alert-info {
+            background: #d1ecf1;
+            border-color: #17a2b8;
+            color: #0c5460;
+        }
+
+        .alert-warning {
+            background: #fff3cd;
+            border-color: #ffc107;
+            color: #856404;
+        }
+
+        .alert-success {
+            background: #d4edda;
+            border-color: #28a745;
+            color: #155724;
+        }
+
+        .alert-danger {
+            background: #f8d7da;
+            border-color: #dc3545;
+            color: #721c24;
+        }
+
+        .alert-critical {
+            background: #f8d7da;
+            border-color: #e74c3c;
+            color: #721c24;
+            font-weight: bold;
+        }
+
+        /* Feature list */
+        .feature-list {
+            list-style: none;
+            padding: 0;
+        }
+
+        .feature-list li {
+            padding: 10px 0;
+            padding-left: 30px;
+            position: relative;
+        }
+
+        .feature-list li:before {
+            content: "✓";
+            position: absolute;
+            left: 0;
+            color: #28a745;
+            font-weight: bold;
+            font-size: 1.2em;
+        }
+
+        /* Argument tables */
+        .arg-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            background: white;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+
+        .arg-table th {
+            background: #34495e;
+            color: white;
+            padding: 12px;
+            text-align: left;
+            font-weight: 600;
+        }
+
+        .arg-table td {
+            padding: 10px 12px;
+            border-bottom: 1px solid #ecf0f1;
+            vertical-align: top;
+        }
+
+        .arg-table tr:hover {
+            background: #f8f9fa;
+        }
+
+        .arg-name {
+            font-family: monospace;
+            font-weight: bold;
+            color: #e74c3c;
+            width: 220px;
+        }
+
+        .arg-default {
+            font-family: monospace;
+            color: #7f8c8d;
+            font-size: 0.85em;
+        }
+
+        /* Footer */
+        .footer {
+            background: #f8f9fa;
+            padding: 30px 40px;
+            text-align: center;
+            border-top: 1px solid #e1e8ed;
+            color: #6c757d;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 2em;
+            }
+            .content {
+                padding: 20px;
+            }
+            .nav {
+                padding: 10px 20px;
+                gap: 10px;
+            }
+            .arg-name {
+                width: 150px;
+            }
+            .comparison-table {
+                font-size: 0.75em;
+            }
+        }
+
+        /* Print styles */
+        @media print {
+            body {
+                background: white;
+                padding: 0;
+            }
+            .nav, .footer {
+                display: none;
+            }
+            .card {
+                break-inside: avoid;
+            }
+        }
+    
+        :root { color-scheme: light; }
+        .container { overflow: clip; }
+        a { color: #3547a0; }
+        code { color: #b32461; }
+        th { background: #4055b5; }
+        .section h3, .card h3 { color: #4055b5; }
+        .card h3 { margin-top: 0; font-size: 1.2em; }
+        .card-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); }
+        p + p { margin-top: 12px; }
+        .section ul { padding-left: 24px; margin: 15px 0; }
+        .section .feature-list { padding-left: 0; }
+        li + li { margin-top: 7px; }
+        .nav { flex-wrap: nowrap; overflow-x: auto; gap: 4px; }
+        .nav a { white-space: nowrap; }
+        .header-links { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 24px; }
+        .header-links a { color: white; padding: 8px 14px; border: 1px solid #8996b7; border-radius: 6px; }
+        .header-links a:hover { background: #304566; }
+        .section { scroll-margin-top: 90px; }
+        :focus-visible { outline: 3px solid #bc4e0b; outline-offset: 4px; }
+        .skip-link { position: fixed; top: -100px; left: 20px; z-index: 200; background: white; padding: 10px 16px; }
+        .skip-link:focus { top: 12px; }
+        details { margin: 16px 0; border: 1px solid #d5dce7; border-radius: 8px; padding: 12px 16px; }
+        summary { cursor: pointer; font-weight: 600; color: #3547a0; }
+        .argument-search { margin: 20px 0; padding: 18px; background: #f8f9fa; border-radius: 8px; }
+        .argument-search label { display: block; font-weight: 600; margin-bottom: 8px; }
+        .argument-search input { width: 100%; max-width: 680px; padding: 12px; font: inherit; border: 1px solid #8a95a6; border-radius: 5px; }
+        #argument-count { font-size: .9em; margin-top: 10px; }
+        td { vertical-align: top; }
+        .argument-group table { min-width: 640px; }
+        .argument-group td:first-child { width: 30%; }
+        .argument-group td:last-child { width: 17%; font-size: .9em; }
+        .argument-group code { overflow-wrap: anywhere; }
+        [hidden] { display: none !important; }
+        @media (max-width: 768px) {
+            body { padding: 10px; }
+            .header { padding: 36px 20px; }
+            .header p { font-size: 1.05em; }
+            .section h2 { font-size: 1.6em; }
+            .content { padding: 20px; }
+            .nav { padding: 10px 16px; }
+            .footer { padding: 24px 20px; }
+            .argument-group { padding: 10px; }
+        }
+        @media print {
+            .skip-link, .argument-search, .header-links { display: none; }
+            .table-wrapper { overflow: visible; }
+            .argument-group table { min-width: 0; }
+            .header { background: white; color: black; padding: 20px; }
+            .container { box-shadow: none; }
+            pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+        }
+</style>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to content</a>
+<div class="container">
+<header class="header">
+    <h1>MirrorURL</h1>
+    <p>Public HTTP(S) File Downloads and Directory Mirroring</p>
+    <p>Mirror directory trees or download known files with verified transfers and explicit cleanup policies.</p>
+    <div class="badge-container">
+        <span class="version">Python 3.10+</span>
+        <span class="version">MIT License</span>
+        <span class="version">HTTP/HTTPS</span>
+        <span class="version">CLI &amp; Python API</span>
+    </div>
+    <div class="subtitle">Documentation for v3.7.3 · Updated <time datetime="2026-10-13">13 October 2026</time></div>
+    <div class="subtitle">B. Podlipnik · Max Planck Institute for Solar System Research</div>
+    <div class="header-links">
+        <a href="https://github.com/bpodlipnik/mirror-url">GitHub Repository</a>
+        <a href="https://pypi.org/project/mirror-url/">PyPI Package</a>
+        <a href="https://github.com/bpodlipnik/mirror-url/blob/v3.7.3/docs/USER_GUIDE.md">User Guide</a>
+        <a href="https://github.com/bpodlipnik/mirror-url/blob/v3.7.3/CHANGELOG.md">Changelog</a>
+    </div>
+</header>
+<nav class="nav" aria-label="Documentation sections"><a href="#overview">Overview</a><a href="#installation">Installation</a><a href="#quick-start">Quick Start</a><a href="#true-mirroring">Cleanup</a><a href="#known-url-downloads">Known Files</a><a href="#download-modes">Download Modes</a><a href="#configuration">Configuration</a><a href="#arguments">CLI Reference</a><a href="#examples">Examples</a><a href="#performance">Tuning</a><a href="#security">Security</a><a href="#monitoring">Monitoring</a><a href="#python-api">Python API</a><a href="#troubleshooting">Troubleshooting</a><a href="#comparison">Tool Comparison</a></nav>
+<main id="main-content" class="content" tabindex="-1">
+<section id="overview" class="section">
+<h2>📖 Overview</h2>
+<p>MirrorURL mirrors public HTTP(S) directory trees and downloads explicitly selected files. Mirror mode discovers a directory listing, downloads missing or changed files, and can preview, move, or delete obsolete local files. Download mode accepts file paths or URL lists without discovery or freshness checks. The default cleanup policy preserves obsolete files.</p>
+<div class="card-grid">
+<div class="card"><h3>🪞 Incremental Mirroring</h3><p>Repeat the same command to check for new or changed files using ETags, sizes, and modification times when available.</p></div>
+<div class="card"><h3>🚀 Parallel Downloads</h3><p>HTTPX and aiohttp support parallel files and verified chunks in both mirror and download modes. Completed files are published atomically.</p></div>
+<div class="card"><h3>📄 Known-File Downloads</h3><p>Download one file, several root-relative paths, or an exact URL list using <code>--mode download</code>, without requiring a directory listing.</p></div>
+<div class="card"><h3>🔐 Optional SHA-256 Receipts</h3><p>Enable <code>--verify-content</code> to record local file hashes and verify an existing mirror against saved receipts.</p></div>
+<div class="card"><h3>🔑 Destination Ownership</h3><p>Cooperating processes lock destinations and shared state. The next owner reclaims recorded abandoned chunk work after an interrupted run.</p></div>
+<div class="card"><h3>🗑️ Explicit Cleanup</h3><p><code>safe</code> preserves obsolete files, <code>preview</code> reports actions, <code>move</code> archives them, and <code>delete</code> removes them.</p></div>
+<div class="card"><h3>🔒 Security Protections</h3><p>Transport IP restrictions, URL-scope checks, filename sanitization, request pacing, and circuit breakers are enabled by default.</p></div>
+<div class="card"><h3>🔎 Discover Before Syncing</h3><p><code>--list-dirs</code> and <code>--list-files</code> inspect the remote selection. CLI-only listing runs require only <code>--url</code>.</p></div>
+<div class="card"><h3>🐍 CLI and Python API</h3><p>Use <code>mirror-url</code>, <code>python -m mirror_url</code>, or the <code>MirrorURL</code> context manager in your own Python program.</p></div>
+</div>
+<div class="alert alert-info"><strong>Source requirements:</strong> Recursive mirroring needs a parseable HTML directory listing. Known-file downloads need only accessible public HTTP(S) file URLs. FTP/SFTP endpoints require a different tool. Transfers run from the remote source to local disk.</div>
+<p>This page documents <strong>v3.7.3</strong>. See the <a href="https://github.com/bpodlipnik/mirror-url/blob/v3.7.3/docs/USER_GUIDE.md">User Guide</a>, <a href="https://github.com/bpodlipnik/mirror-url/blob/v3.7.3/docs/DEVELOPER_GUIDE.md">Developer Guide</a>, and <a href="https://github.com/bpodlipnik/mirror-url/blob/v3.7.3/CHANGELOG.md">changelog</a> for the full project documentation.</p>
+</section>
+<section id="installation" class="section">
+<h2>📦 Installation</h2>
+<p><strong>Python 3.10 or newer</strong> is required. CI covers Python 3.10–3.14. Pip installs <code>httpx[http2]</code>, <code>aiohttp</code>, <code>pydantic</code> v2, <code>PyYAML</code>, <code>portalocker</code> (with <code>pywin32</code> on Windows), and <code>tqdm</code>. Both transfer backends and progress bars work in a standard installation.</p>
+<h3>Install from PyPI</h3>
+<pre><code>python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install mirror-url
+
+# Verify the package and command
+python -m pip check
+mirror-url --version
+mirror-url --help</code></pre>
+<p>On Windows, activate the environment with <code>.venv\Scripts\Activate.ps1</code> in PowerShell.</p>
+<h3>Optional packages and upgrades</h3>
+<pre><code># Optional acceleration and monitoring packages
+python -m pip install "mirror-url[all]"
+
+# Upgrade the installed package
+python -m pip install --upgrade mirror-url</code></pre>
+<p>Extras: <code>fast</code> (stringzilla + lxml), <code>monitor</code> (psutil), and <code>all</code> (all optional runtime packages). The <code>progress</code> and <code>aiohttp</code> extras remain compatibility aliases; their features are included in the base package. Use <code>dev</code> for contributor tools.</p>
+<details><summary>Install the documented release from Git, build a wheel, or use pipx</summary>
+<pre><code># Install this documented release in an activated environment
+python -m pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.7.3"
+
+# Or build a wheel from a checkout
+git clone https://github.com/bpodlipnik/mirror-url.git
+cd mirror-url
+git checkout v3.7.3
+python -m pip install build
+python -m build
+python -m pip install "dist/mirror_url-3.7.3-py3-none-any.whl[all]"
+
+# Or install an isolated command with pipx
+pipx install mirror-url</code></pre>
+</details>
+<details><summary>Build a Docker image from the wheel</summary>
+<p>Place the built wheel in <code>dist/</code> next to your Dockerfile:</p>
+<pre><code>FROM python:3.12-slim
+COPY dist/mirror_url-3.7.3-py3-none-any.whl /tmp/
+RUN pip install --no-cache-dir "/tmp/mirror_url-3.7.3-py3-none-any.whl[all]"
+ENTRYPOINT ["mirror-url"]</code></pre>
+</details>
+<p>Allow space for the mirrored data and staging files. See <a href="#download-modes">download modes</a> for temporary storage requirements.</p>
+</section>
+<section id="quick-start" class="section">
+<h2>⚡ Quick Start</h2>
+<p>Replace <code>https://example.com/data/</code> with your archive's directory-listing URL. Keep logs outside the destination tree.</p>
+<h3>1. Inspect the archive</h3>
+<pre><code># Immediate child directories; no destination or log path required
+mirror-url --url https://example.com/data/ --list-dirs
+
+# Last five filenames in each directory, sorted lexicographically
+mirror-url --url https://example.com/data/ --list-files 5</code></pre>
+<h3>2. Preview a run</h3>
+<pre><code>mirror-url --url https://example.com/data/ \
+  --dest-path ./mirror/data --log-path ./logs --dry-run</code></pre>
+<h3>3. Mirror using the default cleanup policy</h3>
+<pre><code>mirror-url --url https://example.com/data/ \
+  --dest-path ./mirror/data --log-path ./logs</code></pre>
+<p>Re-run the same command for incremental synchronization. Obsolete local files are preserved by default; files identified as changed may still be replaced.</p>
+<h3>4. Choose cleanup explicitly</h3>
+<pre><code># Preview obsolete-file actions without changing mirrored files
+mirror-url --url https://example.com/data/ \
+  --dest-path ./mirror/data --log-path ./logs --cleanup preview --dry-run
+
+# Archive obsolete files in a sibling data_obsolete directory
+mirror-url --url https://example.com/data/ \
+  --dest-path ./mirror/data --log-path ./logs --cleanup move</code></pre>
+<p>For repeatable jobs, create a <a href="#configuration">configuration file</a> and run <code>mirror-url --config mirror.yaml</code>.</p>
+</section>
+<section id="true-mirroring" class="section">
+<h2>🪞 Mirroring &amp; Cleanup</h2>
+<p>Cleanup reconciles obsolete local files within the current remote selection. Filters, directory exclusions, depth limits, and skipped duplicate subtrees define that selection; files outside it are preserved. This is one-way synchronization from the remote archive to local storage.</p>
+<div class="table-wrapper" tabindex="0" role="region" aria-label="Policy reference"><table><thead><tr><th scope="col">Policy</th><th scope="col">Obsolete local files</th><th scope="col">Downloads and updates</th></tr></thead><tbody><tr><td><code>--cleanup safe</code> (default)</td><td>Preserved</td><td>Run normally</td></tr><tr><td><code>--cleanup preview</code></td><td>Actions reported; no move or deletion</td><td>Still run; add <code>--dry-run</code> to prevent mirrored-file changes</td></tr><tr><td><code>--cleanup move</code></td><td>Moved to the sibling <code>&lt;dest&gt;_obsolete/</code> directory</td><td>Run normally</td></tr><tr><td><code>--cleanup delete</code></td><td>Deleted; <code>--confirm-delete</code> adds an interactive prompt</td><td>Run normally</td></tr></tbody></table></div>
+<pre><code># Explicit deletion after reviewing the selected scope
+mirror-url --config mirror.yaml --cleanup delete --confirm-delete</code></pre>
+<div class="alert alert-warning"><strong>Preview and dry run differ.</strong> <code>--cleanup preview</code> previews only cleanup. <code>--dry-run</code> prevents downloads and changes to mirrored files, but still makes listing/metadata requests and may create log/cache bookkeeping outside the mirrored tree.</div>
+<p>Cleanup preserves local symlinks and the reserved <code>.mirror-url-state/</code> directory. An incomplete scan skips cleanup and fails the run; a complete empty scan can clean the selected local files. Cleanup failures also fail the run. Failed moves preserve their source files and never fall back to deletion.</p>
+<p>Freshness checks use available ETags, sizes, and timestamps. They do not compare downloaded files with a remote cryptographic digest, and size/time checks can miss changes that preserve those values.</p>
+</section>
+<section id="known-url-downloads" class="section">
+<h2>📄 Download Known Files</h2>
+<p>Use <code>--mode download</code> when you already know the files to fetch. It downloads every selected file without listing directories, checking freshness, or cleaning obsolete files. Choose positional files or one <code>--url-list</code>, not both.</p>
+<h3>One file with shortcut defaults</h3>
+<pre><code>mirror-url --mode download https://example.com/data/a.fits
+
+# Choose persistent paths and show progress
+mirror-url --mode download https://example.com/data/large.fits \
+  --dest-path ./downloads --log-path ./logs \
+  --backend aiohttp --streaming-parallel --print-logs --progress-bar</code></pre>
+<p>Without an explicit root, absolute file URLs sharing one parent infer that parent as their scope. Positional files default to the current directory and a destination-specific log folder under the system temporary directory. Explicit <code>--url</code>, <code>--dest-path</code>, and <code>--log-path</code> override those defaults.</p>
+<h3>Several files relative to the remote root</h3>
+<pre><code>mirror-url --mode download --url https://example.com/data/ \
+  a.fits nested/b.fits --dest-path ./downloads --log-path ./logs</code></pre>
+<p>This writes <code>./downloads/a.fits</code> and <code>./downloads/nested/b.fits</code>. Inputs are literal names, without glob expansion. <code>--dir-suffix</code> narrows selection; file inputs still include that suffix relative to <code>--url</code>.</p>
+<h3>A UTF-8 list of paths or absolute URLs</h3>
+<pre><code># Save as files.txt; blank lines and comments are ignored
+a.fits
+nested/b.fits
+https://example.com/data/c.fits</code></pre>
+<pre><code>mirror-url --mode download --url https://example.com/data/ \
+  --url-list files.txt --dest-path ./downloads --log-path ./logs \
+  --backend httpx --concurrency 6 --parallel-downloads --verify-content</code></pre>
+<p>All files must stay within the selected root and map to unambiguous local paths. Existing files require a matching ownership receipt or explicit <code>--overwrite</code>; symlinks remain forbidden. A matching receipt permits replacement and does not skip the download.</p>
+<p>Both backends support verified chunks. Explicit chunk modes add range-metadata HEAD probes; ineligible files fall back to whole-file GETs. Known-file downloads restart interrupted files and do not resume partials across runs. Chunk scratch stays inside the destination, so omit <code>--chunk-assembly-dir</code>.</p>
+<p>Download mode rejects discovery filters, <code>--missing-files</code>, <code>--check-files</code>, <code>--auto-concurrency</code>, and cleanup policies other than <code>safe</code>. Use mirror mode for incremental synchronization. See the <a href="https://github.com/bpodlipnik/mirror-url/blob/v3.7.3/docs/USER_GUIDE.md#known-url-downloads">known-URL guide</a>.</p>
+</section>
+<section id="download-modes" class="section">
+<h2>🎯 Download Modes &amp; Resume</h2>
+<p>Mirror mode selects a transfer method automatically unless you choose an explicit flag. Download mode uses whole-file GETs by default; either parallel flag enables eligible chunks. HTTPX (default) and aiohttp support both chunk methods in both modes. Aiohttp uses HTTP/1.1; <code>--http2</code> applies to HTTPX.</p>
+<div class="table-wrapper" tabindex="0" role="region" aria-label="Mode reference"><table><thead><tr><th scope="col">Mode</th><th scope="col">Flag</th><th scope="col">Current behavior</th></tr></thead><tbody><tr><td>Automatic</td><td>No flag</td><td>Mirror mode selects a method; download mode uses whole-file GETs</td></tr><tr><td>Sequential</td><td><code>--sequential-downloads</code></td><td>Downloads one file at a time; metadata and size probes may still run concurrently</td></tr><tr><td>Traditional parallel</td><td><code>--parallel-downloads</code></td><td>Parallel files; eligible files use temporary chunks, verification, assembly, and atomic replacement</td></tr><tr><td>Streaming parallel</td><td><code>--streaming-parallel</code></td><td>Parallel files; eligible chunks write to a pre-allocated staging file and publish atomically after verification</td></tr></tbody></table></div>
+<p><code>--max-concurrent-downloads</code> (alias <code>--concurrency</code>) limits files, <code>--max-chunks</code> limits chunks per file, and <code>--max-parallel-chunks</code> limits chunk work across files. <code>--auto-concurrency</code> adjusts admitted files for HTTPX mirror mode; it is rejected with aiohttp and in download mode.</p>
+<div class="alert alert-info"><strong>Chunking requirements:</strong> a known size large enough for at least two chunks under <code>--min-chunk-size</code>, byte Range support, and a strong ETag. Each chunk must return matching HTTP 206, Content-Range, length, and ETag before atomic publication. Ineligible files use whole-file transfers; the log explains the fallback reason.</div>
+<h3>Temporary storage</h3>
+<p>Traditional mode can require roughly two additional file-sized copies for temporary chunks and assembly; streaming mode roughly one staging allocation. Existing destination files remain in place until verified replacement. In mirror mode, <code>--chunk-assembly-dir</code> selects a parent for owned chunk workspaces; otherwise they use reserved destination state. Final assembly and streaming staging stay on the destination filesystem. Download mode requires chunk scratch inside the destination.</p>
+<h3>Interrupted transfers</h3>
+<p>HTTPX mirror whole-file partials live in owned <code>.mirror-url-state/</code> storage and can resume when the recorded URL, size, and strong ETag match, including whole-file fallbacks from parallel modes. Partials without a strong validator restart. Resume uses <code>enable_resume: true</code> in configuration (the default); there is no <code>--enable-resume</code> CLI flag. Known-file downloads and aiohttp whole-file transfers restart interrupted files.</p>
+<p>Chunk state does not resume across runs. After acquiring ownership, the next run reclaims recorded abandoned chunk work and staging. Live writers and unrecognized files are preserved. Staging is never published under the final filename until verified, and obsolete-file cleanup excludes reserved state.</p>
+</section>
+<section id="configuration" class="section">
+<h2>⚙️ Configuration Files</h2>
+<p>Use YAML or JSON for repeatable runs. Explicit CLI flags override file settings, even when their values equal the built-in defaults. Omitted flags preserve the file's settings. Mirror and listing configs require <code>base_url</code>, <code>dest_path</code>, and <code>log_path</code>. CLI download configs with <code>download_files</code> or <code>download_url</code> can use shortcut defaults; standalone model validation still requires those three fields. Unknown keys are rejected.</p>
+<pre><code># Save as mirror.yaml
+base_url: https://example.com/data/
+dest_path: ./mirror/data
+log_path: ./logs
+cleanup_policy: safe
+mode: mirror
+backend: httpx
+verify_content: false
+
+# Optional selection and download settings
+file_filters: [".fits", ".txt"]
+exclude_dirs: ["old_versions"]
+max_depth: 50
+streaming_parallel: true
+max_concurrent_downloads: 6
+max_chunks_per_file: 8
+min_chunk_size_mb: 10
+enable_resume: true
+
+# Networking and diagnostics
+workers: 8
+timeout: 30
+request_delay: 0.05
+requests_per_second: 20
+http2: true
+security_validation: true
+metrics_json: ./logs/run.json
+health_check_port: 8080</code></pre>
+<pre><code># Preview, then run
+mirror-url --config mirror.yaml --cleanup preview --dry-run
+mirror-url --config mirror.yaml
+
+# Override a setting explicitly
+mirror-url --config mirror.yaml --max-concurrent-downloads 4</code></pre>
+<p>Config keys can differ from CLI flags: <code>base_url</code>, <code>file_filters</code>, <code>exclude_dirs</code>, <code>cleanup_policy</code>, and <code>max_chunks_per_file</code> are the model field names. <code>dir_suffix</code> is a single string in a config file; the CLI accepts several suffixes. Pass logging-handler controls such as <code>--print-logs</code> or <code>--quiet</code> on the CLI.</p>
+<p>String values support <code>${VAR}</code> environment placeholders. Unset variables leave placeholders unchanged. See the <a href="https://github.com/bpodlipnik/mirror-url/blob/v3.7.3/docs/USER_GUIDE.md#configuration-files-yamljson">full configuration reference</a>.</p>
+</section>
+<section id="arguments" class="section">
+<h2>📋 CLI Argument Reference</h2>
+<p>Expand a group or search for an option. Descriptions and default settings below come from the v3.7.3 parser. Boolean defaults describe the underlying setting before CLI overrides; configuration files can supply different values. The table includes option aliases and positional file inputs. Compatibility settings are accepted but may not affect the current pipeline. Run <code>mirror-url --help</code> for the installed version.</p>
+<div class="argument-search"><label for="argument-filter">Find a CLI option</label><input id="argument-filter" type="search" placeholder="Search flags or descriptions, e.g. cleanup" autocomplete="off" aria-controls="argument-groups"><p id="argument-count" role="status" aria-live="polite"></p></div>
+<!-- BEGIN GENERATED CLI REFERENCE -->
+<div id="argument-groups">
+<!-- CLI reference generated from the v3.7.3 argument parser. -->
+<details class="argument-group" data-default-open="false">
+<summary>Help</summary>
+<div class="table-wrapper" tabindex="0" role="region" aria-label="Argument reference"><table>
+<thead><tr><th scope="col">Argument</th><th scope="col">Current behavior</th><th scope="col">Default setting</th></tr></thead><tbody>
+<tr><td><code>-h, --help</code></td><td>show this help message and exit</td><td>—</td></tr>
+</tbody></table></div>
+</details>
+<details class="argument-group" data-default-open="true" open>
+<summary>Target Options</summary>
+<div class="table-wrapper" tabindex="0" role="region" aria-label="Argument reference"><table>
+<thead><tr><th scope="col">Argument</th><th scope="col">Current behavior</th><th scope="col">Default setting</th></tr></thead><tbody>
+<tr><td><code>[FILE ...]</code></td><td>Files relative to --url or absolute URLs; requires --mode download; mutually exclusive with --url-list</td><td>Not set</td></tr>
+<tr><td><code>--url URL</code></td><td>Remote root for discovery and download paths; absolute download URLs sharing one parent can infer it</td><td>Not set</td></tr>
+<tr><td><code>--dest-path DEST_PATH</code></td><td>Destination directory (positional download files default to the current directory)</td><td>Not set</td></tr>
+<tr><td><code>--log-path LOG_PATH</code></td><td>Logs/cache directory (positional download files default to system temp; keep outside destination)</td><td>Not set</td></tr>
+<tr><td><code>--config CONFIG</code></td><td>YAML/JSON config; explicit CLI flags override file values, even when equal to defaults</td><td>Not set</td></tr>
+<tr><td><code>--mode {mirror,download}</code></td><td>Mirror a listing, or download supplied files without discovery/freshness checks</td><td>mirror</td></tr>
+<tr><td><code>--backend {httpx,aiohttp}</code></td><td>Transfer backend (HTTPX default; both support whole-file and chunk transfers; aiohttp uses HTTP/1.1)</td><td>httpx</td></tr>
+<tr><td><code>--url-list URL_LIST</code></td><td>UTF-8 list of file paths relative to --url or absolute URLs, one per line; requires --mode download</td><td>Not set</td></tr>
+<tr><td><code>--overwrite</code></td><td>Permit replacing existing regular files in download mode; links remain forbidden</td><td>Disabled</td></tr>
+</tbody></table></div>
+</details>
+<details class="argument-group" data-default-open="false">
+<summary>Download Modes (omit for auto-selection)</summary>
+<div class="table-wrapper" tabindex="0" role="region" aria-label="Argument reference"><table>
+<thead><tr><th scope="col">Argument</th><th scope="col">Current behavior</th><th scope="col">Default setting</th></tr></thead><tbody>
+<tr><td><code>--parallel-downloads</code></td><td>Mirror/download with either backend: parallel files with verified temporary chunks. HTTPX mirror whole-file fallbacks can resume; chunks do not resume across runs</td><td>Disabled</td></tr>
+<tr><td><code>--streaming-parallel</code></td><td>Mirror/download with either backend: parallel files; eligible chunks write to a staging file and publish atomically after verification</td><td>Disabled</td></tr>
+<tr><td><code>--sequential-downloads</code></td><td>Download one file at a time; metadata and size probes may still run concurrently</td><td>Disabled</td></tr>
+</tbody></table></div>
+</details>
+<details class="argument-group" data-default-open="false">
+<summary>Parallel Download Options</summary>
+<div class="table-wrapper" tabindex="0" role="region" aria-label="Argument reference"><table>
+<thead><tr><th scope="col">Argument</th><th scope="col">Current behavior</th><th scope="col">Default setting</th></tr></thead><tbody>
+<tr><td><code>--max-chunks N</code></td><td>Maximum chunks per file (default: 8)</td><td>8</td></tr>
+<tr><td><code>--min-chunk-size MB</code></td><td>Minimum chunk size in MB (default: 10MB)</td><td>10</td></tr>
+<tr><td><code>--max-parallel-chunks N</code></td><td>Maximum total parallel chunks (default: 50)</td><td>50</td></tr>
+<tr><td><code>--max-concurrent-downloads N, --concurrency N</code></td><td>Maximum concurrent file downloads (default: 10)</td><td>10</td></tr>
+<tr><td><code>--auto-concurrency</code></td><td>Automatically tune parallel download concurrency based on throughput</td><td>Disabled</td></tr>
+<tr><td><code>--chunk-assembly-dir DIR</code></td><td>Parent for owned chunk workspaces (default: reserved destination state); staging uses the destination filesystem</td><td>Not set</td></tr>
+<tr><td><code>--chunk-timeout-multiplier MULT</code></td><td>Timeout multiplier for chunks (default: 1.5). Currently has no effect; accepted for backward compatibility.</td><td>1.5</td></tr>
+</tbody></table></div>
+</details>
+<details class="argument-group" data-default-open="false">
+<summary>Filter Options</summary>
+<div class="table-wrapper" tabindex="0" role="region" aria-label="Argument reference"><table>
+<thead><tr><th scope="col">Argument</th><th scope="col">Current behavior</th><th scope="col">Default setting</th></tr></thead><tbody>
+<tr><td><code>--filter [PATTERN ...]</code></td><td>Case-insensitive filename patterns, OR&#x27;d: extensions (.fits), substrings (_fe_), or regexes (&#x27;2024.*\.fits$&#x27;). Does not match directory paths</td><td>[]</td></tr>
+</tbody></table></div>
+</details>
+<details class="argument-group" data-default-open="false">
+<summary>Directory Options</summary>
+<div class="table-wrapper" tabindex="0" role="region" aria-label="Argument reference"><table>
+<thead><tr><th scope="col">Argument</th><th scope="col">Current behavior</th><th scope="col">Default setting</th></tr></thead><tbody>
+<tr><td><code>--dir-suffix [SUFFIX ...]</code></td><td>Directory suffixes to mirror (e.g., L1/v1 L2/v2)</td><td>[]</td></tr>
+<tr><td><code>--exclude-dir [DIR ...]</code></td><td>Exclude exact paths relative to --url, including with --dir-suffix. Use quoted &#x27;*&#x27; globs for nested matches: lasco matches the root child; &#x27;*/lasco&#x27; matches nested children. Use both to cover both</td><td>[]</td></tr>
+<tr><td><code>--list-dirs [N]</code></td><td>List directories and exit without file checks/downloads/cleanup. Respects exclusions/depth; ignores filters. Optional N selects the lexicographically last N paths across this target, excluding the root. CLI-only runs need no destination/log paths</td><td>Not set</td></tr>
+<tr><td><code>--list-files [N]</code></td><td>List matching files and exit without freshness checks/downloads/cleanup. Respects exclusions/depth/filters. Optional N selects the lexicographically last N filenames per directory, not timestamps. CLI-only runs need no destination/log paths</td><td>Not set</td></tr>
+</tbody></table></div>
+</details>
+<details class="argument-group" data-default-open="false">
+<summary>Performance &amp; Worker Options</summary>
+<div class="table-wrapper" tabindex="0" role="region" aria-label="Argument reference"><table>
+<thead><tr><th scope="col">Argument</th><th scope="col">Current behavior</th><th scope="col">Default setting</th></tr></thead><tbody>
+<tr><td><code>--workers N</code></td><td>Sync workers (default: 8)</td><td>8</td></tr>
+<tr><td><code>--timeout SECS</code></td><td>Base request timeout (default: 30s; range: 3-300); some paths use fixed limits/multiples, not a whole-run deadline</td><td>30</td></tr>
+<tr><td><code>--max-retries N</code></td><td>Connection-request retry budget (default: 3); chunk retries also have their own fixed budget</td><td>3</td></tr>
+<tr><td><code>--retry-delay SECS</code></td><td>Base retry-backoff delay (default: 2s)</td><td>2</td></tr>
+<tr><td><code>--trusted-server</code></td><td>Relax chunk concurrency/scaling limits; request delay stays controlled by --request-delay</td><td>Disabled</td></tr>
+<tr><td><code>--request-delay SECS</code></td><td>Minimum request spacing (default: 0.05s; range: 0-1.0). Use 0 with --requests-per-second 0 for no pacing</td><td>0.05</td></tr>
+<tr><td><code>--requests-per-second N</code></td><td>Request rate ceiling (default: 20; 0 removes this ceiling, subject to --request-delay)</td><td>20</td></tr>
+<tr><td><code>--bandwidth-limit MB/S</code></td><td>Limit download bandwidth (MB/s)</td><td>Not set</td></tr>
+</tbody></table></div>
+</details>
+<details class="argument-group" data-default-open="false">
+<summary>Cache Options</summary>
+<div class="table-wrapper" tabindex="0" role="region" aria-label="Argument reference"><table>
+<thead><tr><th scope="col">Argument</th><th scope="col">Current behavior</th><th scope="col">Default setting</th></tr></thead><tbody>
+<tr><td><code>--no-cache</code></td><td>Bypass saved metadata and process-local parsed-listing caches; existing files are still checked for freshness</td><td>Disabled</td></tr>
+<tr><td><code>--refresh-cache</code></td><td>Ignore saved metadata and cached listings for this run</td><td>Disabled</td></tr>
+<tr><td><code>--cache-max-age DAYS</code></td><td>Cache max age (default: 7 days)</td><td>7</td></tr>
+<tr><td><code>--cache-html</code></td><td>Cache parsed listings in memory within this process (default: enabled); not restored on a new launch</td><td>Enabled</td></tr>
+<tr><td><code>--no-cache-html</code></td><td>Disable process-local parsed-listing caches</td><td>Enabled</td></tr>
+<tr><td><code>--html-cache-max-age HOURS</code></td><td>Process-local parsed-listing cache age (default: 24h)</td><td>24</td></tr>
+<tr><td><code>--hash-algorithm {md5,sha256,blake2b}</code></td><td>Hash for directory/cache signatures (default: md5); no comparison with a remote cryptographic file digest</td><td>md5</td></tr>
+<tr><td><code>--no-rget-list</code></td><td>Disable RGET-LIST usage. Currently has no effect; accepted for backward compatibility.</td><td>Disabled</td></tr>
+<tr><td><code>--rget-list-max-age DAYS</code></td><td>RGET-LIST max age (default: 7 days). Currently has no effect; accepted for backward compatibility.</td><td>7</td></tr>
+<tr><td><code>--force-rget-list</code></td><td>Force RGET-LIST use even if old. Currently has no effect; accepted for backward compatibility.</td><td>Disabled</td></tr>
+<tr><td><code>--no-etag</code></td><td>Disable ETag-based freshness checks; range transfers still require strong ETags for integrity</td><td>Disabled</td></tr>
+<tr><td><code>--missing-files</code></td><td>Download absent files and skip freshness checks for existing files, except paths selected by --check-files. Unselected in-place changes will be missed; use occasional full runs when needed.</td><td>Disabled</td></tr>
+<tr><td><code>--check-files PATH [PATH ...]</code></td><td>With --missing-files, check selected existing files for updates. Exact paths relative to --url, including any --dir-suffix; use @FILE for a UTF-8 list (one path per line)</td><td>[]</td></tr>
+</tbody></table></div>
+</details>
+<details class="argument-group" data-default-open="false">
+<summary>Async &amp; Adaptive Options</summary>
+<div class="table-wrapper" tabindex="0" role="region" aria-label="Argument reference"><table>
+<thead><tr><th scope="col">Argument</th><th scope="col">Current behavior</th><th scope="col">Default setting</th></tr></thead><tbody>
+<tr><td><code>--async-metadata</code></td><td>Enable async metadata checks (default: enabled); normal sync uses them only for more than 80 remote files, outside dry runs</td><td>Enabled</td></tr>
+<tr><td><code>--no-async-metadata</code></td><td>Disable async metadata checks (use for throttled servers)</td><td>Enabled</td></tr>
+<tr><td><code>--async-workers N</code></td><td>Async metadata admission limit (default: 50); adaptive admission is also capped at 50</td><td>50</td></tr>
+<tr><td><code>--adaptive-async</code></td><td>Enable adaptive async concurrency (default: enabled)</td><td>Enabled</td></tr>
+<tr><td><code>--no-adaptive-async</code></td><td>Use fixed --async-workers admission instead of adaptive metadata concurrency</td><td>Enabled</td></tr>
+<tr><td><code>--adaptive-start-concurrency N</code></td><td>Starting async metadata concurrency (default: 5), bounded by --async-workers and 50</td><td>5</td></tr>
+<tr><td><code>--adaptive-error-threshold RATE</code></td><td>Adaptive metadata fallback error rate (range: 0-1; default: 0.05)</td><td>0.05</td></tr>
+</tbody></table></div>
+</details>
+<details class="argument-group" data-default-open="true" open>
+<summary>Cleanup &amp; Safety Options</summary>
+<div class="table-wrapper" tabindex="0" role="region" aria-label="Argument reference"><table>
+<thead><tr><th scope="col">Argument</th><th scope="col">Current behavior</th><th scope="col">Default setting</th></tr></thead><tbody>
+<tr><td><code>--cleanup {safe,preview,delete,move}</code></td><td>Obsolete-file policy (default: safe): safe preserves obsolete files; preview reports actions but downloads still run; move archives; delete removes. Changed files may still be replaced</td><td>safe (without --config)</td></tr>
+<tr><td><code>--confirm-delete</code></td><td>Require confirmation before deletion (delete mode only)</td><td>Disabled</td></tr>
+<tr><td><code>--dry-run</code></td><td>Scan/check without downloading or changing mirrored files; still makes requests and may create log/cache bookkeeping directories</td><td>Disabled</td></tr>
+<tr><td><code>--quick</code></td><td>Refresh an existing JSON cache&#x27;s expiry timestamp only; does not verify the mirror or create a missing cache. Connection setup may still make requests</td><td>Disabled</td></tr>
+</tbody></table></div>
+</details>
+<details class="argument-group" data-default-open="false">
+<summary>Security Options</summary>
+<div class="table-wrapper" tabindex="0" role="region" aria-label="Argument reference"><table>
+<thead><tr><th scope="col">Argument</th><th scope="col">Current behavior</th><th scope="col">Default setting</th></tr></thead><tbody>
+<tr><td><code>--security-validation</code></td><td>Enable extra URL validation and per-IP pacing (default: enabled); transport IP restrictions are independent</td><td>Enabled</td></tr>
+<tr><td><code>--no-security-validation</code></td><td>Disable extra URL validation and per-IP pacing; secure transport still rejects private/loopback targets</td><td>Enabled</td></tr>
+<tr><td><code>--circuit-breaker-enabled</code></td><td>Enable circuit breaker for failing services (default: enabled)</td><td>Enabled</td></tr>
+<tr><td><code>--no-circuit-breaker</code></td><td>Disable circuit breaker</td><td>Enabled</td></tr>
+</tbody></table></div>
+</details>
+<details class="argument-group" data-default-open="false">
+<summary>Symlink Handling Options</summary>
+<div class="table-wrapper" tabindex="0" role="region" aria-label="Argument reference"><table>
+<thead><tr><th scope="col">Argument</th><th scope="col">Current behavior</th><th scope="col">Default setting</th></tr></thead><tbody>
+<tr><td><code>--handle-symlinks</code></td><td>Report possible duplicate directory subtrees by matching non-empty entry names (default: disabled). This heuristic can flag unrelated directories and does not detect file symlinks. Start with --symlink-mode detect --print-logs and review the paths</td><td>Disabled</td></tr>
+<tr><td><code>--symlink-mode {detect,follow,skip,treat-as-file}</code></td><td>Requires --handle-symlinks. detect reports and keeps scanning, implying --dry-run; skip omits detected duplicates (default); follow mirrors within scope/tracker limits; treat-as-file behaves like skip</td><td>skip</td></tr>
+<tr><td><code>--max-symlink-depth N</code></td><td>Maximum symlink depth (default: 10)</td><td>10</td></tr>
+<tr><td><code>--max-symlinks-per-dir N</code></td><td>Maximum symlinks per directory (default: 100)</td><td>100</td></tr>
+<tr><td><code>--symlink-bomb-threshold N</code></td><td>Symlink bomb threshold (default: 1000)</td><td>1000</td></tr>
+<tr><td><code>--circuit-breaker-downloads</code></td><td>Compatibility setting (default: enabled); has no effect on sync. --circuit-breaker-enabled controls download breakers</td><td>Enabled</td></tr>
+<tr><td><code>--no-circuit-breaker-downloads</code></td><td>Compatibility setting; has no effect on sync. Use --no-circuit-breaker to disable download breakers</td><td>Enabled</td></tr>
+</tbody></table></div>
+</details>
+<details class="argument-group" data-default-open="false">
+<summary>Logging &amp; Output Options</summary>
+<div class="table-wrapper" tabindex="0" role="region" aria-label="Argument reference"><table>
+<thead><tr><th scope="col">Argument</th><th scope="col">Current behavior</th><th scope="col">Default setting</th></tr></thead><tbody>
+<tr><td><code>--debug</code></td><td>Enable debug logging</td><td>Disabled</td></tr>
+<tr><td><code>--print-logs</code></td><td>Print logs to console</td><td>Disabled</td></tr>
+<tr><td><code>--log-file NAME</code></td><td>Custom log prefix: NAME_SUFFIX_TIMESTAMP.log, with suffixes joined by underscores (or all) and YYYYMMDD_HHMMSS. Unsafe characters are replaced and long names are shortened. Multiple suffixes share one log file</td><td>Not set</td></tr>
+<tr><td><code>--quiet</code></td><td>Quiet mode (WARNING+ only)</td><td>Disabled</td></tr>
+<tr><td><code>--verbose</code></td><td>Verbose mode (DEBUG)</td><td>Disabled</td></tr>
+<tr><td><code>--progress-bar, --progress</code></td><td>Enable tqdm progress bar</td><td>Disabled</td></tr>
+<tr><td><code>--stats</code></td><td>Compatibility setting; no effect. The normal completed-sync path emits the full metrics summary; early exits use shorter summaries</td><td>Disabled</td></tr>
+<tr><td><code>--metrics-json PATH</code></td><td>Export metrics to JSON and enable the localhost health/metrics server; both are disabled in dry runs</td><td>Not set</td></tr>
+</tbody></table></div>
+</details>
+<details class="argument-group" data-default-open="false">
+<summary>Scan &amp; Path Options</summary>
+<div class="table-wrapper" tabindex="0" role="region" aria-label="Argument reference"><table>
+<thead><tr><th scope="col">Argument</th><th scope="col">Current behavior</th><th scope="col">Default setting</th></tr></thead><tbody>
+<tr><td><code>--scan-mode {sequential,parallel,adaptive,async}</code></td><td>Directory discovery: parallel uses up to min(--workers, 4) listing workers; adaptive (default), sequential and async use sequential discovery. File metadata concurrency is configured separately</td><td>adaptive</td></tr>
+<tr><td><code>--parallel-threshold N</code></td><td>Parallel scan threshold (default: 10). Currently has no effect; accepted for backward compatibility.</td><td>10</td></tr>
+<tr><td><code>--max-depth N</code></td><td>Target-root recursion depth (root: 0; default: 50). CLI-only --list-dirs defaults to 1; --config uses its file/model depth unless explicitly overridden</td><td>50; CLI-only --list-dirs: 1</td></tr>
+<tr><td><code>--max-filename-len N</code></td><td>Local filename sanitization/truncation limit (default: 255); colliding sanitized paths fail before downloads</td><td>255</td></tr>
+<tr><td><code>--download-queue-size N</code></td><td>Compatibility queue capacity (default: 1000); sync materializes the remote file list and does not use the bounded queue</td><td>1000</td></tr>
+</tbody></table></div>
+</details>
+<details class="argument-group" data-default-open="false">
+<summary>Advanced Performance Options</summary>
+<div class="table-wrapper" tabindex="0" role="region" aria-label="Argument reference"><table>
+<thead><tr><th scope="col">Argument</th><th scope="col">Current behavior</th><th scope="col">Default setting</th></tr></thead><tbody>
+<tr><td><code>--adaptive-batch-processing</code></td><td>Compatibility setting (default: enabled); does not change sync batching</td><td>Enabled</td></tr>
+<tr><td><code>--no-adaptive-batch-processing</code></td><td>Compatibility setting; does not change sync batching</td><td>Enabled</td></tr>
+<tr><td><code>--initial-batch-size N</code></td><td>Compatibility initial batch size (default: 200); does not change sync batching</td><td>200</td></tr>
+<tr><td><code>--max-batch-size N</code></td><td>Compatibility maximum batch size (default: 1000); does not change sync batching</td><td>1000</td></tr>
+<tr><td><code>--target-batch-time SECS</code></td><td>Compatibility target batch time (default: 1.0s); does not change sync batching</td><td>1.0</td></tr>
+<tr><td><code>--memory-cache-size N</code></td><td>Optional tracking-component threshold (default: 100000); does not bound sync&#x27;s remote file list or active metadata-cache capacities</td><td>100000</td></tr>
+<tr><td><code>--use-disk-backed-sets</code></td><td>Configure optional disk-backed tracking; sync does not populate it or spill its remote file list to disk</td><td>Disabled</td></tr>
+<tr><td><code>--disk-cache-dir DIR</code></td><td>Cache/tracking component directory; does not spill sync&#x27;s remote file list</td><td>Not set</td></tr>
+<tr><td><code>--fast-parsing-fallback</code></td><td>Allow lightweight-parser fallback after lxml fails (default: enabled); large listings/no lxml select the lightweight parser independently</td><td>Enabled</td></tr>
+<tr><td><code>--no-fast-parsing-fallback</code></td><td>Disable fallback after lxml failure; large listings/no lxml still select the lightweight parser</td><td>Enabled</td></tr>
+<tr><td><code>--http2</code></td><td>Enable HTTP/2 (default: enabled); overrides http2: false in a config file</td><td>Enabled</td></tr>
+<tr><td><code>--no-http2</code></td><td>Disable HTTP/2</td><td>Enabled</td></tr>
+<tr><td><code>--http2-pipelining</code></td><td>Compatibility setting (default: enabled); the HTTP/2 client does not read this setting</td><td>Enabled</td></tr>
+<tr><td><code>--no-http2-pipelining</code></td><td>Disable HTTP/2 pipelining. Currently has no effect; accepted for backward compatibility.</td><td>Enabled</td></tr>
+<tr><td><code>--connection-pool-prewarm</code></td><td>Pre-warm connection pools (default: enabled)</td><td>Enabled</td></tr>
+<tr><td><code>--no-connection-pool-prewarm</code></td><td>Disable connection pool pre-warming</td><td>Enabled</td></tr>
+<tr><td><code>--fs-cache-ttl SECS</code></td><td>Standalone filesystem-cache TTL (default: 5.0s); sync freshness checks use direct filesystem stats</td><td>5.0</td></tr>
+<tr><td><code>--no-content-hash</code></td><td>Compatibility setting; has no effect on file freshness checks</td><td>Enabled</td></tr>
+<tr><td><code>--verify-content</code></td><td>Verify local files against saved SHA-256 receipts before freshness checks</td><td>Disabled</td></tr>
+<tr><td><code>--no-verify-content</code></td><td>Disable content verification (overrides a config file)</td><td>Disabled</td></tr>
+</tbody></table></div>
+</details>
+<details class="argument-group" data-default-open="false">
+<summary>Other Options</summary>
+<div class="table-wrapper" tabindex="0" role="region" aria-label="Argument reference"><table>
+<thead><tr><th scope="col">Argument</th><th scope="col">Current behavior</th><th scope="col">Default setting</th></tr></thead><tbody>
+<tr><td><code>--benchmark</code></td><td>Run performance benchmark</td><td>Disabled</td></tr>
+<tr><td><code>--version</code></td><td>show program&#x27;s version number and exit</td><td>—</td></tr>
+<tr><td><code>--health-check-port PORT</code></td><td>Localhost health/metrics port (default: 8080); enabled only with --metrics-json outside dry runs</td><td>8080</td></tr>
+</tbody></table></div>
+</details>
+</div>
+<!-- END GENERATED CLI REFERENCE -->
+<p>Directory discovery uses up to <code>min(--workers, 4)</code> listing workers with <code>--scan-mode parallel</code>. Other scan modes use sequential discovery; async worker settings control metadata checks separately. Discovery keeps the full remote file list in memory, including with <code>--use-disk-backed-sets</code>.</p>
+</section>
+<section id="examples" class="section">
+<h2>💡 Practical Examples</h2>
+<p>These commands use placeholder URLs. Substitute your archive's directory-listing URL and choose paths with adequate free space.</p>
+<h3>Mirror only FITS files</h3>
+<pre><code>mirror-url --url https://example.com/data/ \
+  --dest-path ./fits-data --log-path ./logs \
+  --filter .fits --exclude-dir old_versions</code></pre>
+<p>Filename filters are case-insensitive. Extensions match suffixes, plain text matches substrings, and patterns with regex metacharacters use regular expressions. Multiple filters are OR'd.</p>
+<h3>Mirror several subdirectories</h3>
+<pre><code>mirror-url --url https://example.com/product/ \
+  --dest-path ./mirror --log-path ./logs --dir-suffix L1/v2 L2/v1</code></pre>
+<p>Directory exclusions match exact paths relative to <code>--url</code>. To exclude a name at both root level and nested levels, use <code>--exclude-dir old '*/old'</code>.</p>
+<h3>Parallel transfers with metrics</h3>
+<pre><code>mirror-url --config mirror.yaml --streaming-parallel \
+  --max-concurrent-downloads 6 --max-chunks 8 --metrics-json ./logs/run.json</code></pre>
+<h3>Conservative settings for a throttled server</h3>
+<pre><code>mirror-url --config mirror.yaml --sequential-downloads \
+  --no-async-metadata --workers 2 --request-delay 0.2</code></pre>
+<h3>List a channel without downloading</h3>
+<pre><code>mirror-url --url https://example.com/mission/ \
+  --list-files 5 --filter _fe_</code></pre>
+<div class="alert alert-info"><strong>“Last N” sorts names, not timestamps.</strong> <code>--list-files N</code> ranks per directory; <code>--list-dirs N</code> ranks directory paths across the selected tree. Query channels separately when differing filename prefixes would dominate the ranking.</div>
+</section>
+<section id="performance" class="section">
+<h2>🚀 Performance Tuning</h2>
+<p>Start with automatic selection in mirror mode or whole-file GETs in download mode, then adjust limits after observing your server, disk, and run metrics. Throughput depends on the archive and workload.</p>
+<ul>
+<li><strong>Eligible large files:</strong> try <code>--streaming-parallel</code> with a modest file limit. Range support and a strong ETag are still required for chunking.</li>
+<li><strong>Many small files:</strong> tune <code>--max-concurrent-downloads</code>; chunk limits usually do not help files below the chunk-size threshold.</li>
+<li><strong>Throttled servers:</strong> reduce file and metadata worker counts, increase <code>--request-delay</code>, and consider <code>--no-async-metadata</code>.</li>
+<li><strong>Bandwidth sharing:</strong> set <code>--bandwidth-limit</code> in MB/s.</li>
+<li><strong>Mostly static archives:</strong> <code>--missing-files</code> skips freshness checks except for paths selected by <code>--check-files</code>. Run occasional full checks for changes elsewhere.</li>
+<li><strong>Large directory trees:</strong> limit scope with <code>--dir-suffix</code>, <code>--exclude-dir</code>, or <code>--max-depth</code>. <code>--scan-mode parallel</code> uses up to <code>min(--workers, 4)</code> directory-listing workers. Other scan modes use sequential discovery. Discovery keeps the remote file list in memory.</li>
+<li><strong>Request pacing:</strong> the default budget is 20 requests/second with 50 ms spacing. Set both <code>--requests-per-second 0</code> and <code>--request-delay 0</code> to remove pacing. <code>--trusted-server</code> relaxes chunk limits; request spacing still follows your explicit settings.</li>
+</ul>
+<h3>Cache behavior</h3>
+<p>Keep <code>--log-path</code> stable to reuse the JSON metadata cache. <code>--no-cache</code> bypasses caches but still checks existing files for freshness; it does not force every file to download. Parsed HTML caches are process-local and are not restored on a new CLI launch.</p>
+<p><code>--quick</code> refreshes an existing cache timestamp without scanning or verifying files. It does not establish that a mirror is current.</p>
+<h3>Refresh selected existing files</h3>
+<pre><code>mirror-url --config mirror.yaml --missing-files \
+  --check-files L1/v2/a.fits L1/v2/nested/b.fits
+
+# Or read root-relative paths from a UTF-8 list
+mirror-url --config mirror.yaml --missing-files --check-files @checks.txt</code></pre>
+<p>Selected existing files receive normal freshness checks; all missing files in scope are still downloaded. Paths remain relative to <code>--url</code>, including any <code>--dir-suffix</code>. Without <code>--missing-files</code>, the run checks all selected existing files normally.</p>
+<h3>Verify local content against saved receipts</h3>
+<pre><code>mirror-url --config mirror.yaml --verify-content</code></pre>
+<p>SHA-256 is opt-in. Each downloaded staging file is hashed before publication, and existing local files are hashed before trusting freshness metadata. Missing, expired, malformed, or mismatched receipts require a new download, so the first verified run of an existing mirror can download files again. Keep the log/cache path stable. Hashing adds disk I/O; it does not check a server-provided digest. <code>--verify-content</code> cannot be combined with <code>--missing-files</code>; <code>--no-verify-content</code> overrides configuration.</p>
+</section>
+<section id="security" class="section">
+<h2>🔒 Security &amp; Scope</h2>
+<ul class="feature-list">
+<li><strong>Transport IP restrictions:</strong> private, loopback, link-local, and direct-IP targets are rejected. Resolved addresses are validated before connection.</li>
+<li><strong>URL scope:</strong> discovery and redirects are checked against the configured host and path.</li>
+<li><strong>Filesystem protection:</strong> traversal rejection, filename sanitization, reserved-name handling, and checks for ambiguous local-path mappings. Distinct case-only names are preserved on confirmed case-sensitive destinations and rejected before downloads on case-insensitive destinations.</li>
+<li><strong>Cooperative ownership:</strong> overlapping destination trees and shared log/cache/state paths reject competing runs. OS locks are released on process termination; external writers and network filesystems require separate coordination.</li>
+<li><strong>Transfer consistency:</strong> eligible byte ranges are verified before atomic publication; no remote cryptographic digest comparison is performed.</li>
+<li><strong>Resilience:</strong> request pacing, retry backoff, and circuit breakers handle failing or overloaded services.</li>
+</ul>
+<div class="alert alert-warning"><strong>Private and local servers:</strong> <code>--no-security-validation</code> disables the extra URL-validation layer and per-IP pacing. It does <strong>not</strong> disable the secure transport's IP restrictions. There is no production option for mirroring localhost or private-network servers.</div>
+<h3>Optional duplicate-subtree detection</h3>
+<p><code>--handle-symlinks</code> compares non-empty directory entry names to report possible duplicate subtrees. This heuristic can flag unrelated directories and cannot identify individual file symlinks. Start with detection and review the reported paths:</p>
+<pre><code>mirror-url --config mirror.yaml --handle-symlinks --symlink-mode detect --print-logs</code></pre>
+<p><code>detect</code> implies <code>--dry-run</code>. <code>skip</code> omits detected duplicates; <code>follow</code> remains subject to scope and tracker limits; <code>treat-as-file</code> behaves like <code>skip</code>. See the <a href="https://github.com/bpodlipnik/mirror-url/blob/v3.7.3/docs/USER_GUIDE.md#symlink-handling">symlink-handling guide</a> before enabling automatic skipping.</p>
+</section>
+<section id="monitoring" class="section">
+<h2>📊 Monitoring &amp; Exit Codes</h2>
+<ul>
+<li>The normal completed-sync path logs a metrics summary at INFO level. <code>--stats</code> is an inactive compatibility setting; early exits produce shorter summaries.</li>
+<li><code>--metrics-json FILE</code> exports JSON metrics and enables a localhost health/metrics server for non-dry-run instances.</li>
+<li><code>--health-check-port</code> selects the port (default 8080); it does not enable the server on its own.</li>
+<li><code>--progress-bar</code> (alias <code>--progress</code>) works in a standard installation. Both modes show per-file byte/stage progress; chunked transfers include active and completed chunks. <code>--print-logs</code> enables console logs.</li>
+</ul>
+<h3>Shared transfer reporting</h3>
+<p>Mirror and download modes use the same startup header, with mode, start time, sanitized command, remote root, destination, log file, backend, and SHA-256 setting. Transfer logs show the actual file/worker plan, explain whole-file fallbacks, and give every published file one <code>Downloaded:</code> line. A completed batch reports <code>File download batch completed: N downloaded, M failed</code>, including sequential transfers and partial failures.</p>
+<p>The shared <code>SUMMARY</code> reports this run's published bytes, successful and failed files, timings, throughput, selected and validated chunks, files finalized from chunks, observed peak chunk workers, and SHA-256 setting/hash count. Completion output does not recursively size the destination. With <code>--verify-content</code>, each downloaded file's completion line includes its computed SHA-256. Local receipts do not establish agreement with a remote checksum.</p>
+<p>In download mode, <code>--print-logs</code> without <code>--quiet</code> prints readable logs and the summary to stderr, leaving stdout empty. Otherwise the CLI prints exactly one JSON result to stdout for scripts. Progress bars work independently of console logs; <code>--quiet</code> suppresses bars and INFO-level console output.</p>
+<pre><code># Capture one JSON result for scripting
+mirror-url --mode download https://example.com/data/a.fits &gt;result.json
+
+# During a run with --metrics-json enabled
+curl http://localhost:8080/health
+curl http://localhost:8080/metrics</code></pre>
+<p>Both endpoints return JSON. Metrics export and the health server are disabled during dry runs; the server is cleaned up when the instance closes.</p>
+<div class="table-wrapper" tabindex="0" role="region" aria-label="Exit code reference"><table><thead><tr><th scope="col">Exit code</th><th scope="col">Meaning</th></tr></thead><tbody><tr><td><code>0</code></td><td>No recorded suffix failure, or graceful shutdown after a signal</td></tr><tr><td><code>1</code></td><td>Recorded sync/download/scan/cleanup failure, failed built-in benchmark, or forced shutdown after the cleanup timeout</td></tr><tr><td><code>2</code></td><td>CLI parsing or config-file validation error reported by the argument parser</td></tr></tbody></table></div>
+<p>A graceful SIGINT/SIGTERM shutdown currently exits with code 0 even when synchronization was interrupted. Check the completion summary for interrupted scheduled jobs. The Python API returns a boolean from <code>sync()</code>.</p>
+</section>
+<section id="python-api" class="section">
+<h2>🐍 Python API</h2>
+<pre><code>from pathlib import Path
+from mirror_url import MirrorConfig, MirrorURL
+
+config = MirrorConfig(
+    base_url="https://example.com/data/",
+    dest_path=Path("./mirror/data"),
+    log_path=Path("./logs"),
+    file_filters=[".fits"],
+    parallel_downloads=True,
+)
+
+with MirrorURL(config) as mirror:
+    ok = mirror.sync()
+
+print("sync succeeded" if ok else "sync failed")</code></pre>
+<p>Use the context manager to clean up connection pools, workers, async components, and any health server. <code>sync()</code> blocks and returns <code>True</code> or <code>False</code>. Use <code>MirrorConfig.from_yaml(Path("mirror.yaml"))</code> to load a file.</p>
+<p>For model validation, use <code>MirrorConfig.model_validate(data)</code>. To obtain informational warnings for an existing config, use <code>MirrorConfig.validation_warnings(config)</code>. Code that used <code>MirrorConfig.validate(config)</code> for warning strings must use the new warning helper.</p>
+</section>
+<section id="troubleshooting" class="section">
+<h2>🔧 Troubleshooting</h2>
+<div class="table-wrapper" tabindex="0" role="region" aria-label="Symptom reference"><table><thead><tr><th scope="col">Symptom</th><th scope="col">What to check</th></tr></thead><tbody><tr><td>Private-IP or localhost target rejected</td><td>Secure transport blocks these targets. <code>--no-security-validation</code> does not bypass transport IP restrictions.</td></tr><tr><td>403 / 429 / overloaded server</td><td>Check access policies; reduce worker/file counts, increase request delay, and disable async metadata when appropriate.</td></tr><tr><td>Nothing downloaded</td><td>Mirror mode requires a parseable HTML directory listing; check filters, exclusions, and depth. For known files, choose <code>--mode download</code>. Use <code>--debug --print-logs</code>.</td></tr><tr><td>Parallel mode falls back to whole-file transfers</td><td>Read the logged reason. Chunking needs enough bytes for at least two chunks, compatible configured limits, Range support, and a strong ETag.</td></tr><tr><td>No progress bar or backend dependency</td><td>Upgrade with <code>python -m pip install --upgrade mirror-url</code> and run <code>python -m pip check</code>. Both backends and tqdm are core dependencies. Pass <code>--progress-bar</code> and avoid <code>--quiet</code>; optional psutil monitoring uses the <code>monitor</code> extra.</td></tr><tr><td>No health server</td><td>Set <code>--metrics-json FILE</code> during a non-dry-run instance; the port option alone does not enable it.</td></tr><tr><td>Changed files skipped</td><td>Remove <code>--missing-files</code> for full freshness checks or use <code>--check-files</code> for selected paths. Opt-in <code>--verify-content</code> detects changes against saved local receipts; remote freshness still depends on HTTP metadata.</td></tr><tr><td>Reserved state or filename collision</td><td>Review the reported paths. <code>.mirror-url-state</code> is reserved. Unsafe, rewritten, or Unicode-aliased collisions fail preflight; case-only names require a confirmed case-sensitive destination.</td></tr>
+<tr><td>Destination already owned</td><td>Stop the overlapping MirrorURL run or choose independent destination and state paths. Locks release when their process ends; do not delete lock files while a run is active.</td></tr>
+<tr><td>Existing known-file destination rejected</td><td>Use the matching ownership receipt or explicit <code>--overwrite</code> for intended replacements. Links remain forbidden. Download mode fetches all selected files even when receipts match.</td></tr></tbody></table></div>
+<h3>Inspect a run</h3>
+<pre><code>mirror-url --config mirror.yaml --debug --print-logs --dry-run</code></pre>
+<h3>Uninstall</h3>
+<pre><code>python -m pip uninstall mirror-url
+# For a pipx installation:
+pipx uninstall mirror-url</code></pre>
+<p>Uninstalling leaves mirrored files, logs, and cache data in place. For more help, read the <a href="https://github.com/bpodlipnik/mirror-url/blob/v3.7.3/docs/USER_GUIDE.md">User Guide</a> or report a reproducible problem on <a href="https://github.com/bpodlipnik/mirror-url/issues">GitHub Issues</a>.</p>
+</section>
+<section id="comparison" class="section">
+<h2>🔎 Choosing a Mirroring Tool</h2>
+<p>Choose according to the source protocol and the workflow you need. The links below point to each project's own documentation.</p>
+<div class="table-wrapper" tabindex="0" role="region" aria-label="Tool reference"><table><thead><tr><th scope="col">Tool</th><th scope="col">Typical use</th></tr></thead><tbody><tr><td><a href="https://github.com/bpodlipnik/mirror-url">MirrorURL</a></td><td>Public HTTP(S) directory mirroring or known-file downloads, selected-tree cleanup, filename filtering, verified chunks with either backend, optional local SHA-256 receipts, JSON metrics, and a Python API</td></tr><tr><td><a href="https://rsync.samba.org/">rsync</a></td><td>Local or remote file copies with its delta-transfer algorithm; remote operation uses a shell transport or an rsync daemon</td></tr><tr><td><a href="https://lftp.yar.ru/lftp-man.html">lftp</a></td><td>An interactive transfer client with mirroring and FTP, SFTP, and HTTP support</td></tr><tr><td><a href="https://rclone.org/http/">rclone</a></td><td>A multi-backend workflow; its read-only HTTP backend parses directory listings and can sync them to local storage</td></tr></tbody></table></div>
+<p>For MirrorURL, the current runtime discovers the remote file list in memory and performs no remote cryptographic digest comparison. Check the archive's listing format, metadata, and Range support when choosing a tool.</p>
+</section>
+</main>
+<footer class="footer">
+    <p>MirrorURL v3.7.3 · Public HTTP(S) downloads and one-way directory synchronization</p>
+    <p>Cleanup defaults to preserving obsolete files. Move and delete policies are explicit choices.</p>
+    <p>© 2026 B. Podlipnik · <a href="https://github.com/bpodlipnik/mirror-url/blob/v3.7.3/LICENSE">MIT License</a> · <a href="https://github.com/bpodlipnik/mirror-url">GitHub</a></p>
+    <p>Documentation checked against <a href="https://github.com/bpodlipnik/mirror-url/tree/v3.7.3">release v3.7.3</a>.</p>
+</footer>
+</div>
+<script>
+(() => {
+    const input = document.getElementById('argument-filter');
+    const count = document.getElementById('argument-count');
+    const groups = [...document.querySelectorAll('.argument-group')];
+    const total = groups.reduce((n, group) => n + group.querySelectorAll('tbody tr').length, 0);
+    function filterOptions() {
+        const query = input.value.trim().toLowerCase();
+        let shown = 0;
+        for (const group of groups) {
+            let matches = 0;
+            for (const row of group.querySelectorAll('tbody tr')) {
+                const match = !query || row.textContent.toLowerCase().includes(query);
+                row.hidden = !match;
+                if (match) matches++;
+            }
+            group.hidden = matches === 0;
+            group.open = query ? matches > 0 : group.dataset.defaultOpen === 'true';
+            shown += matches;
+        }
+        count.textContent = query ? `${shown} of ${total} options match.` : `${total} options available. Expand a group to browse.`;
+    }
+    input.addEventListener('input', filterOptions);
+    filterOptions();
+    window.addEventListener('beforeprint', () => {
+        for (const group of groups) {
+            group.dataset.beforePrintOpen = String(group.open);
+            group.dataset.beforePrintHidden = String(group.hidden);
+            group.open = true;
+            group.hidden = false;
+            for (const row of group.querySelectorAll('tbody tr')) {
+                row.dataset.beforePrintHidden = String(row.hidden);
+                row.hidden = false;
+            }
+        }
+    });
+    window.addEventListener('afterprint', () => {
+        for (const group of groups) {
+            group.open = group.dataset.beforePrintOpen === 'true';
+            group.hidden = group.dataset.beforePrintHidden === 'true';
+            for (const row of group.querySelectorAll('tbody tr')) row.hidden = row.dataset.beforePrintHidden === 'true';
+        }
+    });
+})();
+</script>
+</body>
+</html>

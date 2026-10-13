@@ -25,6 +25,8 @@ jobs:
         run: ruff format --check .
       - name: Mypy
         run: mypy
+      - name: Check release website and CLI reference
+        run: python scripts/render_site.py --check
 
   test:
     runs-on: ${{ matrix.os }}

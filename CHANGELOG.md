@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Documentation
+
+- Add the public documentation page as `index.html` and update it for v3.7.3,
+  including the full current CLI reference, known-file downloads, both transfer
+  backends, SHA-256 receipts, destination ownership and shared reporting.
+- Regenerate the website's release references and CLI table during version
+  bumps, check them in CI and release builds, and attach `index.html` to GitHub
+  Releases for deployment to the existing documentation host.
+
 ## [3.7.3] - 2026-10-13
 
 ### Fixed

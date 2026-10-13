@@ -1634,7 +1634,11 @@ the shared version; no separate banner edit is needed. A test checks
 that the two version sources agree. The script replaces every occurrence
 of the current version in those files, including historical mentions of
 that exact version; review the diff and preserve history manually when
-needed. Regenerate HTML after content edits.</li>
+needed. Regenerate HTML after content edits. The bump also updates
+<code>index.html</code> and regenerates its CLI table. After CLI changes,
+run <code>python scripts/render_site.py</code>; <code>--check</code>
+detects drift in CI. Review the page's handwritten feature descriptions
+alongside the release.</li>
 <li><strong>Update <code>CHANGELOG.md</code>.</strong> Replace the
 release's <code>[Unreleased]</code> heading with
 <code>## [X.Y.Z] - YYYY-MM-DD</code>, retain its notes, and remove any
@@ -1667,7 +1671,10 @@ PyPI (<code>owner</code> = repo owner, workflow
 requires the repository variable <code>PUBLISH_TO_PYPI=true</code>.
 Without that opt-in, it is skipped; the tag still builds the wheel and
 creates the GitHub Release. Verify the version and changelog before
-creating the tag.</li>
+creating the tag. The release includes <code>index.html</code> as a
+downloadable asset. Deploy that file to the existing documentation host
+separately; the workflow does not upload to
+<code>star.mps.mpg.de</code>.</li>
 </ol>
 <hr />
 <h2 id="known-hazards-and-gotchas">Known hazards and gotchas</h2>

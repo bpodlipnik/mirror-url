@@ -13,6 +13,7 @@
 #   - docs/USER_GUIDE.html      (same, HTML-escaped)
 #   - docs/DEVELOPER_GUIDE.md   ("**Version:**" line + closing note)
 #   - docs/DEVELOPER_GUIDE.html (same, HTML-escaped)
+#   - index.html               (release references and regenerated CLI table)
 #
 # What it does NOT touch (on purpose):
 #   - CHANGELOG.md                -- needs a human-written entry describing
@@ -59,6 +60,9 @@ if [[ "$CURRENT_VERSION" == "$NEW_VERSION" ]]; then
     exit 1
 fi
 
+# Check the renderer and runtime dependencies before changing release files.
+"${MIRROR_SITE_PYTHON:-python3}" scripts/render_site.py --check
+
 echo "Bumping version: $CURRENT_VERSION -> $NEW_VERSION"
 echo
 
@@ -69,6 +73,7 @@ FILES=(
     "docs/USER_GUIDE.html"
     "docs/DEVELOPER_GUIDE.md"
     "docs/DEVELOPER_GUIDE.html"
+    "index.html"
 )
 
 # Escape dots for the sed pattern (literal match, not "any character").
@@ -90,6 +95,8 @@ for f in "${FILES[@]}"; do
     echo "  updated ($HITS occurrence(s)): $f"
     CHANGED_FILES+=("$f")
 done
+
+"${MIRROR_SITE_PYTHON:-python3}" scripts/render_site.py --date "$(date +%Y-%m-%d)"
 
 echo
 echo "Verifying no '$CURRENT_VERSION' references remain in the updated files..."

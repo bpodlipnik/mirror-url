@@ -25,12 +25,19 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install --upgrade pip build
+      - run: python -m pip install .
+      - name: Check release website and CLI reference
+        run: python scripts/render_site.py --check
       - run: python -m build
       - run: python -m pip install twine && twine check dist/*
       - uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dist/
+      - uses: actions/upload-artifact@v7
+        with:
+          name: website
+          path: index.html
 
   publish-pypi:
     name: Publish to PyPI
@@ -63,7 +70,13 @@ jobs:
         with:
           name: dist
           path: dist/
+      - uses: actions/download-artifact@v8
+        with:
+          name: website
+          path: website/
       - uses: softprops/action-gh-release@v3
         with:
-          files: dist/*
+          files: |
+            dist/*
+            website/index.html
           generate_release_notes: true

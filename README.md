@@ -130,6 +130,11 @@ python -m mirror_url --url https://example.com/files/ --dest-path ./mirror --log
 
 Run `mirror-url --help` for the full option list.
 
+The public documentation page is maintained in [index.html](index.html).
+After CLI or release changes, run `python scripts/render_site.py` to refresh
+its release references and generated argument table. CI checks it for drift,
+and each GitHub Release includes the page as an `index.html` asset for deployment.
+
 Configuration can also be supplied via a YAML file (see `MirrorConfig` /
 `load_config_from_args`).
 
