@@ -535,8 +535,9 @@ async def test_cancelled_chunk_writers_drain_before_lock_release(
 
 
 async def test_cancellation_after_publication_keeps_its_receipt_hook(
-    tmp_path, ranges, backend, chunk_mode, monkeypatch
+    tmp_path, ranges, backend, chunk_mode, monkeypatch, caplog
 ):
+    caplog.set_level(logging.INFO)
     config = configuration(tmp_path, ranges, chunk_mode, backend=backend)
     target = config.dest_path
     target.mkdir()
@@ -565,6 +566,7 @@ async def test_cancellation_after_publication_keeps_its_receipt_hook(
         release.set()
         with pytest.raises(asyncio.CancelledError):
             await task
+        assert "File download batch completed:" not in caplog.text
         assert local.read_bytes() == ranges.payload and engine.closed_connection_pools == 1
         assert_no_scratch(target)
     finally:

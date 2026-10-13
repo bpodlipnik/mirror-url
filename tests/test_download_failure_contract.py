@@ -16,6 +16,52 @@ from test_immediate_audit_fixes import parallel as parallel
 from test_transfer_storage_lifecycle import make_download
 
 
+@pytest.mark.parametrize(
+    "size,count,enabled,maximum,status,headers,reason",
+    [
+        (None, 1, True, 2, None, None, "no positive file size"),
+        (1, 1, True, 2, None, None, "needed for two chunks"),
+        (6, 1, True, 1, None, None, "--max-chunks is 1"),
+        (6, 1, False, 2, None, None, "parallel chunk downloads are disabled"),
+        (6, 1, True, 2, None, None, "chunk circuit breaker"),
+        (6, 2, True, 2, 405, {}, "HEAD returned HTTP 405"),
+        (6, 2, True, 2, 200, {}, "no valid Content-Length"),
+        (6, 2, True, 2, 200, {"Content-Length": "7"}, "does not match the planned"),
+        (6, 2, True, 2, 200, {"Content-Length": "6"}, "does not advertise byte ranges"),
+        (
+            6,
+            2,
+            True,
+            2,
+            200,
+            {"Content-Length": "6", "Accept-Ranges": "bytes"},
+            "no strong ETag",
+        ),
+        (
+            6,
+            2,
+            True,
+            2,
+            200,
+            {"Content-Length": "6", "Accept-Ranges": "bytes", "ETag": '"v1"'},
+            "parallel chunk plan unavailable",
+        ),
+        (6, 2, True, 2, None, None, "parallel chunk plan unavailable"),
+    ],
+)
+def test_fallback_reason_uses_observations_without_new_admission(
+    manager, size, count, enabled, maximum, status, headers, reason
+):
+    manager.min_chunk_size = 2
+    manager.enabled = enabled
+    manager.max_chunks_per_file = maximum
+    admission = Mock(side_effect=AssertionError("Diagnostics must not change admission"))
+    manager.circuit_breaker = SimpleNamespace(can_execute=admission)
+    response = None if status is None else SimpleNamespace(status_code=status, headers=headers)
+    assert reason in manager.whole_file_fallback_reason(size, count, response=response)
+    admission.assert_not_called()
+
+
 @pytest.fixture
 def manager(parallel, monkeypatch):
     # Stop the real maintenance thread before controlling time/faults in tests.

@@ -769,6 +769,22 @@ def log_file_download_plan(files: int, workers: int, *, prefix: str = "") -> Non
     logging.info("%sFile download plan: %s files; %s file workers", prefix, files, workers)
 
 
+def log_whole_file_fallback(url: str, reason: str) -> None:
+    """Explain an observed fallback without promising a fresh GET over a resume."""
+    logging.info(
+        "Whole-file fallback for %s: %s; using single-file transfer",
+        sanitize_url_for_log(url),
+        reason,
+    )
+
+
+def log_file_downloads_completed(downloaded: int, failed: int, *, prefix: str = "") -> None:
+    """Report this finished batch's publication outcomes, including partial failure."""
+    logging.info(
+        "%sFile download batch completed: %s downloaded, %s failed", prefix, downloaded, failed
+    )
+
+
 def log_file_downloaded(path: Path, size: int, sha256: Optional[str] = None) -> None:
     """Report a published file once, including its computed local digest."""
     digest = f"; SHA-256: {sha256}" if sha256 is not None else ""
@@ -801,6 +817,8 @@ __all__ = [
     "format_download_summary",
     "log_run_start",
     "log_file_download_plan",
+    "log_whole_file_fallback",
+    "log_file_downloads_completed",
     "log_file_downloaded",
     "log_run_completion",
     "log_processed_result",

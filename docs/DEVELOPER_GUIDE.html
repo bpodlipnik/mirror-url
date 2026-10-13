@@ -282,7 +282,7 @@ repeats the essentials so you can work from it alone.</p>
 <ul>
 <li><strong>Package:</strong> <code>mirror_url</code> (src-layout under
 <code>src/</code>)</li>
-<li><strong>Version:</strong> 3.7.2</li>
+<li><strong>Version:</strong> 3.7.3</li>
 <li><strong>Python:</strong> 3.10 or newer; CI tests Python
 3.10–3.14</li>
 <li><strong>Runtime deps:</strong> <code>httpx[http2]</code> (including
@@ -1123,13 +1123,21 @@ uses <code>MetricsCollector.report</code> in both modes; JSON-only
 callers can feed <code>chunk_metrics</code> to the same renderer. Chunk
 plans are logged by <code>create_chunks</code> after representation
 validation and staging selection. Constructor capacity/policy messages
-stay at DEBUG. <code>AsyncTransfers._one_chunked</code> logs the first
-failed eligibility condition before a whole-file fallback, reusing the
-manager's chunk-count decision without an extra circuit-breaker check.
-All whole-file, assembled and streaming paths use
-<code>metrics.log_file_downloaded</code>, including the computed digest
-only when available. <code>metrics.log_run_start</code> supplies the
-same ordered startup fields to the CLI's shared logger and
+stay at DEBUG.
+<code>ParallelDownloadManager.whole_file_fallback_reason</code>
+describes a rejected plan from its observed size, chunk count and HEAD
+response. It makes no admission decision or request. Both coordinators
+use <code>metrics.log_whole_file_fallback</code>; the HTTPX mirror path
+also records failed chunk-transfer fallbacks. The message describes a
+single-file transfer so it remains accurate for owned mirror resumes.
+<code>metrics.log_file_downloads_completed</code> reports actual
+published/failed file counts once after a batch finishes. Async
+transfers count their results after worker/backend drainage; HTTPX
+mirror uses this batch's counter deltas. Neither path marks an
+interrupted batch completed. All whole-file, assembled and streaming
+paths use <code>metrics.log_file_downloaded</code>, including the
+computed digest only when available. <code>metrics.log_run_start</code>
+supplies the same ordered startup fields to the CLI's shared logger and
 <code>_MirrorBase.setup_logging</code>: explicit mode, start time,
 sanitized command, suffix, root, destination, log path, backend and
 hashing setting. The CLI logs no duplicate mirror configuration; the
@@ -1190,7 +1198,7 @@ periodic observations on stderr while the file handler retains them.
 Missing, failed or disabled bars and receipt-saving without an active
 bar retain console updates; warnings and completion summaries always
 pass through the filter.</p>
-<p>The CLI uses a download-specific startup banner and
+<p>The CLI uses the shared startup header and
 <code>metrics.format_download_summary()</code> for readable completion
 logs, using the destination already validated by the CLI. Mirror and
 known-URL completion logs share <code>MetricsCollector.report()</code>,
@@ -1779,7 +1787,7 @@ refactoring nearby code.</li>
 </table>
 
 <hr />
-<p><em>This guide describes the architecture as of version 3.7.2. When
+<p><em>This guide describes the architecture as of version 3.7.3. When
 you change the structure, update this document in the same PR.</em></p>
 </body>
 </html>
