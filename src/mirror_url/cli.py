@@ -18,6 +18,7 @@ import sys
 import tempfile
 import time
 from contextlib import ExitStack
+from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 from urllib.parse import urlsplit, urlunsplit
@@ -25,7 +26,6 @@ from urllib.parse import urlsplit, urlunsplit
 import yaml
 
 from ._version import __version__
-from .compat import PSUTIL_AVAILABLE, TQDM_AVAILABLE
 from .config import MirrorConfig, _expand_check_files, expand_env_vars
 from .constants import (
     ADAPTIVE_ASYNC_ENABLED,
@@ -76,10 +76,11 @@ from .metrics import (
     log_connection_pools_closed,
     log_processed_result,
     log_run_completion,
+    log_run_start,
 )
 from .progress import ProgressConsoleHandler
 from .security import PathSafety
-from .utils import _log_files, sanitize_command_line, sanitize_url_for_log
+from .utils import _log_files
 
 
 def setup_shared_logging(
@@ -91,7 +92,9 @@ def setup_shared_logging(
     :func:`_effective_args`) is only used for the informational header written
     at the top of the log; when omitted the header describes ``args`` itself.
     """
-    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    started_epoch = time.time()
+    started_at = datetime.fromtimestamp(started_epoch)
+    timestamp = time.strftime("%Y%m%d_%H%M%S", time.localtime(started_epoch))
     raw = f"{args.log_file}_{'_'.join(args.dir_suffix) if args.dir_suffix else 'all'}"
     safe = re.sub(r"[^\w.-]", "_", raw)
     # Bound bytes, not characters, including a digest when shortening.
@@ -149,13 +152,29 @@ def setup_shared_logging(
     # Log header information. Describe the settings the run will actually use
     # (CLI > --config file > default), not the raw parser defaults.
     eff = effective if effective is not None else args
-    logging.info("=" * 50)
-    title = "KNOWN-URL DOWNLOAD" if getattr(eff, "mode", None) == "download" else "SHARED LOG"
-    logging.info(f"MirrorURL v{__version__} - {title}")
-    logging.info(f"Log: {log_path}")
+    suffixes = eff.dir_suffix or [""]
+    destination = getattr(eff, "dest_path", None)
+    if destination is not None:
+        destination = Path(destination)
+        if getattr(eff, "mode", "mirror") != "download" and len(suffixes) == 1:
+            for part in filter(None, suffixes[0].split("/")):
+                destination /= PathSafety._safe_filename(part, max_len=eff.max_filename_len)
+        destination = destination.resolve()
+    log_run_start(
+        mode=getattr(eff, "mode", "mirror"),
+        remote_root=str(getattr(eff, "url", "")),
+        destination=destination,
+        log_path=log_path,
+        backend=getattr(eff, "backend", "httpx"),
+        verify_content=getattr(eff, "verify_content", False),
+        suffixes=suffixes,
+        started_at=started_at,
+    )
 
-    if eff.dir_suffix:
-        logging.info(f"Suffixes: {eff.dir_suffix}")
+    # Mirror's lifecycle logs its effective configuration once per suffix.
+    # Repeating it here produced two configuration summaries in shared logs.
+    if getattr(eff, "mode", "mirror") != "download":
+        return
 
     cleanup_policy = getattr(eff, "cleanup_policy", CleanupPolicy.SAFE_NO_DELETE)
     if cleanup_policy == CleanupPolicy.DELETE:
@@ -187,8 +206,6 @@ def setup_shared_logging(
     if eff.metrics_json:
         logging.info(f"📊 Metrics: {eff.metrics_json}")
     if getattr(eff, "mode", None) == "download":
-        logging.info("Remote root: %s", sanitize_url_for_log(eff.url))
-        logging.info("Destination: %s", eff.dest_path)
         chunked = eff.parallel_downloads or eff.streaming_parallel
         transfer = (
             "streaming parallel chunks"
@@ -197,7 +214,6 @@ def setup_shared_logging(
             if eff.parallel_downloads
             else "whole-file streaming"
         )
-        logging.info("Backend: %s", eff.backend)
         logging.debug("Requested transfer method: %s", transfer)
         concurrency = 1 if eff.sequential_downloads else eff.max_concurrent_downloads
         logging.debug("Configured file-worker capacity: %s", concurrency)
@@ -219,62 +235,7 @@ def setup_shared_logging(
         )
         if eff.bandwidth_limit:
             logging.info("Bandwidth limit: %s MiB/s", eff.bandwidth_limit)
-        logging.info(
-            "SHA-256: %s", "enabled (local receipts)" if eff.verify_content else "disabled"
-        )
-        logging.info("=" * 50)
         return
-    if TQDM_AVAILABLE and eff.progress_bar:
-        logging.info("📈 Progress bar enabled")
-    if eff.async_metadata:
-        if eff.adaptive_async:
-            logging.info(
-                f"🔄 Adaptive async: {eff.adaptive_start_concurrency}-{ADAPTIVE_MAX_CONCURRENCY} workers"
-            )
-        else:
-            logging.info(f"⚡ Async meta {eff.async_workers} workers")
-    if eff.content_hash_small_files:
-        logging.debug("Content-hash compatibility setting does not change file freshness checks")
-
-    rate = getattr(eff, "requests_per_second", DEFAULT_RATE_LIMIT)
-    delay_ms = max(1 / rate if rate else 0, eff.request_delay) * 1000
-    logging.info(
-        f"⚡ Rate limit: {delay_ms:.1f}ms effective spacing{' (trusted)' if eff.trusted_server else ''}"
-    )
-
-    if eff.cache_html:
-        logging.info(f"📦 HTML cache: {eff.html_cache_max_age}h")
-    if eff.bandwidth_limit:
-        logging.info(f"⏱️ Bandwidth limit: {eff.bandwidth_limit} MB/s")
-    if getattr(eff, "enable_resume", True):
-        logging.info("↩️ Resume enabled")
-    if eff.handle_symlinks:
-        logging.info(f"🔗 Symlink handling: {eff.symlink_mode}")
-    if getattr(eff, "adaptive_batch_processing", True):
-        logging.info(
-            f"Compatibility batch setting (inactive in sync): initial={getattr(eff, 'initial_batch_size', BATCH_SIZE)}"
-        )
-    if getattr(eff, "use_disk_backed_sets", False):
-        logging.info(
-            f"Compatibility tracking setting (does not bound sync memory): memory={getattr(eff, 'memory_cache_size', MEMORY_CACHE_MAX_SIZE)}"
-        )
-    if getattr(eff, "fast_parsing_fallback", True):
-        logging.info("⚡ Fast parsing fallback enabled")
-    if getattr(eff, "connection_pool_prewarm", True):
-        logging.info("🔥 Connection pool pre-warming enabled")
-    if PSUTIL_AVAILABLE:
-        logging.info("📊 Memory monitoring: ENABLED")
-    if eff.metrics_json:
-        health_port = getattr(eff, "health_check_port", 8080)
-        logging.info(f"🏥 Health check API: http://localhost:{health_port}/health")
-    if getattr(eff, "parallel_downloads", False):
-        logging.info(
-            f"🚀 Parallel downloads: ENABLED (max {eff.max_chunks} chunks, {eff.min_chunk_size}MB min)"
-        )
-    if getattr(eff, "max_concurrent_downloads", 10) > 1:
-        logging.info(f"📥 Max concurrent file downloads: {eff.max_concurrent_downloads}")
-
-    logging.info("=" * 50)
 
 
 # argparse ``dest`` -> ``MirrorConfig`` field, for the options whose dest differs
@@ -1480,12 +1441,6 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
         logging.root.setLevel(logging.WARNING)
     else:
         logging.root.setLevel(logging.INFO)
-
-    if args.print_logs and args.log_file:
-        logging.info("Command line used:")
-        cmd_str = sanitize_command_line([sys.executable] + sys.argv)
-        logging.info(cmd_str)
-        logging.info("-" * min(80, len(cmd_str) + 4))
 
     # Run benchmark if requested
     if args.benchmark:

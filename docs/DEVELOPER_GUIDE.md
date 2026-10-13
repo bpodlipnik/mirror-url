@@ -750,6 +750,12 @@ staging selection. Constructor capacity/policy messages stay at DEBUG.
 a whole-file fallback, reusing the manager's chunk-count decision without an
 extra circuit-breaker check. All whole-file, assembled and streaming paths use
 `metrics.log_file_downloaded`, including the computed digest only when available.
+`metrics.log_run_start` supplies the same ordered startup fields to the CLI's
+shared logger and `_MirrorBase.setup_logging`: explicit mode, start time,
+sanitized command, suffix, root, destination, log path, backend and hashing
+setting. The CLI logs no duplicate mirror configuration; the mirror lifecycle
+owns that block once per suffix. `metrics.log_file_download_plan` supplies one
+selected-file/worker message to synchronous and async transfer paths.
 `RunReport.record_publication` counts SHA-256-bearing publications once per URL
 and resets those observations at each run. Both summary modes render the hashing
 setting and actual recorded count through the same formatter; neither implies

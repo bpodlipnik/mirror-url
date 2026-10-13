@@ -22,7 +22,7 @@ from ..constants import ADAPTIVE_START_CONCURRENCY, AUTO_CONCURRENCY_SAMPLES
 from ..decorators import log_performance
 from ..destination_lock import destination_operation
 from ..enums import CleanupPolicy, DownloadMethod
-from ..metrics import log_run_completion
+from ..metrics import log_file_download_plan, log_run_completion
 from ..progress import DownloadProgress, ProgressTracker
 from ..transfers import AsyncTransfers, TransferResult
 from ..utils import format_bytes, format_duration, sanitize_url_for_log
@@ -557,6 +557,7 @@ class ReportMixin(MirrorHost):
                                 transfers.stage_seconds["hash"],
                             )
                         elif self.config.sequential_downloads:
+                            log_file_download_plan(len(to_download), 1, prefix=prefix)
                             # Sequential mode: simple loop
                             for url, path in to_download:
                                 # FIX: Pass pre-fetched size to avoid redundant HEAD request
@@ -582,8 +583,8 @@ class ReportMixin(MirrorHost):
                                     f"{prefix}🤖 Auto-tuning: using {max_parallel} parallel downloads"
                                 )
 
-                            logging.info(
-                                f"{prefix}🚀 Starting {max_parallel} parallel file downloads"
+                            log_file_download_plan(
+                                len(to_download), min(max_parallel, len(to_download)), prefix=prefix
                             )
                             start_time = time.time()
                             downloaded_count = 0

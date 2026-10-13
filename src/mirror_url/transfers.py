@@ -35,7 +35,7 @@ from .download import ParallelDownloadManager, PartialDownloadManager
 from .download_integrity import content_length, file_sha256, strong_etag
 from .exceptions import ConfigError, SecurityError, URLScopeError
 from .filename_mapping import FilenameMap, _stat_identity
-from .metrics import MetricsCollector, log_file_downloaded
+from .metrics import MetricsCollector, log_file_download_plan, log_file_downloaded
 from .progress import DownloadProgress
 from .run_report import RunReport
 from .scratch import OwnedScratch
@@ -867,7 +867,7 @@ class AsyncTransfers:
         self._space_remaining = None
         self._space_reserved.clear()
         workers = min(self.concurrency, len(items))
-        logging.info("File download plan: %s files; %s file workers", len(items), workers)
+        log_file_download_plan(len(items), workers)
         chunked = self.config.parallel_downloads or self.config.streaming_parallel
         backend = (_AIOHTTPBackend if self.config.backend == "aiohttp" else _HTTPXBackend)(
             self.config, max(workers, 1) + (self.config.max_parallel_chunks_total if chunked else 0)

@@ -1128,12 +1128,20 @@ failed eligibility condition before a whole-file fallback, reusing the
 manager's chunk-count decision without an extra circuit-breaker check.
 All whole-file, assembled and streaming paths use
 <code>metrics.log_file_downloaded</code>, including the computed digest
-only when available. <code>RunReport.record_publication</code> counts
-SHA-256-bearing publications once per URL and resets those observations
-at each run. Both summary modes render the hashing setting and actual
-recorded count through the same formatter; neither implies agreement
-with a remote cryptographic digest. The semaphore wrapper brackets each
-admitted worker with shared metrics and progress observations, releasing
+only when available. <code>metrics.log_run_start</code> supplies the
+same ordered startup fields to the CLI's shared logger and
+<code>_MirrorBase.setup_logging</code>: explicit mode, start time,
+sanitized command, suffix, root, destination, log path, backend and
+hashing setting. The CLI logs no duplicate mirror configuration; the
+mirror lifecycle owns that block once per suffix.
+<code>metrics.log_file_download_plan</code> supplies one
+selected-file/worker message to synchronous and async transfer paths.
+<code>RunReport.record_publication</code> counts SHA-256-bearing
+publications once per URL and resets those observations at each run.
+Both summary modes render the hashing setting and actual recorded count
+through the same formatter; neither implies agreement with a remote
+cryptographic digest. The semaphore wrapper brackets each admitted
+worker with shared metrics and progress observations, releasing
 admission even if an observer raises. <code>get_stats</code>
 distinguishes <code>planned_chunks</code> from actual
 <code>active_chunks</code>. Run peaks reset on

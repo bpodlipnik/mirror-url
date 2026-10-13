@@ -9,17 +9,18 @@ from __future__ import annotations
 import json
 import logging
 import statistics
+import sys
 import time
 from collections import deque
 from datetime import datetime
 from pathlib import Path
 from threading import RLock
-from typing import TYPE_CHECKING, Any, Dict, Literal, Optional
+from typing import TYPE_CHECKING, Any, Dict, Literal, Optional, Sequence
 
 from ._version import __version__
 from .constants import ADAPTIVE_START_CONCURRENCY
 from .run_report import RunReport
-from .utils import format_bytes, format_duration, sanitize_url_for_log
+from .utils import format_bytes, format_duration, sanitize_command_line, sanitize_url_for_log
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, avoids an import cycle
     from .config import MirrorConfig
@@ -715,6 +716,59 @@ def format_download_summary(
     return metrics.report(run=run, known_urls=True, values=values)
 
 
+def log_run_start(
+    *,
+    mode: str,
+    remote_root: str,
+    destination: Optional[Path],
+    log_path: Path,
+    backend: str,
+    verify_content: bool,
+    suffixes: Sequence[str] = ("",),
+    started_at: Optional[datetime] = None,
+    prefix: str = "",
+) -> None:
+    """Log the same ordered startup fields for either mode and logging layout."""
+    started_at = started_at or datetime.now()
+    logging.info("%s%s", prefix, "-" * 80)
+    logging.info("%sStarting MirrorURL v%s mode: %s", prefix, __version__, mode)
+    logging.info("%sJob started at: %s", prefix, started_at.strftime("%Y-%m-%d %H:%M:%S"))
+    logging.info("%sCommand: %s", prefix, sanitize_command_line([sys.executable] + sys.argv))
+    if len(suffixes) > 1:
+        logging.info(
+            "%sProcessing directory suffixes: %s",
+            prefix,
+            ", ".join(repr(s or "ROOT") for s in suffixes),
+        )
+    else:
+        logging.info(
+            "%sProcessing directory suffix: '%s'",
+            prefix,
+            suffixes[0] if suffixes and suffixes[0] else "ROOT",
+        )
+    logging.info(
+        "%sRemote root: %s",
+        prefix,
+        sanitize_url_for_log(remote_root) if remote_root else "not configured",
+    )
+    logging.info(
+        "%sDestination path: %s",
+        prefix,
+        destination if destination is not None else "not configured",
+    )
+    logging.info("%sLog file: %s", prefix, log_path)
+    logging.info("%sBackend: %s", prefix, backend)
+    logging.info(
+        "%sSHA-256: %s", prefix, "enabled (local receipts)" if verify_content else "disabled"
+    )
+    logging.info("%s%s", prefix, "-" * 80)
+
+
+def log_file_download_plan(files: int, workers: int, *, prefix: str = "") -> None:
+    """Report selected files and admitted file-worker capacity with common wording."""
+    logging.info("%sFile download plan: %s files; %s file workers", prefix, files, workers)
+
+
 def log_file_downloaded(path: Path, size: int, sha256: Optional[str] = None) -> None:
     """Report a published file once, including its computed local digest."""
     digest = f"; SHA-256: {sha256}" if sha256 is not None else ""
@@ -745,6 +799,8 @@ def log_connection_pools_closed(count: int) -> None:
 __all__ = [
     "MetricsCollector",
     "format_download_summary",
+    "log_run_start",
+    "log_file_download_plan",
     "log_file_downloaded",
     "log_run_completion",
     "log_processed_result",

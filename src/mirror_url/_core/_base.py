@@ -26,7 +26,6 @@ from urllib.parse import ParseResult, quote, urlparse, urlsplit
 
 import httpx
 
-from .._version import __version__
 from ..async_connection import AdaptiveAsyncManager, AsyncConnectionManager, AsyncTaskManager
 from ..cache import CacheManager, NullCacheManager
 from ..compat import LXML_AVAILABLE, PSUTIL_AVAILABLE, TQDM_AVAILABLE
@@ -38,7 +37,7 @@ from ..download import ParallelDownloadManager, PartialDownloadManager
 from ..enums import CleanupPolicy
 from ..exceptions import URLScopeError
 from ..health import HealthChecker, HealthCheckServer
-from ..metrics import MetricsCollector
+from ..metrics import MetricsCollector, log_run_start
 from ..monitoring import DiskSpaceManager, MemoryMonitor, PerformanceMonitor
 from ..primitives import AtomicCounter, AtomicSize
 from ..progress import DownloadProgress, MultiLevelProgress, ProgressConsoleHandler
@@ -49,7 +48,7 @@ from ..scratch import OwnedScratch
 from ..security import PathSafety, SymlinkTracker
 from ..storage import DiskBackedSet, FileSystemCache
 from ..tuner import AutoConcurrencyTuner
-from ..utils import _log_files, sanitize_command_line, sanitize_url_for_log, trim_url
+from ..utils import _log_files, sanitize_url_for_log, trim_url
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, avoids an import cycle
     from ..config import MirrorConfig
@@ -501,6 +500,12 @@ class _MirrorBase(MirrorHost):
         # ============================================================================
         self._log_cleanup_policy()
         prefix = self._get_prefix()
+        logging.debug(
+            "%sConfigured discovery/metadata worker capacity: %s; max retries: %s",
+            prefix,
+            config.workers,
+            config.max_retries,
+        )
 
         # Log cache settings
         if config.no_cache:
@@ -578,7 +583,9 @@ class _MirrorBase(MirrorHost):
             )
 
         # Log HTTP/2 setting
-        logging.info(f"{prefix}HTTP/2: {'ENABLED' if config.http2 else 'DISABLED'}")
+        logging.info(
+            f"{prefix}Listing/metadata HTTP/2 setting: {'ENABLED' if config.http2 else 'DISABLED'}"
+        )
 
         # Log ETag support
         logging.info(f"{prefix}ETag support: {'ENABLED' if not config.no_etag else 'DISABLED'}")
@@ -1009,15 +1016,14 @@ class _MirrorBase(MirrorHost):
             return
         self._logging_configured = True
 
-        # If using shared logging, don't add file handlers - just log the suffix
+        # A shared CLI log already has the run header. Only announce individual
+        # suffixes when the batch contains more than one job.
         if self.config.use_shared_log:
             suffix_display = self.config.dir_suffix or "ROOT"
             if self.total_suffixes > 1:
                 logging.info(
                     f"[{self.suffix_index}/{self.total_suffixes}] Processing directory suffix: '{suffix_display}'"
                 )
-            else:
-                logging.info(f"Processing directory suffix: '{suffix_display}'")
             return
 
         # Create log filename (MOVED UP before directory creation)
@@ -1147,19 +1153,16 @@ class _MirrorBase(MirrorHost):
 
         # Log initial information
         prefix = self._get_prefix()
-        suffix_display = self.config.dir_suffix or "ROOT"
-
-        cmd_str = sanitize_command_line([sys.executable] + sys.argv)
-        logging.info(f"{prefix}Processing directory suffix: '{suffix_display}'")
-        logging.info(f"{prefix}Command: {cmd_str}")
-        logging.info(f"{prefix}" + "-" * 80)
-        logging.info(f"{prefix}Starting MirrorURL v{__version__} for '{suffix_display}'")
-        logging.info(f"{prefix}Job started at: {self.job_start_time.strftime('%Y-%m-%d %H:%M:%S')}")
-        logging.info(f"{prefix}Mirroring from: {sanitize_url_for_log(str(self.config.base_url))}")
-        logging.info(f"{prefix}Destination path: {self.dest_path}")
-        logging.info(f"{prefix}Log file: {log_filepath}")
-        logging.info(
-            f"{prefix}Workers: {self.config.workers}, Max Retries: {self.config.max_retries}"
+        log_run_start(
+            mode=self.config.mode,
+            remote_root=str(self.config.base_url),
+            destination=self._computed_target_path,
+            log_path=log_filepath,
+            backend=self.config.backend,
+            verify_content=self.config.verify_content,
+            suffixes=(self.config.dir_suffix,),
+            started_at=self.job_start_time,
+            prefix=prefix,
         )
         # NOTE: the full config summary (cache settings, rate limiting, HTML
         # caching, adaptive async, resume, memory monitoring, etc.) is
