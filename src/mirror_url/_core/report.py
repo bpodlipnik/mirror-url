@@ -136,7 +136,7 @@ class ReportMixin(MirrorHost):
         run.start(
             self.metrics.metrics,
             len(getattr(self.config, "check_files", ())),
-            verify_content=self.config.verify_content,
+            verify_content=getattr(self.config, "verify_content", False),
         )
         # Reset before discovery/checks, including a repeated dry run. Preserve
         # all check-phase increments through transfers and the final summary.
