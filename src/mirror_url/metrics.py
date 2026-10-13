@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any, Dict, Literal, Optional, Sequence
 
 from ._version import __version__
 from .constants import ADAPTIVE_START_CONCURRENCY
-from .run_report import RunReport
+from .run_report import TRANSFER_STAGES, RunReport
 from .utils import format_bytes, format_duration, sanitize_command_line, sanitize_url_for_log
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, avoids an import cycle
@@ -661,6 +661,12 @@ def _format_run_summary(
     throughput = run["download_throughput"]
     speed = f"{format_bytes(throughput)}/s" if throughput is not None else "n/a"
     lines.append(f"{prefix}  Download throughput: {speed}")
+    if "transfer_stage_seconds" in run:
+        lines.append(f"{prefix}  Transfer stage times: worker sums; concurrent work overlaps")
+        for stage, label in TRANSFER_STAGES:
+            seconds = run["transfer_stage_seconds"].get(stage)
+            value = f"{seconds:.3f}s" if seconds is not None else "not performed"
+            lines.append(f"{prefix}  {label} (sum): {value}")
     elapsed = run["elapsed_seconds"]
     lines.append(f"{prefix}  Total duration: {f'{elapsed:.3f}s' if elapsed is not None else 'n/a'}")
     lines.append(f"{prefix}  Directories scanned: {summary['directories_processed']}")
@@ -692,6 +698,8 @@ def format_download_summary(
             ),
             missing_files_downloaded="n/a",
             unclassified_downloads="n/a",
+            transfer_stage_seconds=summary.get("transfer_stage_seconds", {}),
+            transfer_stage_operations=summary.get("transfer_stage_operations", {}),
         )
     run = dict(run, verify_content=config.verify_content)
     if "sha256_hashes_recorded" in summary:

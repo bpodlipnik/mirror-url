@@ -27,7 +27,7 @@ import time
 import uuid
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 from threading import RLock, Semaphore
@@ -453,9 +453,10 @@ class ParallelDownloadManager:
             return None
         try:
             if response is None:
-                response = self.connection_manager.request(
-                    url, method="HEAD", headers={"Accept-Encoding": "identity"}
-                )
+                with self.metrics.run_report.transfer_stage("range_metadata"):
+                    response = self.connection_manager.request(
+                        url, method="HEAD", headers={"Accept-Encoding": "identity"}
+                    )
             etag = strong_etag(response.headers)
             if (
                 response.status_code != 200
@@ -592,16 +593,17 @@ class ParallelDownloadManager:
                 try:
                     # Both modes share scope checks, manual redirects, retry
                     # headers and circuit breaking through ConnectionManager.
-                    response = self.connection_manager.request(
-                        chunk.file_url,
-                        method="GET",
-                        stream=True,
-                        headers=dict(headers),
-                        allow_redirects=True,
-                        timeout=httpx.Timeout(
-                            self.config.timeout * 2, connect=10.0, read=self.config.timeout * 3
-                        ),
-                    )
+                    with self.metrics.run_report.transfer_stage("transfer"):
+                        response = self.connection_manager.request(
+                            chunk.file_url,
+                            method="GET",
+                            stream=True,
+                            headers=dict(headers),
+                            allow_redirects=True,
+                            timeout=httpx.Timeout(
+                                self.config.timeout * 2, connect=10.0, read=self.config.timeout * 3
+                            ),
+                        )
                     validate_range(
                         response, chunk.start_byte, chunk.end_byte, chunk.file_size, chunk.etag
                     )
@@ -614,19 +616,20 @@ class ParallelDownloadManager:
                         if streaming:
                             f.seek(chunk.start_byte)
                         downloaded = 0
-                        for data in response.iter_bytes(STREAMING_WRITE_BUFFER_SIZE):
-                            if downloaded + len(data) > chunk.size:
-                                raise ChunkDownloadError("Response exceeds chunk boundary")
-                            f.write(data)
-                            downloaded += len(data)
-                            progress.received_chunk(
-                                chunk.progress_path, chunk.chunk_id, downloaded, chunk.file_size
-                            )
-                            if self.bandwidth_limiter:
-                                self.bandwidth_limiter.throttle(len(data))
-                        f.flush()
-                        if not streaming:
-                            with self._measure_flush():
+                        with self.metrics.run_report.transfer_stage("transfer"):
+                            for data in response.iter_bytes(STREAMING_WRITE_BUFFER_SIZE):
+                                if downloaded + len(data) > chunk.size:
+                                    raise ChunkDownloadError("Response exceeds chunk boundary")
+                                f.write(data)
+                                downloaded += len(data)
+                                progress.received_chunk(
+                                    chunk.progress_path, chunk.chunk_id, downloaded, chunk.file_size
+                                )
+                                if self.bandwidth_limiter:
+                                    self.bandwidth_limiter.throttle(len(data))
+                        with self._measure_flush():
+                            f.flush()
+                            if not streaming:
                                 os.fsync(f.fileno())
                     if downloaded != chunk.size:
                         raise ChunkDownloadError(
@@ -1048,37 +1051,38 @@ class ParallelDownloadManager:
                             USE_MMAP = False
 
                     try:
-                        for chunk in chunks:
-                            if not chunk.temp_path or not chunk.temp_path.exists():
-                                raise ChunkAssemblyError(
-                                    f"Chunk {chunk.chunk_id} file missing: {chunk.temp_path}"
-                                )
+                        with self.metrics.run_report.transfer_stage("assembly"):
+                            for chunk in chunks:
+                                if not chunk.temp_path or not chunk.temp_path.exists():
+                                    raise ChunkAssemblyError(
+                                        f"Chunk {chunk.chunk_id} file missing: {chunk.temp_path}"
+                                    )
 
-                            expected_size = chunk.end_byte - chunk.start_byte + 1
-                            written = 0
-                            for data in self._read_chunk_data(chunk.temp_path):
-                                if written + len(data) > expected_size:
+                                expected_size = chunk.end_byte - chunk.start_byte + 1
+                                written = 0
+                                for data in self._read_chunk_data(chunk.temp_path):
+                                    if written + len(data) > expected_size:
+                                        raise ChunkAssemblyError(
+                                            f"Chunk {chunk.chunk_id} exceeds {expected_size} bytes"
+                                        )
+                                    target_start = chunk.start_byte + written
+                                    target_end = target_start + len(data)
+                                    if target_end > file_size:
+                                        raise ChunkAssemblyError(
+                                            f"Chunk {chunk.chunk_id} would write past end of file: "
+                                            f"target_end={target_end}, file_size={file_size}"
+                                        )
+                                    if mm is not None:
+                                        mm[target_start:target_end] = data
+                                    else:
+                                        f.seek(target_start)
+                                        f.write(data)
+                                    written += len(data)
+                                if written != expected_size:
                                     raise ChunkAssemblyError(
-                                        f"Chunk {chunk.chunk_id} exceeds {expected_size} bytes"
+                                        f"Chunk {chunk.chunk_id} size mismatch: "
+                                        f"expected {expected_size} bytes, got {written} bytes"
                                     )
-                                target_start = chunk.start_byte + written
-                                target_end = target_start + len(data)
-                                if target_end > file_size:
-                                    raise ChunkAssemblyError(
-                                        f"Chunk {chunk.chunk_id} would write past end of file: "
-                                        f"target_end={target_end}, file_size={file_size}"
-                                    )
-                                if mm is not None:
-                                    mm[target_start:target_end] = data
-                                else:
-                                    f.seek(target_start)
-                                    f.write(data)
-                                written += len(data)
-                            if written != expected_size:
-                                raise ChunkAssemblyError(
-                                    f"Chunk {chunk.chunk_id} size mismatch: "
-                                    f"expected {expected_size} bytes, got {written} bytes"
-                                )
 
                         # Flush to disk
                         progress.stage(download.final_path, "flushing file")
@@ -1204,7 +1208,8 @@ class ParallelDownloadManager:
     def _measure_flush(self):
         started = time.perf_counter()
         try:
-            yield
+            with self.metrics.run_report.transfer_stage("flush"):
+                yield
         finally:
             if self.record_stage is not None:
                 self.record_stage("fsync", started)
@@ -1218,7 +1223,12 @@ class ParallelDownloadManager:
             download.final_path,
             "hashing (SHA-256)" if self.config.verify_content else "verifying file",
         )
-        digest = file_sha256(staging, enabled=self.config.verify_content)
+        with (
+            self.metrics.run_report.transfer_stage("hash")
+            if self.config.verify_content
+            else nullcontext()
+        ):
+            digest = file_sha256(staging, enabled=self.config.verify_content)
         progress.stage(download.final_path, "publishing")
         os.replace(staging, download.final_path)
         self._restore_server_timestamp(download)

@@ -1315,6 +1315,25 @@ performed; their scan, freshness and obsolete-file counters remain zero.
 Files requested records the supplied URL count. Existing-file downloads
 are counted from local file presence; they do not imply the remote file
 changed.</p>
+<p>Both modes also show <strong>Transfer stage times</strong>:
+<strong>Range metadata probes</strong>, <strong>Data
+transfer/write</strong>, <strong>Chunk assembly</strong>, <strong>Disk
+flushing</strong> and <strong>SHA-256 hashing</strong>, each labelled
+<strong>(sum)</strong>. These are accumulated worker times, not
+additional elapsed phases. Concurrent workers overlap, so the sums can
+exceed <strong>Downloads time</strong> and must not be added to
+<strong>Total duration</strong>. Transfer/write includes response waits
+and writes to staging; it is not pure network time. Range probes measure
+transfer-planning HEAD calls, separately from mirror's freshness
+<strong>Metadata time</strong>. Chunk assembly measures copying
+temporary chunks; streaming writes directly into staging and normally
+reports assembly as <code>not performed</code>. Disk flushing measures
+payload buffer/fsync/mmap flush operations; receipt and cache
+persistence remain in their coordinator phases. Hashing measures new
+staged payloads only and is <code>not performed</code> without
+<code>--verify-content</code>. Failed attempts retain their measured
+work, without adding successful-file or byte credit. An unchanged run
+reports no transfer-stage work.</p>
 <p>Neither mode recursively sizes the whole destination for completion
 output. <strong>Downloaded bytes</strong> counts files successfully
 published in this run; it is not the destination's total size or
@@ -2117,7 +2136,12 @@ directories include depth-limit entries and failed listing attempts;
 throughput does not establish a successful scan. Existing top-level
 metric keys remain available; <code>download_speed</code> is the older
 average over the collector's lifetime, not the new download-phase
-throughput.</p></li>
+throughput. <code>metrics.run.transfer_stage_seconds</code> holds this
+run's accumulated worker seconds; <code>transfer_stage_operations</code>
+counts measured intervals (request and body intervals are separate, so
+these are not HTTP request counts). Download JSON results expose the
+same two fields. Existing <code>stage_seconds</code> fsync/hash fields
+remain available for compatibility.</p></li>
 <li><p><strong><code>--progress-bar</code> /
 <code>--progress</code></strong> shows live tqdm bars (included in the
 normal installation). Both mirror and known-URL downloads show one bar

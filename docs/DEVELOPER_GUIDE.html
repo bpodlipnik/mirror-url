@@ -809,16 +809,37 @@ by the download phase's elapsed time, rather than summed worker times.
 Completion freezes elapsed time; beginning another sync clears its
 decisions, publication set and phases. Listing work is measured per
 call, includes fetch wait, and is reported as summed work rather than
-CPU parsing time. <code>begin_discovery()</code> records the actual BFS
-strategy and worker bound; <code>record_directory_examined()</code>
-counts each distinct directory admitted by the coordinator, including
-entries at the depth limit and failed listing attempts. Both fields and
-the count reset at each sync. <code>discovery_throughput</code> divides
-that count by <code>phase_seconds["discovery"]</code>, which includes
-cache loading and file-list collection. The progress banner measures the
-BFS walk alone. Throughput is nullable when discovery did not start or
-its elapsed time is not positive. Failed scans retain their partial work
-and failed status; a rate is not evidence of successful discovery. The
+CPU parsing time.</p>
+<p><code>RunReport.transfer_stage()</code> is the shared, thread-safe
+monotonic timer for both backends and coordinators. It accumulates
+<code>transfer_stage_seconds</code> and
+<code>transfer_stage_operations</code> for <code>range_metadata</code>,
+<code>transfer</code>, <code>assembly</code>, <code>flush</code> and
+<code>hash</code>. Its <code>finally</code> retains failed/cancelled
+attempts. <code>start()</code> clears both maps for the next run, and
+snapshots copy them independently. Instrument actual
+request/receive/write, copy, payload flush and staged-payload hash
+operations, rather than whole methods containing other timed stages.
+Streaming writes count under transfer, without a separate assembly
+operation. Disabled SHA-256 calls are not measured as hashing. Freshness
+checks and receipt hash validation retain their existing coordinator
+accounting. These worker sums can overlap between threads/tasks and do
+not replace <code>phase_seconds</code> or the elapsed throughput
+denominator. The shared summary labels each as <code>(sum)</code> and
+reports absent stages as <code>not performed</code>; interval counts are
+not HTTP request counts. Download results add the same maps while
+preserving the older <code>stage_seconds</code> API. Timing does not
+initiate requests or filesystem queries.</p>
+<p><code>begin_discovery()</code> records the actual BFS strategy and
+worker bound; <code>record_directory_examined()</code> counts each
+distinct directory admitted by the coordinator, including entries at the
+depth limit and failed listing attempts. Both fields and the count reset
+at each sync. <code>discovery_throughput</code> divides that count by
+<code>phase_seconds["discovery"]</code>, which includes cache loading
+and file-list collection. The progress banner measures the BFS walk
+alone. Throughput is nullable when discovery did not start or its
+elapsed time is not positive. Failed scans retain their partial work and
+failed status; a rate is not evidence of successful discovery. The
 summary groups mode, worker count, examined count, elapsed time and
 throughput, and omits the former rate derived from summed listing work.
 Summed worker time can exceed elapsed discovery time.</p>
@@ -1635,10 +1656,10 @@ that the two version sources agree. The script replaces every occurrence
 of the current version in those files, including historical mentions of
 that exact version; review the diff and preserve history manually when
 needed. Regenerate HTML after content edits. The bump also updates
-<code>index.html</code> and regenerates its CLI table. After CLI changes,
-run <code>python scripts/render_site.py</code>; <code>--check</code>
-detects drift in CI. Review the page's handwritten feature descriptions
-alongside the release.</li>
+<code>index.html</code> and regenerates its CLI table. After CLI
+changes, run <code>python scripts/render_site.py</code>;
+<code>--check</code> detects drift in CI. Review the page's handwritten
+feature descriptions alongside the release.</li>
 <li><strong>Update <code>CHANGELOG.md</code>.</strong> Replace the
 release's <code>[Unreleased]</code> heading with
 <code>## [X.Y.Z] - YYYY-MM-DD</code>, retain its notes, and remove any

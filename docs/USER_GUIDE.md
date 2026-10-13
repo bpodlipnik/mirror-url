@@ -1083,6 +1083,21 @@ their scan, freshness and obsolete-file counters remain zero. Files requested
 records the supplied URL count. Existing-file downloads are counted from local file presence;
 they do not imply the remote file changed.
 
+Both modes also show **Transfer stage times**: **Range metadata probes**,
+**Data transfer/write**, **Chunk assembly**, **Disk flushing** and **SHA-256
+hashing**, each labelled **(sum)**. These are accumulated worker times, not
+additional elapsed phases. Concurrent workers overlap, so the sums can exceed
+**Downloads time** and must not be added to **Total duration**.
+Transfer/write includes response waits and writes to staging; it is not pure
+network time. Range probes measure transfer-planning HEAD calls, separately
+from mirror's freshness **Metadata time**. Chunk assembly measures copying
+temporary chunks; streaming writes directly into staging and normally reports
+assembly as `not performed`. Disk flushing measures payload buffer/fsync/mmap
+flush operations; receipt and cache persistence remain in their coordinator
+phases. Hashing measures new staged payloads only and is `not performed` without
+`--verify-content`. Failed attempts retain their measured work, without adding
+successful-file or byte credit. An unchanged run reports no transfer-stage work.
+
 Neither mode recursively sizes the whole destination for completion output.
 **Downloaded bytes** counts files successfully published in this run; it is not
 the destination's total size or allocated disk space. Mirror mode checks
@@ -1864,6 +1879,11 @@ limit tracker behavior; they do not make the heuristic a definitive detector.
   listing attempts; throughput does not establish a successful scan. Existing
   top-level metric keys remain available; `download_speed` is the older average
   over the collector's lifetime, not the new download-phase throughput.
+  `metrics.run.transfer_stage_seconds` holds this run's accumulated worker
+  seconds; `transfer_stage_operations` counts measured intervals (request and
+  body intervals are separate, so these are not HTTP request counts). Download
+  JSON results expose the same two fields. Existing `stage_seconds` fsync/hash
+  fields remain available for compatibility.
 - **`--progress-bar` / `--progress`** shows live tqdm bars (included in the normal installation). Both mirror and known-URL downloads show one bar per active file, updated as bytes arrive, with the current transfer stage. Mirror metadata checks use a separate files-examined bar that clears before transfers start. Completed bars close before the summary. Resumed bytes advance the file position without counting as new traffic; parallel ranges share one file bar. Directory discovery reports examined-directory counts and elapsed time while fetching listings; its total tree size is unknown, so it does not show a percentage or ETA. The final discovery rate includes listing request time.
 - **Health/metrics HTTP endpoints.** Setting `--metrics-json FILE` also starts
   a local HTTP server for a non-dry-run instance, until it is cleaned up.
