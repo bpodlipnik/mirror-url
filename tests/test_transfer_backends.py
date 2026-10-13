@@ -749,7 +749,7 @@ def test_incompatible_modes_fail_explicitly(tmp_path, options):
         )
 
 
-def test_optional_dependency_error_is_actionable(monkeypatch):
+def test_missing_required_backend_dependency_error_is_actionable(monkeypatch):
     original = builtins.__import__
 
     def without_aiohttp(name, *args, **kwargs):
@@ -759,7 +759,7 @@ def test_optional_dependency_error_is_actionable(monkeypatch):
 
     monkeypatch.setattr(builtins, "__import__", without_aiohttp)
     assert require_backend("httpx") is None
-    with pytest.raises(ConfigError, match=r"mirror-url\[aiohttp\]"):
+    with pytest.raises(ConfigError, match="Missing required dependency aiohttp.*pip install"):
         require_backend("aiohttp")
     with pytest.raises(ConfigError, match="Unknown"):
         require_backend("other")

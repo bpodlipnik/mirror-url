@@ -36,6 +36,7 @@ dependencies = [
     # without h2 installed), silently and permanently falling back to
     # the slower sync path. See CHANGELOG for the version this was fixed.
     "httpx[http2]>=0.24",
+    "aiohttp>=3.10,<4",
     "pydantic>=2.0",
     "PyYAML>=6.0",
     "tqdm>=4.65",
@@ -49,8 +50,9 @@ fast = ["stringzilla>=3.0", "lxml>=4.9"]
 # Retain the extra name for compatibility; progress is included in core.
 progress = []
 monitor = ["psutil>=5.9"]
-aiohttp = ["aiohttp>=3.10,<4"]
-all = ["stringzilla>=3.0", "lxml>=4.9", "psutil>=5.9", "aiohttp>=3.10,<4"]
+# Retain the extra name for compatibility; both backends are included in core.
+aiohttp = []
+all = ["stringzilla>=3.0", "lxml>=4.9", "psutil>=5.9"]
 
 # Development / CI toolchain.
 dev = [

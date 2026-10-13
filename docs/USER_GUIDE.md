@@ -123,9 +123,10 @@ To include the optional speed extras:
 /opt/mirror-url/bin/pip install "/tmp/mirror_url-3.6.0-py3-none-any.whl[fast]"
 ```
 
-Available extras: `fast` (stringzilla + lxml), `aiohttp` (whole-file backend),
+Available extras: `fast` (stringzilla + lxml),
 `monitor` (psutil), `all` (everything), `dev` (test/lint toolchain).
-The `progress` extra remains compatible; `tqdm` is installed with the base package.
+The `progress` and `aiohttp` extras remain compatible; `tqdm` and both HTTPX
+and aiohttp backends are installed with the base package.
 
 ### From a Git repository
 
@@ -293,7 +294,7 @@ The most commonly used options:
 </tr>
 <tr>
 <td nowrap><samp>--backend httpx|aiohttp</samp></td>
-<td>HTTPX is the default. aiohttp requires the optional extra and uses HTTP/1.1 whole-file streaming. Normal mirroring keeps discovery and freshness checks with either backend.</td>
+<td>HTTPX is the default. Both backends are included in the standard installation. aiohttp uses HTTP/1.1 whole-file streaming. Normal mirroring keeps discovery and freshness checks with either backend.</td>
 </tr>
 <tr>
 <td nowrap><samp>--max-chunks N</samp></td>
@@ -1146,9 +1147,9 @@ python -m mirror_url --mode download --backend httpx \
   --requests-per-second 0 --request-delay 0 --verify-content
 ```
 
-To use aiohttp, install `python -m pip install -e ".[aiohttp]"` from the checkout
-in your development environment, then change `--backend httpx` to
-`--backend aiohttp`. Both clients use the same publication and receipt policy.
+To use aiohttp, change `--backend httpx` to `--backend aiohttp`; both backends
+are included in the standard installation. Both clients use the same publication
+and receipt policy.
 Do not expect bare-client benchmark timings: filesystem checks, durable staging
 and optional SHA-256 hashing are included here.
 

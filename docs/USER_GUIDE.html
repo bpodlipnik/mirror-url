@@ -393,10 +393,10 @@ class="sourceCode bash"><code class="sourceCode bash"><span id="cb3-1"><a href="
 <div class="sourceCode" id="cb4"><pre
 class="sourceCode bash"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="ex">/opt/mirror-url/bin/pip</span> install <span class="st">&quot;/tmp/mirror_url-3.6.0-py3-none-any.whl[fast]&quot;</span></span></code></pre></div>
 <p>Available extras: <code>fast</code> (stringzilla + lxml),
-<code>aiohttp</code> (whole-file backend), <code>monitor</code>
-(psutil), <code>all</code> (everything), <code>dev</code> (test/lint
-toolchain). The <code>progress</code> extra remains compatible;
-<code>tqdm</code> is installed with the base package.</p>
+<code>monitor</code> (psutil), <code>all</code> (everything),
+<code>dev</code> (test/lint toolchain). The <code>progress</code> and
+<code>aiohttp</code> extras remain compatible; <code>tqdm</code> and
+both HTTPX and aiohttp backends are installed with the base package.</p>
 <h3 id="from-a-git-repository">From a Git repository</h3>
 <div class="sourceCode" id="cb5"><pre
 class="sourceCode bash"><code class="sourceCode bash"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> install <span class="st">&quot;git+https://github.com/bpodlipnik/mirror-url.git@v3.6.0&quot;</span></span>
@@ -545,7 +545,7 @@ below.</p>
 </tr>
 <tr>
 <td nowrap><samp>--backend httpx|aiohttp</samp></td>
-<td>HTTPX is the default. aiohttp requires the optional extra and uses HTTP/1.1 whole-file streaming. Normal mirroring keeps discovery and freshness checks with either backend.</td>
+<td>HTTPX is the default. Both backends are included in the standard installation. aiohttp uses HTTP/1.1 whole-file streaming. Normal mirroring keeps discovery and freshness checks with either backend.</td>
 </tr>
 <tr>
 <td nowrap><samp>--max-chunks N</samp></td>
@@ -1375,13 +1375,11 @@ class="sourceCode bash"><code class="sourceCode bash"><span id="cb27-1"><a href=
 <span id="cb27-2"><a href="#cb27-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--url</span> https://example.org/files/ <span class="at">--url-list</span> files.txt <span class="dt">\</span></span>
 <span id="cb27-3"><a href="#cb27-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--dest-path</span> ./downloads <span class="at">--log-path</span> ./logs <span class="at">--max-concurrent-downloads</span> 20 <span class="dt">\</span></span>
 <span id="cb27-4"><a href="#cb27-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">--requests-per-second</span> 0 <span class="at">--request-delay</span> 0 <span class="at">--verify-content</span></span></code></pre></div>
-<p>To use aiohttp, install
-<code>python -m pip install -e ".[aiohttp]"</code> from the checkout in
-your development environment, then change <code>--backend httpx</code>
-to <code>--backend aiohttp</code>. Both clients use the same publication
-and receipt policy. Do not expect bare-client benchmark timings:
-filesystem checks, durable staging and optional SHA-256 hashing are
-included here.</p>
+<p>To use aiohttp, change <code>--backend httpx</code> to
+<code>--backend aiohttp</code>; both backends are included in the
+standard installation. Both clients use the same publication and receipt
+policy. Do not expect bare-client benchmark timings: filesystem checks,
+durable staging and optional SHA-256 hashing are included here.</p>
 <p>Existing lists of absolute URLs still work, and a list may mix
 absolute URLs with root-relative paths. Lists use UTF-8 (an initial BOM
 is accepted), trim surrounding whitespace and ignore blank/comment

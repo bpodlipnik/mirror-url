@@ -13,8 +13,8 @@ repeats the essentials so you can work from it alone.
 - **Package:** `mirror_url` (src-layout under `src/`)
 - **Version:** 3.6.0
 - **Python:** 3.10 or newer; CI tests Python 3.10–3.14
-- **Runtime deps:** `httpx[http2]` (including `h2`), `pydantic` v2, `PyYAML`, `portalocker` 3.x, `tqdm` (optional: `stringzilla`,
-  `lxml`, `psutil`, `aiohttp`)
+- **Runtime deps:** `httpx[http2]` (including `h2`), `aiohttp`, `pydantic` v2, `PyYAML`, `portalocker` 3.x, `tqdm` (optional: `stringzilla`,
+  `lxml`, `psutil`)
 
 ---
 
@@ -678,7 +678,7 @@ without requiring slow streams to fill a complete block. Multiple workers use
 `AsyncTransfers._one` provides whole-file policy and `_publish` provides the
 shared identity, hash, timestamp and atomic-publication policy. Cancellation drains an
 in-flight thread operation before response closure and staging cleanup, even
-when shutdown cancels a worker again. The optional aiohttp resolver
+when shutdown cancels a worker again. The aiohttp resolver
 returns the validated public address directly to its connector, preserving the
 original hostname for Host and TLS. aiohttp requests retain encoded URL paths,
 use HTTP/1.1 and disable implicit redirects, decompression, cookies and proxies.

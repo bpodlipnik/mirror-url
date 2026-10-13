@@ -220,7 +220,10 @@ def require_backend(backend: str) -> Any:
     try:
         import aiohttp
     except ImportError as error:
-        raise ConfigError("Install mirror-url[aiohttp] to use --backend aiohttp") from error
+        raise ConfigError(
+            "Missing required dependency aiohttp; repair the installation with "
+            "python -m pip install --upgrade mirror-url"
+        ) from error
     return aiohttp
 
 

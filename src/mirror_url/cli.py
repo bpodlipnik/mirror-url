@@ -574,7 +574,7 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
         "--backend",
         choices=["httpx", "aiohttp"],
         default="httpx",
-        help="Transfer backend (aiohttp extra required; aiohttp uses whole-file HTTP/1.1 streaming)",
+        help="Transfer backend (HTTPX default; aiohttp uses whole-file HTTP/1.1 streaming)",
     )
     basic.add_argument(
         "--url-list",
