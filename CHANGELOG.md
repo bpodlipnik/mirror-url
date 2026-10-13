@@ -4,6 +4,24 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Support `--parallel-downloads` and `--streaming-parallel` with aiohttp in
+  mirror and download modes through the existing shared chunk engine. Keep
+  exact range validation, bounded retries, disk reservations, byte progress,
+  atomic publication and ownership receipts consistent with HTTPX.
+
+### Fixed
+
+- Include aiohttp in the base requirements so `--backend aiohttp` works after
+  a standard installation. Keep the `aiohttp` extra as a compatibility alias
+  and give a repair command if the required backend dependency is missing.
+- Drain backend closure before releasing transfer ownership, including
+  repeated cancellation during shutdown. Avoid creating an idle HTTPX chunk
+  manager for aiohttp mirror transfers.
+
 ## [3.6.0] - 2026-10-12
 
 ### Added

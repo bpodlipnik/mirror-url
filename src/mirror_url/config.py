@@ -547,12 +547,8 @@ class MirrorConfig(BaseModel):
             or self.overwrite
         ):
             raise ConfigError("download files, --url-list and --overwrite require --mode download")
-        if self.backend == "aiohttp" and (
-            self.parallel_downloads or self.streaming_parallel or self.auto_concurrency
-        ):
-            raise ConfigError(
-                "aiohttp uses bounded whole-file transfers; chunk modes and auto-concurrency require httpx"
-            )
+        if self.backend == "aiohttp" and self.auto_concurrency:
+            raise ConfigError("auto-concurrency requires httpx")
 
         # 2. Validate regex patterns in file_filters
         for pattern in self.file_filters:

@@ -123,9 +123,10 @@ To include the optional speed extras:
 /opt/mirror-url/bin/pip install "/tmp/mirror_url-3.6.0-py3-none-any.whl[fast]"
 ```
 
-Available extras: `fast` (stringzilla + lxml), `aiohttp` (whole-file backend),
+Available extras: `fast` (stringzilla + lxml),
 `monitor` (psutil), `all` (everything), `dev` (test/lint toolchain).
-The `progress` extra remains compatible; `tqdm` is installed with the base package.
+The `progress` and `aiohttp` extras remain compatible; `tqdm` and both HTTPX
+and aiohttp backends are installed with the base package.
 
 ### From a Git repository
 
@@ -293,7 +294,7 @@ The most commonly used options:
 </tr>
 <tr>
 <td nowrap><samp>--backend httpx|aiohttp</samp></td>
-<td>HTTPX is the default. aiohttp requires the optional extra and uses HTTP/1.1 whole-file streaming. Normal mirroring keeps discovery and freshness checks with either backend.</td>
+<td>HTTPX is the default. Both backends are included in the standard installation and support whole-file and chunk transfers. aiohttp uses HTTP/1.1. Normal mirroring keeps discovery and freshness checks with either backend.</td>
 </tr>
 <tr>
 <td nowrap><samp>--max-chunks N</samp></td>
@@ -965,7 +966,7 @@ GET; it performs no discovery, freshness checks, ETag cache reuse or ranged
 resume. It never deletes obsolete local files. Use normal
 mirror mode when you need incremental synchronization.
 
-With HTTPX, `--parallel-downloads` downloads eligible files in concurrent
+With either backend, `--parallel-downloads` downloads eligible files in concurrent
 chunks stored in temporary files, then assembles and publishes them.
 `--streaming-parallel` writes concurrent chunks into one staging file before
 publication. Both work with positional files and with `--url-list`, and use
@@ -973,7 +974,7 @@ the same verified chunk engine as mirror mode:
 
 ```bash
 mirror-url --mode download https://example.org/data/large.bin \
-  --streaming-parallel --max-chunks 8 --print-logs --progress-bar
+  --backend aiohttp --streaming-parallel --max-chunks 8 --print-logs --progress-bar
 ```
 
 Explicit chunk modes add a HEAD probe for range metadata, not a freshness
@@ -984,7 +985,9 @@ invalid range responses fail the file and preserve its previous destination.
 `--max-concurrent-downloads` limits files, `--max-chunks` limits chunks per file,
 and `--max-parallel-chunks` limits active chunk workers across the batch.
 The shared engine also limits untrusted origins to four active chunks per IP.
-aiohttp remains a whole-file backend and rejects both chunk flags.
+Both HTTPX and aiohttp use this same range validation, disk budget, progress
+and publication policy. aiohttp performs its requests on its session's event
+loop while the shared chunk workers read and write bounded blocks.
 
 Known-URL downloads sample destination free space once per batch, before the
 first payload write. A shared budget reserves each declared file length and
@@ -1146,9 +1149,9 @@ python -m mirror_url --mode download --backend httpx \
   --requests-per-second 0 --request-delay 0 --verify-content
 ```
 
-To use aiohttp, install `python -m pip install -e ".[aiohttp]"` from the checkout
-in your development environment, then change `--backend httpx` to
-`--backend aiohttp`. Both clients use the same publication and receipt policy.
+To use aiohttp, change `--backend httpx` to `--backend aiohttp`; both backends
+are included in the standard installation. Both clients use the same publication
+and receipt policy.
 Do not expect bare-client benchmark timings: filesystem checks, durable staging
 and optional SHA-256 hashing are included here.
 
@@ -1192,8 +1195,9 @@ failed file makes the command exit nonzero. `--dry-run` validates the list
 without network access or download state creation. Discovery/listing/filter
 flags, auto-concurrency, missing-only mode and cleanup policies
 other than `safe` are rejected in download mode. For normal mirroring,
-`--backend aiohttp` supports whole-file transfers; chunk modes and
-auto-concurrency require HTTPX, and existing partials are preserved.
+`--backend aiohttp` supports whole-file transfers and both chunk modes in
+mirror and download modes. Auto-concurrency still requires HTTPX. aiohttp
+transfers preserve existing partials and do not resume them.
 
 ## Filtering and scope
 

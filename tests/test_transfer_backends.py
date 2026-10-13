@@ -738,7 +738,6 @@ async def test_pacer_reserves_distinct_slots_without_holding_lock(monkeypatch):
         {"mode": "download", "url_list": Path("urls"), "cleanup_policy": CleanupPolicy.DELETE},
         {"mode": "download", "url_list": Path("urls"), "file_filters": [".fits"]},
         {"mode": "download", "url_list": Path("urls"), "missing_files": True},
-        {"backend": "aiohttp", "streaming_parallel": True},
         {"backend": "aiohttp", "auto_concurrency": True},
     ],
 )
@@ -749,7 +748,7 @@ def test_incompatible_modes_fail_explicitly(tmp_path, options):
         )
 
 
-def test_optional_dependency_error_is_actionable(monkeypatch):
+def test_missing_required_backend_dependency_error_is_actionable(monkeypatch):
     original = builtins.__import__
 
     def without_aiohttp(name, *args, **kwargs):
@@ -759,7 +758,7 @@ def test_optional_dependency_error_is_actionable(monkeypatch):
 
     monkeypatch.setattr(builtins, "__import__", without_aiohttp)
     assert require_backend("httpx") is None
-    with pytest.raises(ConfigError, match=r"mirror-url\[aiohttp\]"):
+    with pytest.raises(ConfigError, match="Missing required dependency aiohttp.*pip install"):
         require_backend("aiohttp")
     with pytest.raises(ConfigError, match="Unknown"):
         require_backend("other")

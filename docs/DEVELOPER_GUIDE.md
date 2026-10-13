@@ -13,8 +13,8 @@ repeats the essentials so you can work from it alone.
 - **Package:** `mirror_url` (src-layout under `src/`)
 - **Version:** 3.6.0
 - **Python:** 3.10 or newer; CI tests Python 3.10–3.14
-- **Runtime deps:** `httpx[http2]` (including `h2`), `pydantic` v2, `PyYAML`, `portalocker` 3.x, `tqdm` (optional: `stringzilla`,
-  `lxml`, `psutil`, `aiohttp`)
+- **Runtime deps:** `httpx[http2]` (including `h2`), `aiohttp`, `pydantic` v2, `PyYAML`, `portalocker` 3.x, `tqdm` (optional: `stringzilla`,
+  `lxml`, `psutil`)
 
 ---
 
@@ -678,7 +678,7 @@ without requiring slow streams to fill a complete block. Multiple workers use
 `AsyncTransfers._one` provides whole-file policy and `_publish` provides the
 shared identity, hash, timestamp and atomic-publication policy. Cancellation drains an
 in-flight thread operation before response closure and staging cleanup, even
-when shutdown cancels a worker again. The optional aiohttp resolver
+when shutdown cancels a worker again. The aiohttp resolver
 returns the validated public address directly to its connector, preserving the
 original hostname for Host and TLS. aiohttp requests retain encoded URL paths,
 use HTTP/1.1 and disable implicit redirects, decompression, cookies and proxies.
@@ -695,7 +695,7 @@ other writers; write/fsync failures continue through the existing preservation
 and receipt rules. The same budget serves known-URL downloads and the aiohttp
 mirror transfer batch.
 
-Explicit HTTPX chunk modes in known-URL downloads also use this budget:
+Explicit chunk modes with either backend also use this budget:
 traditional chunks reserve twice the file length before workspace allocation,
 while streaming chunks reserve one length. A streaming pre-allocation fallback
 reserves the additional assembly length before chunk writes. The probe, retries
@@ -716,7 +716,7 @@ chunks. The whole-file pipeline preserves those existing partials.
 
 `AsyncTransfers._one_chunked` adapts the same `ParallelDownloadManager` used by
 mirror mode, rather than implementing another range engine. `_ChunkConnection`
-uses the known-URL HTTPX client's pinned transport, validates every redirect
+uses the selected backend's pinned transport, validates every redirect
 against the selected scope, preserves Range/If-Range and paces each request.
 A HEAD probe supplies size, range support and a strong representation validator
 to `create_chunks`; no scanner, freshness or cache lookup runs. Ineligible
@@ -726,7 +726,18 @@ when cancellation arrives before the event loop receives the worker result.
 Chunk workers drain before scratch cleanup, client closure and lock release;
 cancellation prevents pending publication. Known-URL chunk retries respect
 `max_retries` without the mirror engine's additional failed-chunk recovery pass.
-The default whole-file and aiohttp paths remain available.
+Both chunk modes work with either backend in mirror and download modes.
+`ChunkResponse` describes the range engine's shared response interface.
+The aiohttp adapter submits HEAD, Range GET, bounded reads and response closure
+to its session's existing event loop from the chunk worker threads. It keeps
+aiohttp IO on that loop, normalizes transport failures to the existing retry
+contract, and leaves representation validation in the shared range engine.
+The same cancellation drain protects threaded operations, workers and final
+session closure, including repeated cancellation during cleanup. Client and
+scratch ownership outlive all readers and writers. aiohttp mirror mode creates
+its chunk manager inside the owned transfer batch, instead of starting an idle
+HTTPX chunk manager during mirror initialization. Whole-file mode remains
+available, and auto-concurrency remains restricted to HTTPX.
 
 The CLI creates one `MetricsCollector` and passes it through
 `download_url_list`, `AsyncTransfers`, `ParallelDownloadManager`, and

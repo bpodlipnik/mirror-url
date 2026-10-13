@@ -141,9 +141,16 @@ def test_aliases_and_out_of_suffix_inputs_are_rejected_before_requests(tmp_path,
 
 
 @pytest.mark.integration
-def test_relative_batch_uses_the_existing_parallel_range_engine(tmp_path, ranges, chunk_mode):
+def test_relative_batch_uses_the_existing_parallel_range_engine(
+    tmp_path, ranges, chunk_mode, backend
+):
     config = configuration(
-        tmp_path, ranges, chunk_mode, url_list=None, download_files=["a", "nested/b"]
+        tmp_path,
+        ranges,
+        chunk_mode,
+        backend=backend,
+        url_list=None,
+        download_files=["a", "nested/b"],
     )
     result = download_url_list(config)
     assert result["success"] and result["files_downloaded"] == 2

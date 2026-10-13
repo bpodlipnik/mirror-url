@@ -42,8 +42,9 @@ directory index; direct file and URL-list downloads do not require a listing.
 - **Filename preflight** — preserve distinct original names on a confirmed case-sensitive destination; reject case collisions on a case-insensitive destination before downloads. Rewritten, unsafe and Unicode-aliased paths remain blocked; see [download behavior and preserving original names](docs/USER_GUIDE.md#filename-collisions-and-download-behavior).
 - **Operability** — metrics collection, multi-level progress, optional HTTP health-check server.
 - **Caching** — directory listings and file metadata; discovery currently keeps the remote file list in memory.
-- **Known-URL downloads** — `--mode download FILE_URL` downloads one file, or `--mode download --url-list urls.txt` streams an exact list, without discovery or freshness probes. Both HTTPX and optional aiohttp use the same destination, scope, staging and receipt checks.
+- **Known-URL downloads** — `--mode download FILE_URL` downloads one file, or `--mode download --url-list urls.txt` streams an exact list, without discovery or freshness probes. Both HTTPX and aiohttp use the same destination, scope, staging and receipt checks.
 - **Selected freshness checks** — combine `--missing-files` with `--check-files path1 path2` or `--check-files @list.txt` to refresh selected existing files while downloading all missing files in scope. Paths stay relative to `--url`, including any suffix.
+- **Parallel chunks with either backend** — `--parallel-downloads` and `--streaming-parallel` use the same verified range engine with HTTPX or aiohttp, in mirror and download modes.
 - **Explicit pacing** — `--requests-per-second` and `--request-delay` control the request budget independently of security checks.
 
 ## Installation
@@ -58,7 +59,7 @@ python -m pip install --upgrade pip
 python -m pip install mirror-url
 ```
 
-To include all optional acceleration, monitoring, and backend packages:
+To include all optional acceleration and monitoring packages:
 
 ```bash
 python -m pip install "mirror-url[all]"
@@ -78,20 +79,19 @@ mirror-url --version
 mirror-url --help
 ```
 
-Core dependencies: `httpx[http2]`, `pydantic` (v2), `PyYAML`, `portalocker`
-(including `pywin32` on Windows), and `tqdm` for progress bars. Optional extras:
-`fast` (stringzilla, lxml), `monitor` (psutil),
-`aiohttp` (the whole-file backend), and `all`
-(all optional runtime packages). The `progress` extra remains a compatibility alias;
-normal installations include progress bars. Contributor setup is described below.
+Core dependencies: `httpx[http2]`, `aiohttp`, `pydantic` (v2), `PyYAML`,
+`portalocker` (including `pywin32` on Windows), and `tqdm` for progress bars.
+Optional extras: `fast` (stringzilla, lxml), `monitor` (psutil), and `all`
+(all optional runtime packages). The `progress` and `aiohttp` extras remain
+compatibility aliases; normal installations include both backends and progress
+bars. Contributor setup is described below.
 
 ## Usage
 
 For an exact, pre-built list of URLs:
 
 ```bash
-# Install the optional backend in your virtual environment.
-python -m pip install "mirror-url[aiohttp]"
+# Both backends are included in the standard installation.
 python -m mirror_url --mode download --backend aiohttp \
   --url https://example.org/files/ --url-list urls.txt \
   --dest-path ./downloads --log-path ./logs --concurrency 20 \

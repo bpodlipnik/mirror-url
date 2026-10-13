@@ -472,14 +472,15 @@ class _MirrorBase(MirrorHost):
         # ============================================================================
         self.parallel_manager = None
         try:
-            self.parallel_manager = ParallelDownloadManager(
-                config=config,
-                metrics=self.metrics,
-                connection_manager=self.connection_manager,
-                bandwidth_limiter=self.bandwidth_limiter,
-                concurrency_manager=self.concurrency_manager,
-                mirror=self,
-            )
+            if config.backend == "httpx":
+                self.parallel_manager = ParallelDownloadManager(
+                    config=config,
+                    metrics=self.metrics,
+                    connection_manager=self.connection_manager,
+                    bandwidth_limiter=self.bandwidth_limiter,
+                    concurrency_manager=self.concurrency_manager,
+                    mirror=self,
+                )
         except Exception as e:
             logging.warning(f"Failed to initialize parallel download manager: {e}")
             self.parallel_manager = None

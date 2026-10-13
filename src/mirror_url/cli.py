@@ -574,7 +574,7 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
         "--backend",
         choices=["httpx", "aiohttp"],
         default="httpx",
-        help="Transfer backend (aiohttp extra required; aiohttp uses whole-file HTTP/1.1 streaming)",
+        help="Transfer backend (HTTPX default; both support whole-file and chunk transfers; aiohttp uses HTTP/1.1)",
     )
     basic.add_argument(
         "--url-list",
@@ -593,12 +593,12 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
     mode_group.add_argument(
         "--parallel-downloads",
         action="store_true",
-        help="HTTPX mirror/download: parallel files with verified temporary chunks. Mirror whole-file fallbacks can resume; chunks do not resume across runs",
+        help="Mirror/download with either backend: parallel files with verified temporary chunks. HTTPX mirror whole-file fallbacks can resume; chunks do not resume across runs",
     )
     mode_group.add_argument(
         "--streaming-parallel",
         action="store_true",
-        help="HTTPX mirror/download: parallel files; eligible chunks write to a staging file and publish atomically after verification",
+        help="Mirror/download with either backend: parallel files; eligible chunks write to a staging file and publish atomically after verification",
     )
     mode_group.add_argument(
         "--sequential-downloads",
