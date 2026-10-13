@@ -1386,6 +1386,48 @@ def test_cli_known_url_byte_bar_and_json_stream(
     assert not any(t.name == "mirror-url-download-progress" for t in threading.enumerate())
 
 
+@pytest.mark.parametrize("print_logs", [False, True])
+def test_cli_concurrent_logging_during_handler_setup_respects_console_preferences(
+    tmp_path, origin, backend, monkeypatch, capsys, print_logs
+):
+    original = cli.MirrorFileHandler
+
+    def create(*args, **kwargs):
+        thread = threading.Thread(target=logging.info, args=("Log during handler construction",))
+        thread.start()
+        thread.join(timeout=5)
+        assert not thread.is_alive()
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(cli, "MirrorFileHandler", create)
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "mirror-url",
+            "--mode",
+            "download",
+            origin.base + "a",
+            "--backend",
+            backend,
+            "--dest-path",
+            str(tmp_path / "destination"),
+            "--log-path",
+            str(tmp_path / "logs"),
+            *(["--print-logs"] if print_logs else []),
+        ],
+    )
+    cli.main()
+    captured = capsys.readouterr()
+    assert ("SUMMARY:" in captured.err) is print_logs
+    if print_logs:
+        assert captured.out == ""
+        assert captured.err.count("SUMMARY:") == 1
+    else:
+        assert json.loads(captured.out)["files_downloaded"] == 1
+    logs = list((tmp_path / "logs").glob("download_*.log"))
+    assert len(logs) == 1 and "SUMMARY:" in logs[0].read_text(encoding="utf-8")
+
+
 def test_cli_download_summary_uses_validated_destination(tmp_path, origin, monkeypatch, capsys):
     origin.routes["/root/CON/a"] = (200, {}, b"destination bytes")
     destination, logs = tmp_path / "destination", tmp_path / "logs"

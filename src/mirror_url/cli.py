@@ -109,15 +109,6 @@ def setup_shared_logging(
     Path(args.log_path).mkdir(parents=True, exist_ok=True)
     log_path = Path(args.log_path) / log_filename
 
-    # Remove ALL existing handlers
-    for handler in logging.root.handlers[:]:
-        logging.root.removeHandler(handler)
-        if hasattr(handler, "close"):
-            try:
-                handler.close()
-            except Exception:
-                pass
-
     # Create file handler (always)
     file_handler = MirrorFileHandler(str(log_path), mode="a", encoding="utf-8")
     file_handler.setLevel(logging.DEBUG if args.debug else logging.INFO)
@@ -150,12 +141,10 @@ def setup_shared_logging(
     else:
         log_level = logging.INFO
 
-    # Configure root logger
-    logging.root.setLevel(log_level)
-
-    # Add handlers
-    for handler in handlers:
-        logging.root.addHandler(handler)
+    # Replace handlers under logging's configuration lock. An empty root
+    # between removal and file-handler creation lets a concurrent module-level
+    # log call install basicConfig's default console handler.
+    logging.basicConfig(level=log_level, handlers=handlers, force=True)
 
     # Log header information. Describe the settings the run will actually use
     # (CLI > --config file > default), not the raw parser defaults.

@@ -21,6 +21,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Drain backend closure before releasing transfer ownership, including
   repeated cancellation during shutdown. Avoid creating an idle HTTPX chunk
   manager for aiohttp mirror transfers.
+- Replace shared CLI logging handlers atomically so concurrent logging during
+  setup cannot add an unwanted console handler or duplicate the summary.
 
 ## [3.6.0] - 2026-10-12
 
