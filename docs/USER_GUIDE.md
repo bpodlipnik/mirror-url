@@ -1094,9 +1094,15 @@ The summary ends with the same cache and parser counters as mirror mode,
 followed by the separator, completion message, processed scope (`ROOT` for
 the direct shortcut) and connection-pool closure count. Download mode reports
 zero parser/cache work and counts pools only after their backend closes.
-The startup banner records the backend, destination and SHA-256 setting.
+Both modes use the same startup header: `Starting MirrorURL v… mode: mirror`
+or `mode: download`, followed by job start time, sanitized command, selected
+suffix, remote root, destination path, log file, backend and SHA-256 setting.
+The fields have the same labels and order in per-job and shared logs. Mirror's
+discovery/cache configuration follows the header; download mode omits those
+inactive subsystems. Shared mirror logs record configuration once per suffix.
 Configured limits are in debug output (`--verbose`). The transfer phase reports
-the actual selected-file/worker count and each eligible file's chunk plan.
+the actual selected-file/worker count as `File download plan: … files; … file
+workers` and each eligible file's chunk plan.
 When a file uses a whole-file GET, the log explains the reason: its size permits
 only one chunk, a configured limit prevents splitting, or the HEAD response
 does not provide the required range metadata. Every published file gets one

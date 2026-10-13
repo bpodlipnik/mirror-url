@@ -1173,7 +1173,9 @@ def test_cli_print_logs_reports_during_network_wait_then_readable_summary(
     assert captured.out == "" and waited == [True]
     assert len(messages) >= 2 and "waiting for response" in "\n".join(messages)
     assert "SUMMARY:" in captured.err and "Files downloaded: 1" in captured.err
-    assert f"Destination: {tmp_path}" in captured.err and "Download throughput:" in captured.err
+    assert (
+        f"Destination path: {tmp_path}" in captured.err and "Download throughput:" in captured.err
+    )
     assert "SHA-256: disabled" in captured.err and "SHA-256 time (sum):" not in captured.err
     assert "Download result: {" not in captured.err and '"bytes_downloaded"' not in captured.err
     for unused in [
@@ -1454,7 +1456,7 @@ def test_cli_download_summary_uses_validated_destination(tmp_path, origin, monke
     target = destination / "_CON"
     assert captured.out == "" and "Result: SUCCESS" in captured.err
     assert (target / "a").read_bytes() == b"destination bytes"
-    assert f"Destination: {target}" in captured.err
+    assert f"Destination path: {target}" in captured.err
     receipts = list((target / ".mirror-url-state").glob("url-list-*.json"))
     assert len(receipts) == 1 and json.loads(receipts[0].read_text())["target"] == str(target)
 
