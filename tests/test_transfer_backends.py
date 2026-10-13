@@ -738,7 +738,6 @@ async def test_pacer_reserves_distinct_slots_without_holding_lock(monkeypatch):
         {"mode": "download", "url_list": Path("urls"), "cleanup_policy": CleanupPolicy.DELETE},
         {"mode": "download", "url_list": Path("urls"), "file_filters": [".fits"]},
         {"mode": "download", "url_list": Path("urls"), "missing_files": True},
-        {"backend": "aiohttp", "streaming_parallel": True},
         {"backend": "aiohttp", "auto_concurrency": True},
     ],
 )

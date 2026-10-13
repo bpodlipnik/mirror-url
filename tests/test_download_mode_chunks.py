@@ -25,6 +25,7 @@ from mirror_url.scratch import OwnedScratch
 from mirror_url.security import SecurityValidator
 from mirror_url.transfers import AsyncTransfers, _identity
 from test_transfer_backends import assert_no_scratch, job
+from test_transfer_backends import backend as backend
 
 
 @pytest.fixture(params=["parallel_downloads", "streaming_parallel"])
@@ -151,10 +152,11 @@ def ranges(monkeypatch):
     assert not thread.is_alive() and state.active == 0
 
 
-def configuration(tmp_path, ranges, chunk_mode, **options):
+def configuration(tmp_path, ranges, chunk_mode, *, backend="httpx", **options):
     return job(
         tmp_path,
         ranges,
+        backend=backend,
         **{chunk_mode: True, "min_chunk_size_mb": 1, "max_chunks_per_file": 3, **options},
     )
 
@@ -165,9 +167,9 @@ def receipt(result, local):
 
 @pytest.mark.parametrize("direct", [False, True])
 def test_exact_downloads_have_concurrent_ranges_and_owned_receipts(
-    tmp_path, ranges, chunk_mode, direct, monkeypatch
+    tmp_path, ranges, backend, chunk_mode, direct, monkeypatch
 ):
-    config = configuration(tmp_path, ranges, chunk_mode)
+    config = configuration(tmp_path, ranges, chunk_mode, backend=backend)
     if direct:
         config.url_list, config.download_url = None, ranges.base + "a"
     usage = []
@@ -239,9 +241,9 @@ def test_exact_downloads_have_concurrent_ranges_and_owned_receipts(
 
 
 @pytest.mark.parametrize("fault", ["weak", "no-ranges", "no-head", "small"])
-def test_ineligible_files_fall_back_to_whole_file(tmp_path, ranges, chunk_mode, fault):
+def test_ineligible_files_fall_back_to_whole_file(tmp_path, ranges, backend, chunk_mode, fault):
     ranges.fault = fault
-    config = configuration(tmp_path, ranges, chunk_mode)
+    config = configuration(tmp_path, ranges, chunk_mode, backend=backend)
     if fault == "small":
         config.min_chunk_size_mb = 4
     result = download_url_list(config)
@@ -258,10 +260,10 @@ def test_ineligible_files_fall_back_to_whole_file(tmp_path, ranges, chunk_mode, 
 
 @pytest.mark.parametrize("fault", ["status", "etag", "range", "encoding", "truncate"])
 def test_invalid_ranges_fail_without_publication_or_whole_file_fallback(
-    tmp_path, ranges, chunk_mode, fault
+    tmp_path, ranges, backend, chunk_mode, fault
 ):
     ranges.fault = fault
-    config = configuration(tmp_path, ranges, chunk_mode, overwrite=True)
+    config = configuration(tmp_path, ranges, chunk_mode, overwrite=True, backend=backend)
     config.dest_path.mkdir()
     local = config.dest_path / "a"
     local.write_bytes(b"old")
@@ -279,9 +281,9 @@ def test_invalid_ranges_fail_without_publication_or_whole_file_fallback(
 
 
 @pytest.mark.parametrize("recover", [False, True])
-def test_chunk_retry_budget_restarts_exact_range(tmp_path, ranges, chunk_mode, recover):
+def test_chunk_retry_budget_restarts_exact_range(tmp_path, ranges, backend, chunk_mode, recover):
     ranges.fault = "recover" if recover else "truncate"
-    config = configuration(tmp_path, ranges, chunk_mode, max_retries=1)
+    config = configuration(tmp_path, ranges, chunk_mode, max_retries=1, backend=backend)
     result = download_url_list(config)
     assert result["success"] is recover
     gets = [key for key in ranges.counts if key[0] == "GET"]
@@ -291,9 +293,11 @@ def test_chunk_retry_budget_restarts_exact_range(tmp_path, ranges, chunk_mode, r
 
 
 def test_disk_budget_reserves_peak_before_any_chunk_write(
-    tmp_path, ranges, chunk_mode, monkeypatch
+    tmp_path, ranges, backend, chunk_mode, monkeypatch
 ):
-    config = configuration(tmp_path, ranges, chunk_mode, max_concurrent_downloads=1)
+    config = configuration(
+        tmp_path, ranges, chunk_mode, max_concurrent_downloads=1, backend=backend
+    )
     calls = []
 
     def usage(path):
@@ -310,7 +314,7 @@ def test_disk_budget_reserves_peak_before_any_chunk_write(
 
 
 def test_multiple_files_share_chunk_cap_and_one_disk_sample(
-    tmp_path, ranges, chunk_mode, monkeypatch
+    tmp_path, ranges, backend, chunk_mode, monkeypatch
 ):
     ranges.threshold = 10
     config = configuration(
@@ -321,6 +325,7 @@ def test_multiple_files_share_chunk_cap_and_one_disk_sample(
         max_concurrent_downloads=4,
         max_parallel_chunks_total=10,
         trusted_server=True,
+        backend=backend,
     )
     calls = []
     actual_usage = transfers.shutil.disk_usage
@@ -341,9 +346,11 @@ def test_multiple_files_share_chunk_cap_and_one_disk_sample(
     assert_no_scratch(config.dest_path)
 
 
-def test_published_files_stay_charged_in_batch_budget(tmp_path, ranges, chunk_mode, monkeypatch):
+def test_published_files_stay_charged_in_batch_budget(
+    tmp_path, ranges, backend, chunk_mode, monkeypatch
+):
     config = configuration(
-        tmp_path, ranges, chunk_mode, paths=("a", "b"), max_concurrent_downloads=1
+        tmp_path, ranges, chunk_mode, paths=("a", "b"), max_concurrent_downloads=1, backend=backend
     )
     multiplier = 2 if chunk_mode == "parallel_downloads" else 1
     free = int(len(ranges.payload) * (multiplier + 0.5)) + 1024**2
@@ -361,9 +368,11 @@ def test_published_files_stay_charged_in_batch_budget(tmp_path, ranges, chunk_mo
 
 @pytest.mark.parametrize("tight", [False, True])
 def test_streaming_preallocation_fallback_reserves_assembly_space(
-    tmp_path, ranges, monkeypatch, tight
+    tmp_path, ranges, backend, monkeypatch, tight
 ):
-    config = configuration(tmp_path, ranges, "streaming_parallel", max_concurrent_downloads=1)
+    config = configuration(
+        tmp_path, ranges, "streaming_parallel", max_concurrent_downloads=1, backend=backend
+    )
     free = len(ranges.payload) * (1 if tight else 2) + 1024**2 + 1
     calls = []
     monkeypatch.setattr(
@@ -390,9 +399,11 @@ def test_streaming_preallocation_fallback_reserves_assembly_space(
 
 
 @pytest.mark.parametrize("fault", ["redirect", "outside", "loop"])
-def test_redirects_preserve_range_headers_and_remain_scoped(tmp_path, ranges, chunk_mode, fault):
+def test_redirects_preserve_range_headers_and_remain_scoped(
+    tmp_path, ranges, backend, chunk_mode, fault
+):
     ranges.fault = fault
-    config = configuration(tmp_path, ranges, chunk_mode)
+    config = configuration(tmp_path, ranges, chunk_mode, backend=backend)
     result = download_url_list(config)
     assert result["success"] is (fault == "redirect")
     assert all(path.startswith("/root/") for _, path, _ in ranges.requests)
@@ -407,8 +418,10 @@ def test_redirects_preserve_range_headers_and_remain_scoped(tmp_path, ranges, ch
     assert_no_scratch(config.dest_path)
 
 
-def test_destination_change_during_transfer_is_preserved(tmp_path, ranges, chunk_mode, monkeypatch):
-    config = configuration(tmp_path, ranges, chunk_mode, overwrite=True)
+def test_destination_change_during_transfer_is_preserved(
+    tmp_path, ranges, backend, chunk_mode, monkeypatch
+):
+    config = configuration(tmp_path, ranges, chunk_mode, overwrite=True, backend=backend)
     config.dest_path.mkdir()
     local = config.dest_path / "a"
     local.write_bytes(b"old")
@@ -426,9 +439,11 @@ def test_destination_change_during_transfer_is_preserved(tmp_path, ranges, chunk
     assert_no_scratch(config.dest_path)
 
 
-async def test_cancelled_chunk_writers_drain_before_lock_release(tmp_path, ranges, chunk_mode):
+async def test_cancelled_chunk_writers_drain_before_lock_release(
+    tmp_path, ranges, backend, chunk_mode
+):
     ranges.hold = True
-    config = configuration(tmp_path, ranges, chunk_mode, overwrite=True)
+    config = configuration(tmp_path, ranges, chunk_mode, overwrite=True, backend=backend)
     target = config.dest_path
     target.mkdir()
     local = target / "a"
@@ -457,9 +472,9 @@ async def test_cancelled_chunk_writers_drain_before_lock_release(tmp_path, range
 
 
 async def test_cancellation_after_publication_keeps_its_receipt_hook(
-    tmp_path, ranges, chunk_mode, monkeypatch
+    tmp_path, ranges, backend, chunk_mode, monkeypatch
 ):
-    config = configuration(tmp_path, ranges, chunk_mode)
+    config = configuration(tmp_path, ranges, chunk_mode, backend=backend)
     target = config.dest_path
     target.mkdir()
     guard = DestinationLock([target])
@@ -495,9 +510,9 @@ async def test_cancellation_after_publication_keeps_its_receipt_hook(
 
 
 async def test_cancellation_during_hash_preserves_destination(
-    tmp_path, ranges, chunk_mode, monkeypatch
+    tmp_path, ranges, backend, chunk_mode, monkeypatch
 ):
-    config = configuration(tmp_path, ranges, chunk_mode, overwrite=True)
+    config = configuration(tmp_path, ranges, chunk_mode, overwrite=True, backend=backend)
     target = config.dest_path
     target.mkdir()
     local = target / "a"
@@ -530,10 +545,59 @@ async def test_cancellation_during_hash_preserves_destination(
         guard.close()
 
 
-def test_failed_owned_assembly_cleanup_preserves_evidence_and_reports_failure(
-    tmp_path, ranges, monkeypatch
+async def test_repeated_cancellation_drains_backend_close_before_lock_release(
+    tmp_path, ranges, backend, chunk_mode, monkeypatch
 ):
-    config = configuration(tmp_path, ranges, "parallel_downloads")
+    config = configuration(tmp_path, ranges, chunk_mode, backend=backend)
+    target = config.dest_path
+    target.mkdir()
+    guard = DestinationLock([target])
+    scratch = OwnedScratch(target, PartialDownloadManager(target)._state_directory(), None, guard)
+    engine = AsyncTransfers(config, target, ranges.base, scratch)
+    adapter = transfers._HTTPXBackend if backend == "httpx" else transfers._AIOHTTPBackend
+    actual_close = adapter.close
+    entered, release = asyncio.Event(), asyncio.Event()
+    adapters, published = [], []
+
+    async def closing(instance):
+        adapters.append(instance)
+        entered.set()
+        await release.wait()
+        await actual_close(instance)
+
+    monkeypatch.setattr(adapter, "close", closing)
+    local = target / "a"
+    task = asyncio.create_task(engine.run([(ranges.base + "a", local)], published.append))
+    try:
+        await asyncio.wait_for(entered.wait(), 5)
+        assert len(published) == 1 and local.read_bytes() == ranges.payload
+        task.cancel()
+        await asyncio.sleep(0.02)
+        assert not task.done()
+        task.cancel()
+        await asyncio.sleep(0.02)
+        assert not task.done()
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert engine.closed_connection_pools == 1
+        assert_no_scratch(target)
+    finally:
+        release.set()
+        await asyncio.gather(task, return_exceptions=True)
+        # Keep the regression's deliberately incomplete implementation safe too.
+        if engine.closed_connection_pools == 0:
+            for instance in adapters:
+                await actual_close(instance)
+        guard.close()
+    owner = DestinationLock([target])
+    owner.close()
+
+
+def test_failed_owned_assembly_cleanup_preserves_evidence_and_reports_failure(
+    tmp_path, ranges, backend, monkeypatch
+):
+    config = configuration(tmp_path, ranges, "parallel_downloads", backend=backend)
     actual = OwnedScratch._remove
 
     def retain(self, work, root, kind):
@@ -550,31 +614,34 @@ def test_failed_owned_assembly_cleanup_preserves_evidence_and_reports_failure(
     assert len(work) == 1 and (work[0] / "owner.json").exists()
 
 
-def test_chunk_flags_validate_and_aiohttp_remains_explicit(tmp_path, chunk_mode):
+@pytest.mark.parametrize("mode", ["mirror", "download"])
+def test_chunk_flags_validate_for_either_backend(tmp_path, chunk_mode, backend, mode):
     values = dict(
         base_url="https://files.example/root/",
         dest_path=tmp_path,
         log_path=tmp_path,
-        mode="download",
-        download_url="https://files.example/root/a",
+        mode=mode,
+        backend=backend,
         **{chunk_mode: True},
     )
+    if mode == "download":
+        values["download_url"] = "https://files.example/root/a"
+        with pytest.raises(ConfigError, match="chunk scratch inside"):
+            MirrorConfig(**values, chunk_assembly_dir=tmp_path / "outside")
     assert getattr(MirrorConfig(**values), chunk_mode)
-    with pytest.raises(ConfigError, match="require httpx"):
-        MirrorConfig(**values, backend="aiohttp")
-    with pytest.raises(ConfigError, match="chunk scratch inside"):
-        MirrorConfig(**values, chunk_assembly_dir=tmp_path / "outside")
 
 
 @pytest.mark.parametrize("configured", [False, True])
 def test_cli_chunk_flags_use_shared_summary_and_truthful_banner(
-    tmp_path, ranges, chunk_mode, monkeypatch, capsys, configured
+    tmp_path, ranges, chunk_mode, backend, monkeypatch, capsys, configured
 ):
     flag = "--parallel-downloads" if chunk_mode == "parallel_downloads" else "--streaming-parallel"
     arguments = [
         "mirror-url",
         "--mode",
         "download",
+        "--backend",
+        backend,
         ranges.base + "a",
         flag,
         "--dest-path",
@@ -597,6 +664,7 @@ def test_cli_chunk_flags_use_shared_summary_and_truthful_banner(
             json.dumps(
                 {
                     "base_url": ranges.base,
+                    "backend": backend,
                     "dest_path": str(tmp_path / "dest"),
                     "log_path": str(tmp_path / "logs"),
                     chunk_mode: True,
@@ -631,13 +699,14 @@ def test_cli_chunk_flags_use_shared_summary_and_truthful_banner(
     assert "SUMMARY:" in output.err and "Sync completed successfully" in output.err
     assert "Closed all 1 connection pools" in output.err
     assert "Remote files found: not performed" in output.err
+    assert f"Backend: {backend}" in output.err
     assert "Metadata time: not performed" in output.err
     assert (tmp_path / "dest/a").read_bytes() == ranges.payload
 
 
 @pytest.mark.parametrize("mode", ["download", "mirror"])
 def test_both_modes_report_eight_selected_and_four_admitted_chunks(
-    tmp_path, ranges, chunk_mode, mode, monkeypatch, caplog
+    tmp_path, ranges, backend, chunk_mode, mode, monkeypatch, caplog
 ):
     import logging
 
@@ -647,7 +716,13 @@ def test_both_modes_report_eight_selected_and_four_admitted_chunks(
     assert len(ranges.payload) == 8 * 1024**2
     ranges.hold, ranges.threshold = True, 4
     config = configuration(
-        tmp_path, ranges, chunk_mode, max_chunks_per_file=8, progress_bar=True, print_logs=True
+        tmp_path,
+        ranges,
+        chunk_mode,
+        max_chunks_per_file=8,
+        progress_bar=True,
+        print_logs=True,
+        backend=backend,
     )
     if mode == "mirror":
         config.mode, config.url_list = "mirror", None

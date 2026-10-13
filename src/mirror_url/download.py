@@ -31,7 +31,7 @@ from contextlib import contextmanager
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 from threading import RLock, Semaphore
-from typing import TYPE_CHECKING, Any, Callable, Dict, Iterator, List, Optional, Protocol
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterator, List, Mapping, Optional, Protocol
 from urllib.parse import urlparse
 
 import httpx
@@ -65,8 +65,24 @@ if TYPE_CHECKING:  # pragma: no cover - typing only, avoids an import cycle
     from .metrics import MetricsCollector
 
 
+class ChunkResponse(Protocol):
+    @property
+    def status_code(self) -> int: ...
+
+    @property
+    def headers(self) -> Mapping[str, str]: ...
+
+    def read(self) -> bytes: ...
+
+    def iter_bytes(self, chunk_size: Optional[int] = None) -> Iterator[bytes]: ...
+
+    def iter_raw(self, chunk_size: Optional[int] = None) -> Iterator[bytes]: ...
+
+    def close(self) -> None: ...
+
+
 class ChunkConnection(Protocol):
-    def request(self, url: str, **kwargs: Any) -> Any: ...
+    def request(self, url: str, **kwargs: Any) -> ChunkResponse: ...
 
 
 class ChunkBandwidth(Protocol):
@@ -390,7 +406,7 @@ class ParallelDownloadManager:
         local_path: Path,
         file_size: int,
         *,
-        response: Optional[httpx.Response] = None,
+        response: Optional[ChunkResponse] = None,
     ) -> Optional[ParallelFileDownload]:
         """Create chunk tasks for a file, using appropriate mode."""
         chunk_count = self.get_chunk_count(file_size)

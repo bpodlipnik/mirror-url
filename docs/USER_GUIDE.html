@@ -545,7 +545,7 @@ below.</p>
 </tr>
 <tr>
 <td nowrap><samp>--backend httpx|aiohttp</samp></td>
-<td>HTTPX is the default. Both backends are included in the standard installation. aiohttp uses HTTP/1.1 whole-file streaming. Normal mirroring keeps discovery and freshness checks with either backend.</td>
+<td>HTTPX is the default. Both backends are included in the standard installation and support whole-file and chunk transfers. aiohttp uses HTTP/1.1. Normal mirroring keeps discovery and freshness checks with either backend.</td>
 </tr>
 <tr>
 <td nowrap><samp>--max-chunks N</samp></td>
@@ -1196,15 +1196,15 @@ coordination.</p>
 whole-file GET; it performs no discovery, freshness checks, ETag cache
 reuse or ranged resume. It never deletes obsolete local files. Use
 normal mirror mode when you need incremental synchronization.</p>
-<p>With HTTPX, <code>--parallel-downloads</code> downloads eligible
-files in concurrent chunks stored in temporary files, then assembles and
-publishes them. <code>--streaming-parallel</code> writes concurrent
-chunks into one staging file before publication. Both work with
-positional files and with <code>--url-list</code>, and use the same
+<p>With either backend, <code>--parallel-downloads</code> downloads
+eligible files in concurrent chunks stored in temporary files, then
+assembles and publishes them. <code>--streaming-parallel</code> writes
+concurrent chunks into one staging file before publication. Both work
+with positional files and with <code>--url-list</code>, and use the same
 verified chunk engine as mirror mode:</p>
 <div class="sourceCode" id="cb21"><pre
 class="sourceCode bash"><code class="sourceCode bash"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--mode</span> download https://example.org/data/large.bin <span class="dt">\</span></span>
-<span id="cb21-2"><a href="#cb21-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--streaming-parallel</span> <span class="at">--max-chunks</span> 8 <span class="at">--print-logs</span> <span class="at">--progress-bar</span></span></code></pre></div>
+<span id="cb21-2"><a href="#cb21-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--backend</span> aiohttp <span class="at">--streaming-parallel</span> <span class="at">--max-chunks</span> 8 <span class="at">--print-logs</span> <span class="at">--progress-bar</span></span></code></pre></div>
 <p>Explicit chunk modes add a HEAD probe for range metadata, not a
 freshness check. Chunking requires a known size large enough for at
 least two chunks, byte Range support and a strong ETag. Otherwise the
@@ -1215,8 +1215,10 @@ and preserve its previous destination.
 <code>--max-chunks</code> limits chunks per file, and
 <code>--max-parallel-chunks</code> limits active chunk workers across
 the batch. The shared engine also limits untrusted origins to four
-active chunks per IP. aiohttp remains a whole-file backend and rejects
-both chunk flags.</p>
+active chunks per IP. Both HTTPX and aiohttp use this same range
+validation, disk budget, progress and publication policy. aiohttp
+performs its requests on its session's event loop while the shared chunk
+workers read and write bounded blocks.</p>
 <p>Known-URL downloads sample destination free space once per batch,
 before the first payload write. A shared budget reserves each declared
 file length and charges unknown-length responses as bytes arrive, while
@@ -1422,9 +1424,10 @@ nonzero. <code>--dry-run</code> validates the list without network
 access or download state creation. Discovery/listing/filter flags,
 auto-concurrency, missing-only mode and cleanup policies other than
 <code>safe</code> are rejected in download mode. For normal mirroring,
-<code>--backend aiohttp</code> supports whole-file transfers; chunk
-modes and auto-concurrency require HTTPX, and existing partials are
-preserved.</p>
+<code>--backend aiohttp</code> supports whole-file transfers and both
+chunk modes in mirror and download modes. Auto-concurrency still
+requires HTTPX. aiohttp transfers preserve existing partials and do not
+resume them.</p>
 <h2 id="filtering-and-scope-1">Filtering and scope</h2>
 <ul>
 <li><p><strong><code>--filter</code></strong> accepts one or more

@@ -24,7 +24,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from email.utils import parsedate_to_datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Tuple
 from urllib.parse import quote, urljoin, urlsplit, urlunsplit
 
 import httpx
@@ -227,6 +227,25 @@ def require_backend(backend: str) -> Any:
     return aiohttp
 
 
+async def _drain_operation(awaitable, on_cancel=None):
+    """Keep resource cleanup owned until it finishes, including repeated cancellation."""
+    operation = asyncio.ensure_future(awaitable)
+    try:
+        return await asyncio.shield(operation)
+    except asyncio.CancelledError:
+        if on_cancel is not None:
+            on_cancel()
+        while not operation.done():
+            try:
+                await asyncio.shield(operation)
+            except asyncio.CancelledError:
+                continue
+            except Exception:
+                break
+        operation.exception()
+        raise
+
+
 class _HTTPXBackend:
     retryable = (httpx.TransportError, asyncio.TimeoutError)
 
@@ -260,21 +279,7 @@ class _HTTPXBackend:
         # Cancellation cannot abandon an in-flight reader while its response
         # or owned staging is being closed. Drain the bounded network operation
         # first, including repeated cancellation during worker shutdown.
-        operation = asyncio.create_task(asyncio.to_thread(call))
-        try:
-            return await asyncio.shield(operation)
-        except asyncio.CancelledError:
-            if on_cancel is not None:
-                on_cancel()
-            while not operation.done():
-                try:
-                    await asyncio.shield(operation)
-                except asyncio.CancelledError:
-                    continue
-                except Exception:
-                    break
-            operation.exception()
-            raise
+        return await _drain_operation(asyncio.to_thread(call), on_cancel)
 
     async def close(self) -> None:
         if self.sync_client is not None:
@@ -282,6 +287,11 @@ class _HTTPXBackend:
         else:
             assert self.client is not None
             await self.client.aclose()
+
+    def chunk_request(self, url, method, headers, timeout, loop):
+        assert self.sync_client is not None
+        request = self.sync_client.build_request(method, url, headers=headers, timeout=timeout)
+        return self.sync_client.send(request, stream=True, follow_redirects=False)
 
     @asynccontextmanager
     async def _open_single(self, url: str):
@@ -334,6 +344,60 @@ class _HTTPXBackend:
                 yield r.status_code, r.headers, r.aiter_raw()
 
 
+def _aiohttp_chunk_call(loop, operation, retryable, request):
+    """Bridge a chunk worker's bounded IO to its session's existing event loop."""
+    try:
+        running = asyncio.get_running_loop()
+    except RuntimeError:
+        running = None
+    if running is not None:
+        raise RuntimeError("Chunk IO must run in a worker thread")
+    coroutine = operation()
+    try:
+        pending = asyncio.run_coroutine_threadsafe(coroutine, loop)
+    except BaseException:
+        coroutine.close()
+        raise
+    try:
+        return pending.result()
+    except retryable as error:
+        # The shared range engine retries transport failures through this
+        # existing exception contract; representation failures remain distinct.
+        raise httpx.RequestError(str(error), request=request) from error
+
+
+class _AIOHTTPChunkResponse:
+    """Expose the shared range response interface without buffering a file."""
+
+    def __init__(self, response, loop, retryable, request):
+        self.response, self.loop, self.retryable, self.request = response, loop, retryable, request
+        self.status_code = response.status
+        self.headers = response.headers
+
+    def _call(self, operation):
+        return _aiohttp_chunk_call(self.loop, operation, self.retryable, self.request)
+
+    def read(self) -> bytes:
+        if self.request.method != "HEAD":
+            raise ValueError("Non-streaming chunk metadata requests require HEAD")
+        return self._call(self.response.read)
+
+    def iter_bytes(self, chunk_size: Optional[int] = None) -> Iterator[bytes]:
+        size = chunk_size or 256 * 1024
+        while block := self._call(lambda: self.response.content.read(size)):
+            yield block
+
+    def iter_raw(self, chunk_size: Optional[int] = None) -> Iterator[bytes]:
+        return self.iter_bytes(chunk_size)
+
+    def close(self) -> None:
+        async def close():
+            self.response.close()
+            await self.response.wait_for_close()
+
+        self._call(close)
+
+
 class _AIOHTTPBackend:
     def __init__(self, config: MirrorConfig, concurrency: int):
         aiohttp = require_backend("aiohttp")
@@ -381,6 +445,27 @@ class _AIOHTTPBackend:
     async def close(self) -> None:
         await self.client.close()
 
+    def chunk_request(self, url, method, headers, timeout, loop):
+        from yarl import URL
+
+        aiohttp = require_backend("aiohttp")
+        timeout = timeout if isinstance(timeout, httpx.Timeout) else httpx.Timeout(timeout)
+
+        async def request():
+            return await self.client.request(
+                method,
+                URL(str(httpx.URL(url)), encoded=True),
+                headers=headers,
+                allow_redirects=False,
+                timeout=aiohttp.ClientTimeout(
+                    total=None, connect=timeout.connect, sock_read=timeout.read
+                ),
+            )
+
+        context = httpx.Request(method, url)
+        response = _aiohttp_chunk_call(loop, request, self.retryable, context)
+        return _AIOHTTPChunkResponse(response, loop, self.retryable, context)
+
     @asynccontextmanager
     async def open(self, url: str):
         from yarl import URL
@@ -397,22 +482,21 @@ class _AIOHTTPBackend:
 class _ChunkConnection:
     """Adapt the existing chunk engine to the known-URL client's scoped request budget."""
 
-    def __init__(self, backend: _HTTPXBackend, engine: AsyncTransfers):
-        assert backend.sync_client is not None
-        self.client, self.engine = backend.sync_client, engine
+    def __init__(self, backend, engine: AsyncTransfers):
+        self.backend, self.engine = backend, engine
         self.loop = asyncio.get_running_loop()
 
     def request(self, url, method="GET", stream=False, headers=None, **options):
         for hop in range(11):
             validate_url(url, self.engine.scope)
             asyncio.run_coroutine_threadsafe(self.engine.pacer.wait(), self.loop).result()
-            request = self.client.build_request(
-                method,
+            response = self.backend.chunk_request(
                 url,
-                headers=headers,
-                timeout=options.get("timeout", self.engine.config.timeout),
+                method,
+                headers,
+                options.get("timeout", self.engine.config.timeout),
+                self.loop,
             )
-            response = self.client.send(request, stream=True, follow_redirects=False)
             if response.status_code in (301, 302, 303, 307, 308):
                 location = response.headers.get("Location")
                 response.close()
@@ -555,7 +639,7 @@ class AsyncTransfers:
                     )
                     probe_response.append(response)
                     return response
-                except backend.retryable:
+                except (httpx.RequestError, OSError):
                     if attempt == self.config.max_retries:
                         raise
                     time.sleep(self.config.retry_delay * 2**attempt)
@@ -564,7 +648,7 @@ class AsyncTransfers:
             response = await _HTTPXBackend._thread_call(probe)
         except BaseException:
             if probe_response:
-                probe_response[0].close()
+                await _HTTPXBackend._thread_call(probe_response[0].close)
             raise
         try:
             size = content_length(response.headers)
@@ -645,7 +729,7 @@ class AsyncTransfers:
                     raise ValueError("Owned chunk cleanup failed; preserved for investigation")
                 self._release_space(local, size if result is not None else 0)
         finally:
-            response.close()
+            await _HTTPXBackend._thread_call(response.close)
 
     async def _one(self, backend, url: str, local: Path) -> TransferResult:
         original = _identity(local)
@@ -794,7 +878,6 @@ class AsyncTransfers:
         tasks = []
         try:
             if chunked:
-                assert isinstance(backend, _HTTPXBackend)
                 connection = _ChunkConnection(backend, self)
                 manager = ParallelDownloadManager(
                     self.config,
@@ -810,13 +893,19 @@ class AsyncTransfers:
         finally:
             for task in tasks:
                 task.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
-            try:
-                if manager is not None:
-                    await _HTTPXBackend._thread_call(manager.shutdown)
-            finally:
+
+            async def close_backend():
                 await backend.close()
                 self.closed_connection_pools += 1
+
+            try:
+                await _drain_operation(asyncio.gather(*tasks, return_exceptions=True))
+            finally:
+                try:
+                    if manager is not None:
+                        await _HTTPXBackend._thread_call(manager.shutdown)
+                finally:
+                    await _drain_operation(close_backend())
         return results
 
 

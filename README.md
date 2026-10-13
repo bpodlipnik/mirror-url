@@ -44,6 +44,7 @@ directory index; direct file and URL-list downloads do not require a listing.
 - **Caching** — directory listings and file metadata; discovery currently keeps the remote file list in memory.
 - **Known-URL downloads** — `--mode download FILE_URL` downloads one file, or `--mode download --url-list urls.txt` streams an exact list, without discovery or freshness probes. Both HTTPX and aiohttp use the same destination, scope, staging and receipt checks.
 - **Selected freshness checks** — combine `--missing-files` with `--check-files path1 path2` or `--check-files @list.txt` to refresh selected existing files while downloading all missing files in scope. Paths stay relative to `--url`, including any suffix.
+- **Parallel chunks with either backend** — `--parallel-downloads` and `--streaming-parallel` use the same verified range engine with HTTPX or aiohttp, in mirror and download modes.
 - **Explicit pacing** — `--requests-per-second` and `--request-delay` control the request budget independently of security checks.
 
 ## Installation

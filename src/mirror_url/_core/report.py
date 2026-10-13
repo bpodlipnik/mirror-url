@@ -537,7 +537,10 @@ class ReportMixin(MirrorHost):
                                 self.total_downloaded_size.add(result.size)
 
                             logging.info(
-                                "Using aiohttp whole-file streaming; existing partials are preserved"
+                                "Using aiohttp %s; existing partials are preserved",
+                                "chunk transfers"
+                                if self.config.parallel_downloads or self.config.streaming_parallel
+                                else "whole-file streaming",
                             )
                             results = asyncio.run(transfers.run(to_download, published))
                             self.files_failed.increment(
