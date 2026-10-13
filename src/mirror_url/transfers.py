@@ -20,7 +20,7 @@ import tempfile
 import threading
 import time
 from concurrent.futures import wait
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager, nullcontext
 from dataclasses import dataclass
 from email.utils import parsedate_to_datetime
 from pathlib import Path
@@ -589,7 +589,12 @@ class AsyncTransfers:
             local, "hashing (SHA-256)" if self.config.verify_content else "publishing"
         )
         started = time.perf_counter()
-        digest = file_sha256(staging, self.config.verify_content)
+        with (
+            self.metrics.run_report.transfer_stage("hash")
+            if self.config.verify_content
+            else nullcontext()
+        ):
+            digest = file_sha256(staging, self.config.verify_content)
         self._record_stage("hash", started)
         self.progress.stage(local, "publishing")
         if _identity(staging) != staged_identity:
@@ -640,9 +645,10 @@ class AsyncTransfers:
         def probe():
             for attempt in range(self.config.max_retries + 1):
                 try:
-                    response = connection.request(
-                        url, method="HEAD", headers={"Accept-Encoding": "identity"}
-                    )
+                    with self.metrics.run_report.transfer_stage("range_metadata"):
+                        response = connection.request(
+                            url, method="HEAD", headers={"Accept-Encoding": "identity"}
+                        )
                     probe_response.append(response)
                     return response
                 except (httpx.RequestError, OSError):
@@ -766,7 +772,11 @@ class AsyncTransfers:
                     for hop in range(11):
                         validate_url(current, self.scope)
                         await self.pacer.wait()
-                        async with backend.open(current) as (code, headers, chunks):
+                        async with AsyncExitStack() as responses:
+                            with self.metrics.run_report.transfer_stage("transfer"):
+                                code, headers, chunks = await responses.enter_async_context(
+                                    backend.open(current)
+                                )
                             if code in (301, 302, 303, 307, 308):
                                 if hop == 10 or not headers.get("Location"):
                                     raise ValueError(
@@ -793,24 +803,26 @@ class AsyncTransfers:
                             size = 0
                             with staging.open("xb") as file:
                                 staged_inode = os.fstat(file.fileno())
-                                async for block in chunks:
-                                    size += len(block)
-                                    if expected is not None and size > expected:
-                                        raise ValueError("Response exceeds Content-Length")
-                                    if expected is None:
-                                        self._reserve_space(local, len(block))
-                                    file.write(block)
-                                    self.progress.received(local, size, expected)
-                                    await self.bandwidth.wait(len(block))
+                                with self.metrics.run_report.transfer_stage("transfer"):
+                                    async for block in chunks:
+                                        size += len(block)
+                                        if expected is not None and size > expected:
+                                            raise ValueError("Response exceeds Content-Length")
+                                        if expected is None:
+                                            self._reserve_space(local, len(block))
+                                        file.write(block)
+                                        self.progress.received(local, size, expected)
+                                        await self.bandwidth.wait(len(block))
                                 if expected is not None and size != expected:
                                     raise ValueError(
                                         "Response length does not match Content-Length"
                                     )
                                 self.progress.stage(local, "flushing file")
                                 started = time.perf_counter()
-                                file.flush()
-                                os.fsync(file.fileno())
-                                self._record_stage("fsync", started)
+                                with self.metrics.run_report.transfer_stage("flush"):
+                                    file.flush()
+                                    os.fsync(file.fileno())
+                                    self._record_stage("fsync", started)
                             mtime = None
                             if headers.get("Last-Modified"):
                                 try:
@@ -1103,4 +1115,7 @@ def download_url_list(
                 status = "dry run" if outcome.get("dry_run") else "success"
             report.finish(status)
             if outcome is not None and not outcome.get("dry_run"):
-                outcome["elapsed_seconds"] = report.snapshot()["elapsed_seconds"]
+                run = report.snapshot()
+                outcome["elapsed_seconds"] = run["elapsed_seconds"]
+                outcome["transfer_stage_seconds"] = run["transfer_stage_seconds"]
+                outcome["transfer_stage_operations"] = run["transfer_stage_operations"]

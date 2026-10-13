@@ -6,6 +6,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Report shared transfer-stage worker times for range metadata probes, data
+  transfer/writes, chunk assembly, payload disk flushing and opt-in SHA-256
+  hashing in both modes and backends. Label concurrent work as sums, retain
+  failed attempt timings and reset them per run. Preserve elapsed throughput
+  accounting and existing JSON fields without adding requests or disk scans.
+
+## [Unreleased]
+
 ### Documentation
 
 - Add the public documentation page as `index.html` and update it for v3.7.3,

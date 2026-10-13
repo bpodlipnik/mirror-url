@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import os
 import time
+from contextlib import nullcontext
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
@@ -55,9 +56,10 @@ class DownloadMixin(MirrorHost):
             # Check if we should use parallel download
             if self.parallel_manager and self.parallel_manager.enabled:
                 # Use passed size or fetch it
-                current_size = (
-                    file_size if file_size is not None else self._get_file_size(remote_url)
-                )
+                current_size = file_size
+                if current_size is None:
+                    with self.metrics.run_report.transfer_stage("range_metadata"):
+                        current_size = self._get_file_size(remote_url)
                 if current_size and self.parallel_manager.should_use_parallel(current_size):
                     # Create parallel download
                     download = self.parallel_manager.create_chunks(
@@ -141,20 +143,22 @@ class DownloadMixin(MirrorHost):
                         clear_resume_metadata(partial_path)
 
                     start = time.time()
-                    r = self.connection_manager.request(
-                        remote_url, method="GET", timeout=30, headers=headers, stream=True
-                    )
+                    with self.metrics.run_report.transfer_stage("transfer"):
+                        r = self.connection_manager.request(
+                            remote_url, method="GET", timeout=30, headers=headers, stream=True
+                        )
                     if metadata and r.status_code == 416:
                         # A 416 never proves local contents are complete, even
                         # when the advertised total happens to equal our size.
                         r.close()
-                        r = self.connection_manager.request(
-                            remote_url,
-                            method="GET",
-                            timeout=30,
-                            headers={"Accept-Encoding": "identity"},
-                            stream=True,
-                        )
+                        with self.metrics.run_report.transfer_stage("transfer"):
+                            r = self.connection_manager.request(
+                                remote_url,
+                                method="GET",
+                                timeout=30,
+                                headers={"Accept-Encoding": "identity"},
+                                stream=True,
+                            )
                         mode, bytes_already, metadata = "wb", 0, None
                         clear_resume_metadata(partial_path)
 
@@ -192,8 +196,9 @@ class DownloadMixin(MirrorHost):
                     size = bytes_already
                     progress.resume(local_path, bytes_already, expected_size)
                     with open(partial_path, mode) as f:
-                        f.flush()
-                        os.fsync(f.fileno())
+                        with self.metrics.run_report.transfer_stage("flush"):
+                            f.flush()
+                            os.fsync(f.fileno())
                         # Write the validator only after an old partial has
                         # been truncated, so a crash cannot bind old bytes to
                         # the new representation.
@@ -202,19 +207,24 @@ class DownloadMixin(MirrorHost):
                             save_resume_metadata(partial_path, remote_url, etag, expected_size)
                         else:
                             clear_resume_metadata(partial_path)
-                        for chunk in r.iter_bytes(DOWNLOAD_CHUNK_SIZE):
-                            if chunk:
-                                if expected_size is not None and size + len(chunk) > expected_size:
-                                    raise ValueError("Download exceeds expected length")
-                                f.write(chunk)
-                                size += len(chunk)
-                                progress.received(local_path, size, expected_size)
-                                partial_manager.update_activity(partial_path, len(chunk))
-                                if self.bandwidth_limiter:
-                                    self.bandwidth_limiter.throttle(len(chunk))
+                        with self.metrics.run_report.transfer_stage("transfer"):
+                            for chunk in r.iter_bytes(DOWNLOAD_CHUNK_SIZE):
+                                if chunk:
+                                    if (
+                                        expected_size is not None
+                                        and size + len(chunk) > expected_size
+                                    ):
+                                        raise ValueError("Download exceeds expected length")
+                                    f.write(chunk)
+                                    size += len(chunk)
+                                    progress.received(local_path, size, expected_size)
+                                    partial_manager.update_activity(partial_path, len(chunk))
+                                    if self.bandwidth_limiter:
+                                        self.bandwidth_limiter.throttle(len(chunk))
                         progress.stage(local_path, "flushing file")
-                        f.flush()
-                        os.fsync(f.fileno())
+                        with self.metrics.run_report.transfer_stage("flush"):
+                            f.flush()
+                            os.fsync(f.fileno())
                     if expected_size is not None and size != expected_size:
                         raise ValueError(f"Incomplete download: {size} != {expected_size}")
 
@@ -225,9 +235,14 @@ class DownloadMixin(MirrorHost):
                         local_path,
                         "hashing (SHA-256)" if self.config.verify_content else "verifying file",
                     )
-                    digest = file_sha256(
-                        partial_path, enabled=getattr(self.config, "verify_content", False)
-                    )
+                    with (
+                        self.metrics.run_report.transfer_stage("hash")
+                        if self.config.verify_content
+                        else nullcontext()
+                    ):
+                        digest = file_sha256(
+                            partial_path, enabled=getattr(self.config, "verify_content", False)
+                        )
                     progress.stage(local_path, "publishing")
                     os.replace(partial_path, local_path)
                     try:

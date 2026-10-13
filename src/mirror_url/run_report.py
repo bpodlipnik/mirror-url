@@ -8,6 +8,14 @@ from contextlib import contextmanager
 from threading import RLock
 from typing import Dict, Iterator, Optional
 
+TRANSFER_STAGES = (
+    ("range_metadata", "Range metadata probes"),
+    ("transfer", "Data transfer/write"),
+    ("assembly", "Chunk assembly"),
+    ("flush", "Disk flushing"),
+    ("hash", "SHA-256 hashing"),
+)
+
 
 class RunReport:
     """Count final file decisions once, including after async/sync fallback."""
@@ -23,6 +31,8 @@ class RunReport:
         self.hashed_downloads: set[str] = set()
         self.verify_content: Optional[bool] = None
         self.phases: Dict[str, float] = {}
+        self.transfer_seconds: Dict[str, float] = {}
+        self.transfer_operations: Counter[str] = Counter()
         self._active_phase: Optional[tuple[str, float]] = None
         self.baseline: Dict[str, float] = {}
         self.remote_files = 0
@@ -47,6 +57,8 @@ class RunReport:
             self.hashed_downloads.clear()
             self.verify_content = verify_content
             self.phases.clear()
+            self.transfer_seconds.clear()
+            self.transfer_operations.clear()
             self._active_phase = None
             self.baseline = {
                 key: value for key, value in metrics.items() if isinstance(value, (int, float))
@@ -108,6 +120,23 @@ class RunReport:
         with self._lock:
             self.checks[url] = (outcome, selected)
 
+    @contextmanager
+    def transfer_stage(self, name: str) -> Iterator[None]:
+        """Sum measured worker intervals, including failed/cancelled operations.
+
+        These intervals can overlap across workers and do not replace elapsed
+        coordinator phases or the throughput denominator. Observe operations,
+        rather than measuring entire transfer methods with nested stages.
+        """
+        started = time.perf_counter()
+        try:
+            yield
+        finally:
+            elapsed = time.perf_counter() - started
+            with self._lock:
+                self.transfer_seconds[name] = self.transfer_seconds.get(name, 0.0) + elapsed
+                self.transfer_operations[name] += 1
+
     def record_publication(self, url: str, *, sha256: Optional[str] = None) -> None:
         """Called only when a complete downloaded file has been published."""
         with self._lock:
@@ -154,6 +183,8 @@ class RunReport:
                 "verify_content": self.verify_content,
                 "sha256_hashes_recorded": len(self.hashed_downloads),
                 "phase_seconds": dict(self.phases),
+                "transfer_stage_seconds": dict(self.transfer_seconds),
+                "transfer_stage_operations": dict(self.transfer_operations),
                 "elapsed_seconds": elapsed,
                 "discovery_mode": self.discovery_mode,
                 "discovery_workers": self.discovery_workers,

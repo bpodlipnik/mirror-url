@@ -467,6 +467,23 @@ divided by the download phase's elapsed time, rather than summed worker times.
 Completion freezes elapsed time; beginning another sync clears its decisions,
 publication set and phases. Listing work is measured per call, includes fetch
 wait, and is reported as summed work rather than CPU parsing time.
+
+`RunReport.transfer_stage()` is the shared, thread-safe monotonic timer for
+both backends and coordinators. It accumulates `transfer_stage_seconds` and
+`transfer_stage_operations` for `range_metadata`, `transfer`, `assembly`,
+`flush` and `hash`. Its `finally` retains failed/cancelled attempts. `start()`
+clears both maps for the next run, and snapshots copy them independently.
+Instrument actual request/receive/write, copy, payload flush and staged-payload
+hash operations, rather than whole methods containing other timed stages.
+Streaming writes count under transfer, without a separate assembly operation.
+Disabled SHA-256 calls are not measured as hashing. Freshness checks and receipt
+hash validation retain their existing coordinator accounting. These worker
+sums can overlap between threads/tasks and do not replace `phase_seconds` or
+the elapsed throughput denominator. The shared summary labels each as `(sum)`
+and reports absent stages as `not performed`; interval counts are not HTTP
+request counts. Download results add the same maps while preserving the older
+`stage_seconds` API. Timing does not initiate requests or filesystem queries.
+
 `begin_discovery()` records the actual BFS strategy and worker bound;
 `record_directory_examined()` counts each distinct directory admitted by the
 coordinator, including entries at the depth limit and failed listing attempts.
