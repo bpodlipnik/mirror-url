@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.7.3] - 2026-10-13
+
+### Fixed
+
+- Share whole-file fallback reasons and batch-completion messages across mirror
+  and download modes with both backends. Report each completed batch's actual
+  downloaded and failed file counts, including sequential transfers and partial
+  failures. Preserve chunk admission and transfer behavior, and describe mirror
+  resume fallbacks accurately.
+
 ## [3.7.2] - 2026-10-13
 
 ### Fixed

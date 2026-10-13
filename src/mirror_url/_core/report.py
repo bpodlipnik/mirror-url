@@ -22,7 +22,7 @@ from ..constants import ADAPTIVE_START_CONCURRENCY, AUTO_CONCURRENCY_SAMPLES
 from ..decorators import log_performance
 from ..destination_lock import destination_operation
 from ..enums import CleanupPolicy, DownloadMethod
-from ..metrics import log_file_download_plan, log_run_completion
+from ..metrics import log_file_download_plan, log_file_downloads_completed, log_run_completion
 from ..progress import DownloadProgress, ProgressTracker
 from ..transfers import AsyncTransfers, TransferResult
 from ..utils import format_bytes, format_duration, sanitize_url_for_log
@@ -503,6 +503,8 @@ class ReportMixin(MirrorHost):
                 ) as transfer_progress:
                     transfer_progress.plan(len(to_download))
                     self._download_progress = transfer_progress
+                    batch_downloaded = self.files_processed.value()
+                    batch_failed = self.files_failed.value()
                     try:
                         # ========== DOWNLOAD EXECUTION ==========
                         if self.config.backend == "aiohttp":
@@ -697,14 +699,16 @@ class ReportMixin(MirrorHost):
                                     f"final throughput={tuner_stats['last_throughput']:.2f} MB/s"
                                 )
 
-                            logging.info(
-                                f"{prefix}✅ Completed {self.files_processed.value()} file downloads in parallel"
-                            )
                             self.metrics.update_queue_metrics(
                                 len(self.download_queue), self.config.download_queue_size
                             )
 
-                        # ========== END PARALLEL DOWNLOADS SECTION ==========
+                        if self.config.backend == "httpx":
+                            log_file_downloads_completed(
+                                self.files_processed.value() - batch_downloaded,
+                                self.files_failed.value() - batch_failed,
+                                prefix=prefix,
+                            )
                     finally:
                         self._download_progress = None
 

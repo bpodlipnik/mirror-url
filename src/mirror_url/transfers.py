@@ -35,13 +35,19 @@ from .download import ParallelDownloadManager, PartialDownloadManager
 from .download_integrity import content_length, file_sha256, strong_etag
 from .exceptions import ConfigError, SecurityError, URLScopeError
 from .filename_mapping import FilenameMap, _stat_identity
-from .metrics import MetricsCollector, log_file_download_plan, log_file_downloaded
+from .metrics import (
+    MetricsCollector,
+    log_file_download_plan,
+    log_file_downloaded,
+    log_file_downloads_completed,
+    log_whole_file_fallback,
+)
 from .progress import DownloadProgress
 from .run_report import RunReport
 from .scratch import OwnedScratch
 from .security import PathSafety, SecurityValidator
 from .transport import SecureAsyncTransport, SecureTransport
-from .utils import _relative_url_path, format_bytes, sanitize_url_for_log, url_within_scope
+from .utils import _relative_url_path, sanitize_url_for_log, url_within_scope
 
 
 @dataclass
@@ -652,33 +658,20 @@ class AsyncTransfers:
             raise
         try:
             size = content_length(response.headers)
-            reason = None
-            if response.status_code != 200:
-                reason = f"HEAD returned HTTP {response.status_code}"
-            elif size is None:
-                reason = "HEAD response has no valid Content-Length"
-            elif manager.get_chunk_count(size) <= 1:
-                if size < manager.min_chunk_size * 2:
-                    reason = (
-                        f"file size {format_bytes(size)} is below the "
-                        f"{format_bytes(manager.min_chunk_size * 2)} needed for two chunks "
-                        f"(minimum chunk size {format_bytes(manager.min_chunk_size)})"
-                    )
-                elif manager.max_chunks_per_file == 1:
-                    reason = "--max-chunks is 1"
-                elif not manager.enabled:
-                    reason = "parallel chunk downloads are disabled"
-                else:
-                    reason = "chunk circuit breaker does not permit a parallel transfer"
-            elif response.headers.get("Accept-Ranges", "").lower() != "bytes":
-                reason = "HEAD response does not advertise byte ranges (Accept-Ranges: bytes)"
-            elif strong_etag(response.headers) is None:
-                reason = "HEAD response has no strong ETag for consistent range transfers"
-            if reason is not None:
-                logging.info(
-                    "Whole-file fallback for %s: %s; using whole-file GET",
-                    sanitize_url_for_log(url),
-                    reason,
+            chunk_count = (
+                manager.get_chunk_count(size)
+                if response.status_code == 200 and size is not None
+                else 0
+            )
+            if (
+                response.status_code != 200
+                or size is None
+                or chunk_count <= 1
+                or response.headers.get("Accept-Ranges", "").lower() != "bytes"
+                or strong_etag(response.headers) is None
+            ):
+                log_whole_file_fallback(
+                    url, manager.whole_file_fallback_reason(size, chunk_count, response=response)
                 )
                 result = await self._one(backend, url, local)
                 if published is not None:
@@ -924,6 +917,9 @@ class AsyncTransfers:
                         await _HTTPXBackend._thread_call(manager.shutdown)
                 finally:
                     await _drain_operation(close_backend())
+        log_file_downloads_completed(
+            sum(result.success for result in results), sum(not result.success for result in results)
+        )
         return results
 
 

@@ -53,7 +53,7 @@ from .download_integrity import (
 )
 from .enums import DownloadMethod
 from .exceptions import ChunkAssemblyError, ChunkDownloadError
-from .metrics import log_file_downloaded
+from .metrics import log_file_downloaded, log_whole_file_fallback
 from .models import ChunkInfo, ParallelFileDownload
 from .progress import DownloadProgress, get_download_progress
 from .rate_limiter import ChunkAwareRateLimiter
@@ -400,6 +400,43 @@ class ParallelDownloadManager:
         chunks = min(chunks, self.max_chunks_per_file)
         return chunks
 
+    def whole_file_fallback_reason(
+        self,
+        file_size: Optional[int],
+        chunk_count: int,
+        *,
+        response: Optional[ChunkResponse] = None,
+    ) -> str:
+        """Describe an observed rejection without repeating circuit-breaker admission."""
+        if response is not None:
+            if response.status_code != 200:
+                return f"HEAD returned HTTP {response.status_code}"
+            size = content_length(response.headers)
+            if size is None:
+                return "HEAD response has no valid Content-Length"
+            if size != file_size:
+                return "HEAD Content-Length does not match the planned file size"
+        if file_size is None:
+            return "no positive file size is available for chunk planning"
+        if chunk_count <= 1:
+            if file_size < self.min_chunk_size * 2:
+                return (
+                    f"file size {format_bytes(file_size)} is below the "
+                    f"{format_bytes(self.min_chunk_size * 2)} needed for two chunks "
+                    f"(minimum chunk size {format_bytes(self.min_chunk_size)})"
+                )
+            if self.max_chunks_per_file == 1:
+                return "--max-chunks is 1"
+            if not self.enabled:
+                return "parallel chunk downloads are disabled"
+            return "chunk circuit breaker does not permit a parallel transfer"
+        if response is not None:
+            if response.headers.get("Accept-Ranges", "").lower() != "bytes":
+                return "HEAD response does not advertise byte ranges (Accept-Ranges: bytes)"
+            if strong_etag(response.headers) is None:
+                return "HEAD response has no strong ETag for consistent range transfers"
+        return "parallel chunk plan unavailable"
+
     @destination_operation
     def create_chunks(
         self,
@@ -412,6 +449,7 @@ class ParallelDownloadManager:
         """Create chunk tasks for a file, using appropriate mode."""
         chunk_count = self.get_chunk_count(file_size)
         if chunk_count <= 1:
+            log_whole_file_fallback(url, self.whole_file_fallback_reason(file_size, chunk_count))
             return None
         try:
             if response is None:
@@ -425,9 +463,14 @@ class ParallelDownloadManager:
                 or content_length(response.headers) != file_size
                 or not etag
             ):
+                log_whole_file_fallback(
+                    url,
+                    self.whole_file_fallback_reason(file_size, chunk_count, response=response),
+                )
                 return None
         except Exception as e:
             logging.debug(f"Range metadata unavailable for {url}: {e}")
+            log_whole_file_fallback(url, f"range metadata probe failed ({type(e).__name__})")
             return None
         download = ParallelFileDownload(
             url=url, final_path=local_path, file_size=file_size, server_etag=etag

@@ -28,7 +28,7 @@ from ..download_integrity import (
     validate_range,
 )
 from ..exceptions import MirrorConnectionError
-from ..metrics import log_file_downloaded
+from ..metrics import log_file_downloaded, log_whole_file_fallback
 from ..progress import get_download_progress
 from ..utils import exponential_backoff, sanitize_url_for_log, trim_url
 
@@ -69,11 +69,19 @@ class DownloadMixin(MirrorHost):
                         if success:
                             return True
 
+                        log_whole_file_fallback(remote_url, "parallel chunk transfer failed")
                         # Fallback to single-threaded download if parallel fails.
                         # ⚠️ IMPORTANT: _download_file_single ALREADY increments failur
                         # on failure. We must NOT increment them here to avoid double-counting.
                         success = self._download_file_single(remote_url, local_path)
                         return success
+                else:
+                    log_whole_file_fallback(
+                        remote_url,
+                        self.parallel_manager.whole_file_fallback_reason(current_size or None, 1),
+                    )
+            elif self.config.parallel_downloads or self.config.streaming_parallel:
+                log_whole_file_fallback(remote_url, "parallel chunk downloads are disabled")
 
             # Fallback for files that don't meet parallel criteria (too small, disabled, etc.)
             success = self._download_file_single(remote_url, local_path)

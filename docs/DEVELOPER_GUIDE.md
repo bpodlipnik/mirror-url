@@ -11,7 +11,7 @@ If you only want to *use* MirrorURL (install, CLI, config, Python API), read
 repeats the essentials so you can work from it alone.
 
 - **Package:** `mirror_url` (src-layout under `src/`)
-- **Version:** 3.7.2
+- **Version:** 3.7.3
 - **Python:** 3.10 or newer; CI tests Python 3.10–3.14
 - **Runtime deps:** `httpx[http2]` (including `h2`), `aiohttp`, `pydantic` v2, `PyYAML`, `portalocker` 3.x, `tqdm` (optional: `stringzilla`,
   `lxml`, `psutil`)
@@ -746,9 +746,15 @@ chunk-worker concurrency. The summary uses `MetricsCollector.report` in both
 modes; JSON-only callers can feed `chunk_metrics` to the same renderer.
 Chunk plans are logged by `create_chunks` after representation validation and
 staging selection. Constructor capacity/policy messages stay at DEBUG.
-`AsyncTransfers._one_chunked` logs the first failed eligibility condition before
-a whole-file fallback, reusing the manager's chunk-count decision without an
-extra circuit-breaker check. All whole-file, assembled and streaming paths use
+`ParallelDownloadManager.whole_file_fallback_reason` describes a rejected plan
+from its observed size, chunk count and HEAD response. It makes no admission
+decision or request. Both coordinators use `metrics.log_whole_file_fallback`;
+the HTTPX mirror path also records failed chunk-transfer fallbacks. The message
+describes a single-file transfer so it remains accurate for owned mirror resumes.
+`metrics.log_file_downloads_completed` reports actual published/failed file
+counts once after a batch finishes. Async transfers count their results after
+worker/backend drainage; HTTPX mirror uses this batch's counter deltas. Neither
+path marks an interrupted batch completed. All whole-file, assembled and streaming paths use
 `metrics.log_file_downloaded`, including the computed digest only when available.
 `metrics.log_run_start` supplies the same ordered startup fields to the CLI's
 shared logger and `_MirrorBase.setup_logging`: explicit mode, start time,
@@ -802,7 +808,7 @@ public `tqdm.write()` so logs do not overwrite active bars. Its
 disabled bars and receipt-saving without an active bar retain console updates;
 warnings and completion summaries always pass through the filter.
 
-The CLI uses a download-specific startup banner and
+The CLI uses the shared startup header and
 `metrics.format_download_summary()` for readable completion logs, using the
 destination already validated by the CLI. Mirror and known-URL completion logs
 share `MetricsCollector.report()`, `_format_run_summary()` and the `RunReport`
@@ -1355,5 +1361,5 @@ Preserve these constraints when extending or refactoring the current code.
 
 ---
 
-*This guide describes the architecture as of version 3.7.2. When you change the
+*This guide describes the architecture as of version 3.7.3. When you change the
 structure, update this document in the same PR.*

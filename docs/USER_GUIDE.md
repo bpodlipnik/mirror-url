@@ -8,7 +8,7 @@ integrity checks and incremental caching. It also supports direct file URLs
 and exact URL lists without directory discovery. URL-scope, private-network
 and filesystem protections guard discovery and transfers.
 
-- **Version:** 3.7.2
+- **Version:** 3.7.3
 - **Python:** 3.10 or newer; CI tests Python 3.10–3.14
 - **License:** MIT
 
@@ -106,21 +106,21 @@ From a checkout of the repository on a build machine:
 
 ```bash
 pip install build
-python -m build          # produces dist/mirror_url-3.7.2-py3-none-any.whl
+python -m build          # produces dist/mirror_url-3.7.3-py3-none-any.whl
 ```
 
 Copy the wheel to the target server and install it:
 
 ```bash
 python3 -m venv /opt/mirror-url
-/opt/mirror-url/bin/pip install /tmp/mirror_url-3.7.2-py3-none-any.whl
+/opt/mirror-url/bin/pip install /tmp/mirror_url-3.7.3-py3-none-any.whl
 /opt/mirror-url/bin/mirror-url --help
 ```
 
 To include the optional speed extras:
 
 ```bash
-/opt/mirror-url/bin/pip install "/tmp/mirror_url-3.7.2-py3-none-any.whl[fast]"
+/opt/mirror-url/bin/pip install "/tmp/mirror_url-3.7.3-py3-none-any.whl[fast]"
 ```
 
 Available extras: `fast` (stringzilla + lxml),
@@ -131,24 +131,24 @@ and aiohttp backends are installed with the base package.
 ### From a Git repository
 
 ```bash
-pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.7.2"
+pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.7.3"
 # private repo over SSH:
-pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.7.2"
+pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.7.3"
 ```
 
 ### As an isolated CLI with pipx
 
 ```bash
-pipx install /tmp/mirror_url-3.7.2-py3-none-any.whl
-# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.7.2"
+pipx install /tmp/mirror_url-3.7.3-py3-none-any.whl
+# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.7.3"
 ```
 
 ### With Docker
 
 ```dockerfile
 FROM python:3.12-slim
-COPY dist/mirror_url-3.7.2-py3-none-any.whl /tmp/
-RUN pip install --no-cache-dir "/tmp/mirror_url-3.7.2-py3-none-any.whl[fast]"
+COPY dist/mirror_url-3.7.3-py3-none-any.whl /tmp/
+RUN pip install --no-cache-dir "/tmp/mirror_url-3.7.3-py3-none-any.whl[fast]"
 ENTRYPOINT ["mirror-url"]
 ```
 
@@ -1107,6 +1107,12 @@ When a file uses a whole-file GET, the log explains the reason: its size permits
 only one chunk, a configured limit prevents splitting, or the HEAD response
 does not provide the required range metadata. Every published file gets one
 `Downloaded:` line, including whole-file fallbacks with either backend.
+Both modes and backends use the same fallback message. Its single-file transfer
+can resume an owned mirror partial; known-URL downloads restart the whole file.
+After all workers finish, both modes report `File download batch completed:
+N downloaded, M failed`. These are this batch's outcomes, including failures,
+for sequential and parallel transfers. An interrupted batch has no completed
+batch message.
 
 SHA-256 remains opt-in through `--verify-content`. With it enabled, each
 completion line includes the computed SHA-256 so hashes can be compared between
