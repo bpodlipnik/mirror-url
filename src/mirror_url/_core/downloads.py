@@ -28,8 +28,9 @@ from ..download_integrity import (
     validate_range,
 )
 from ..exceptions import MirrorConnectionError
+from ..metrics import log_file_downloaded
 from ..progress import get_download_progress
-from ..utils import exponential_backoff, format_bytes, sanitize_url_for_log, trim_url
+from ..utils import exponential_backoff, sanitize_url_for_log, trim_url
 
 if TYPE_CHECKING:
     from ._typing import MirrorHost
@@ -256,7 +257,7 @@ class DownloadMixin(MirrorHost):
 
                     # FIX v3.0.6: Update counters using atomic methods
                     downloaded_bytes = size - bytes_already
-                    self.metrics.run_report.record_publication(remote_url)
+                    self.metrics.run_report.record_publication(remote_url, sha256=digest)
                     self.files_processed.increment(1)  # Atomic increment
                     self.total_downloaded_size.add(downloaded_bytes)  # Atomic add
                     self.metrics.increment("files_downloaded")
@@ -267,7 +268,7 @@ class DownloadMixin(MirrorHost):
                         self.metrics.increment("resumed_downloads")
                         self.metrics.increment("partial_downloads")
 
-                    logging.info(f"Downloaded: {local_path} ({format_bytes(size)})")
+                    log_file_downloaded(local_path, size, digest)
 
                     self.performance_monitor.record("download", time.time() - download_start, True)
                     return True

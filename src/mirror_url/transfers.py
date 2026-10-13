@@ -35,13 +35,13 @@ from .download import ParallelDownloadManager, PartialDownloadManager
 from .download_integrity import content_length, file_sha256, strong_etag
 from .exceptions import ConfigError, SecurityError, URLScopeError
 from .filename_mapping import FilenameMap, _stat_identity
-from .metrics import MetricsCollector
+from .metrics import MetricsCollector, log_file_downloaded
 from .progress import DownloadProgress
 from .run_report import RunReport
 from .scratch import OwnedScratch
 from .security import PathSafety, SecurityValidator
 from .transport import SecureAsyncTransport, SecureTransport
-from .utils import _relative_url_path, sanitize_url_for_log, url_within_scope
+from .utils import _relative_url_path, format_bytes, sanitize_url_for_log, url_within_scope
 
 
 @dataclass
@@ -652,16 +652,33 @@ class AsyncTransfers:
             raise
         try:
             size = content_length(response.headers)
-            if (
-                response.status_code != 200
-                or size is None
-                or manager.get_chunk_count(size) <= 1
-                or response.headers.get("Accept-Ranges", "").lower() != "bytes"
-                or strong_etag(response.headers) is None
-            ):
+            reason = None
+            if response.status_code != 200:
+                reason = f"HEAD returned HTTP {response.status_code}"
+            elif size is None:
+                reason = "HEAD response has no valid Content-Length"
+            elif manager.get_chunk_count(size) <= 1:
+                if size < manager.min_chunk_size * 2:
+                    reason = (
+                        f"file size {format_bytes(size)} is below the "
+                        f"{format_bytes(manager.min_chunk_size * 2)} needed for two chunks "
+                        f"(minimum chunk size {format_bytes(manager.min_chunk_size)})"
+                    )
+                elif manager.max_chunks_per_file == 1:
+                    reason = "--max-chunks is 1"
+                elif not manager.enabled:
+                    reason = "parallel chunk downloads are disabled"
+                else:
+                    reason = "chunk circuit breaker does not permit a parallel transfer"
+            elif response.headers.get("Accept-Ranges", "").lower() != "bytes":
+                reason = "HEAD response does not advertise byte ranges (Accept-Ranges: bytes)"
+            elif strong_etag(response.headers) is None:
+                reason = "HEAD response has no strong ETag for consistent range transfers"
+            if reason is not None:
                 logging.info(
-                    "Range transfer unavailable for %s; using whole-file GET",
+                    "Whole-file fallback for %s: %s; using whole-file GET",
                     sanitize_url_for_log(url),
+                    reason,
                 )
                 result = await self._one(backend, url, local)
                 if published is not None:
@@ -820,6 +837,7 @@ class AsyncTransfers:
                                 (staged_inode.st_dev, staged_inode.st_ino),
                             )
                             published_size = size
+                            log_file_downloaded(local, size, result.sha256)
                             return result
                 except backend.retryable:
                     if attempt == self.config.max_retries:
@@ -970,7 +988,7 @@ def download_url_list(
     metrics = metrics or MetricsCollector()
     report = run_report if run_report is not None else metrics.run_report
     metrics.run_report = report
-    report.start(metrics.metrics, 0)
+    report.start(metrics.metrics, 0, verify_content=config.verify_content)
     report.begin_phase("download preparation")
     outcome: Optional[dict] = None
     try:
@@ -1041,7 +1059,7 @@ def download_url_list(
                     "sha256": result.sha256,
                     "identity": list(_identity(result.path) or ()),
                 }
-                report.record_publication(result.url)
+                report.record_publication(result.url, sha256=result.sha256)
 
             report.begin_phase("downloads")
             try:
@@ -1058,6 +1076,7 @@ def download_url_list(
                 "files_downloaded": sum(r.success for r in results),
                 "files_failed": sum(not r.success for r in results),
                 "bytes_downloaded": sum(r.size for r in results if r.success),
+                "sha256_hashes_recorded": report.snapshot()["sha256_hashes_recorded"],
                 "elapsed_seconds": 0.0,  # Finalized after timer and ownership cleanup below.
                 "pacing_wait_seconds": engine.pacer.wait_seconds,
                 "effective_request_interval": config.effective_request_interval,

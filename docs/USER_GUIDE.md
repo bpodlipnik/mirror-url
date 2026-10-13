@@ -1096,7 +1096,18 @@ the direct shortcut) and connection-pool closure count. Download mode reports
 zero parser/cache work and counts pools only after their backend closes.
 The startup banner records the backend, destination and SHA-256 setting.
 Configured limits are in debug output (`--verbose`). The transfer phase reports
-the actual selected-file/worker count and each eligible file's chunk plan. JSON results retain the receipt
+the actual selected-file/worker count and each eligible file's chunk plan.
+When a file uses a whole-file GET, the log explains the reason: its size permits
+only one chunk, a configured limit prevents splitting, or the HEAD response
+does not provide the required range metadata. Every published file gets one
+`Downloaded:` line, including whole-file fallbacks with either backend.
+
+SHA-256 remains opt-in through `--verify-content`. With it enabled, each
+completion line includes the computed SHA-256 so hashes can be compared between
+runs. The shared summary reports **SHA-256 receipt hashing** and **SHA-256 hashes
+recorded** for this run; an unchanged mirror run records zero new download
+hashes even when it checks existing files against saved receipts. Older JSON
+results without a hash count show `n/a`. JSON results retain the receipt
 location and summed fsync/hash work. These work sums can exceed elapsed time
 during concurrent downloads and overlap the download phase. SHA-256 receipts
 describe local bytes and do not establish agreement with a remote digest.

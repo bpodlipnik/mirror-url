@@ -746,6 +746,14 @@ chunk-worker concurrency. The summary uses `MetricsCollector.report` in both
 modes; JSON-only callers can feed `chunk_metrics` to the same renderer.
 Chunk plans are logged by `create_chunks` after representation validation and
 staging selection. Constructor capacity/policy messages stay at DEBUG.
+`AsyncTransfers._one_chunked` logs the first failed eligibility condition before
+a whole-file fallback, reusing the manager's chunk-count decision without an
+extra circuit-breaker check. All whole-file, assembled and streaming paths use
+`metrics.log_file_downloaded`, including the computed digest only when available.
+`RunReport.record_publication` counts SHA-256-bearing publications once per URL
+and resets those observations at each run. Both summary modes render the hashing
+setting and actual recorded count through the same formatter; neither implies
+agreement with a remote cryptographic digest.
 The semaphore wrapper brackets each admitted worker with shared metrics and
 progress observations, releasing admission even if an observer raises.
 `get_stats` distinguishes `planned_chunks` from actual `active_chunks`.

@@ -20,6 +20,8 @@ class RunReport:
         self.reasons = ""
         self.checks: Dict[str, tuple[str, bool]] = {}
         self.downloads: set[str] = set()
+        self.hashed_downloads: set[str] = set()
+        self.verify_content: Optional[bool] = None
         self.phases: Dict[str, float] = {}
         self._active_phase: Optional[tuple[str, float]] = None
         self.baseline: Dict[str, float] = {}
@@ -32,7 +34,9 @@ class RunReport:
         self.closed_connection_pools = 0
         self.peak_parallel_chunks = 0
 
-    def start(self, metrics: dict, selected_configured: int) -> None:
+    def start(
+        self, metrics: dict, selected_configured: int, *, verify_content: Optional[bool] = None
+    ) -> None:
         with self._lock:
             self.started = time.perf_counter()
             self.finished = None
@@ -40,6 +44,8 @@ class RunReport:
             self.reasons = ""
             self.checks.clear()
             self.downloads.clear()
+            self.hashed_downloads.clear()
+            self.verify_content = verify_content
             self.phases.clear()
             self._active_phase = None
             self.baseline = {
@@ -102,10 +108,12 @@ class RunReport:
         with self._lock:
             self.checks[url] = (outcome, selected)
 
-    def record_publication(self, url: str) -> None:
+    def record_publication(self, url: str, *, sha256: Optional[str] = None) -> None:
         """Called only when a complete downloaded file has been published."""
         with self._lock:
             self.downloads.add(url)
+            if sha256 is not None:
+                self.hashed_downloads.add(url)
 
     def delta(self, metrics: dict, name: str) -> float:
         return metrics.get(name, 0) - self.baseline.get(name, 0)
@@ -143,6 +151,8 @@ class RunReport:
                 "metadata_checks_unresolved": checks["uncertain"],
                 "downloads_planned": checks["missing"] + checks["changed"] + checks["uncertain"],
                 "peak_parallel_chunks": self.peak_parallel_chunks,
+                "verify_content": self.verify_content,
+                "sha256_hashes_recorded": len(self.hashed_downloads),
                 "phase_seconds": dict(self.phases),
                 "elapsed_seconds": elapsed,
                 "discovery_mode": self.discovery_mode,

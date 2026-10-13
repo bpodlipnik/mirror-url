@@ -133,7 +133,11 @@ class ReportMixin(MirrorHost):
         logging.info(f"{prefix}Starting sync for: '{self.config.dir_suffix or 'ROOT'}'")
         start = time.time()
         run = self.metrics.run_report
-        run.start(self.metrics.metrics, len(getattr(self.config, "check_files", ())))
+        run.start(
+            self.metrics.metrics,
+            len(getattr(self.config, "check_files", ())),
+            verify_content=self.config.verify_content,
+        )
         # Reset before discovery/checks, including a repeated dry run. Preserve
         # all check-phase increments through transfers and the final summary.
         self.files_processed.reset()
@@ -532,7 +536,7 @@ class ReportMixin(MirrorHost):
                                     result.size,
                                     sha256=result.sha256,
                                 )
-                                run.record_publication(result.url)
+                                run.record_publication(result.url, sha256=result.sha256)
                                 self.files_processed.increment(1)
                                 self.total_downloaded_size.add(result.size)
 
