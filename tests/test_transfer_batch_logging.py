@@ -79,7 +79,7 @@ def test_mixed_batch_reports_actual_outcomes_once(
         with MirrorURL(config) as mirror:
             assert mirror.sync() is not failed
     if mode == "mirror":
-        text = "\n".join(path.read_text() for path in config.log_path.glob("*.log"))
+        text = "\n".join(path.read_text(encoding="utf-8") for path in config.log_path.glob("*.log"))
         messages = [
             line.split(" [INFO] ", 1)[1] for line in text.splitlines() if " [INFO] " in line
         ]
@@ -115,7 +115,7 @@ def test_repeated_mirror_batches_report_current_publications(tmp_path, remote, s
         assert mirror.sync()
         (config.dest_path / "a").unlink()
         assert mirror.sync()
-    text = "\n".join(path.read_text() for path in config.log_path.glob("*.log"))
+    text = "\n".join(path.read_text(encoding="utf-8") for path in config.log_path.glob("*.log"))
     assert text.count("File download batch completed: 2 downloaded, 0 failed") == 1
     assert text.count("File download batch completed: 1 downloaded, 0 failed") == 1
 
