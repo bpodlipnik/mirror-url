@@ -28,6 +28,7 @@ Run the same checks CI runs:
 ruff check .          # lint
 ruff format .         # formatting (Ruff 0.16.10)
 mypy                  # required type-check (zero errors)
+python scripts/render_site.py --check  # website release/CLI references
 pytest                # full suite, including live HTTP integration
 ```
 

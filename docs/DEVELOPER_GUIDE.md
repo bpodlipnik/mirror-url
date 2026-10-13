@@ -1216,6 +1216,9 @@ and documentation synchronized when upgrading the formatter.
    The script replaces every occurrence of the current version in those files,
    including historical mentions of that exact version; review the diff and
    preserve history manually when needed. Regenerate HTML after content edits.
+   The bump also updates `index.html` and regenerates its CLI table. After CLI
+   changes, run `python scripts/render_site.py`; `--check` detects drift in CI.
+   Review the page's handwritten feature descriptions alongside the release.
 2. **Update `CHANGELOG.md`.** Replace the release's `[Unreleased]` heading with
    `## [X.Y.Z] - YYYY-MM-DD`, retain its notes, and remove any empty duplicate
    `[Unreleased]` section. For a release with no pending changes, leave no
@@ -1243,6 +1246,9 @@ and documentation synchronized when upgrading the formatter.
    Without that opt-in, it is skipped; the tag still builds the wheel and
    creates the GitHub Release. Verify the version and changelog before creating
    the tag.
+   The release includes `index.html` as a downloadable asset. Deploy that file
+   to the existing documentation host separately; the workflow does not upload
+   to `star.mps.mpg.de`.
 
 ---
 
