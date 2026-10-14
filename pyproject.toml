@@ -41,7 +41,7 @@ dependencies = [
     "PyYAML>=6.0",
     "tqdm>=4.65",
     # 3.x provides shared Windows locks (via pywin32).
-    "portalocker>=3.2,<4",
+    "portalocker>=3.2,<5",
 ]
 
 [project.optional-dependencies]
