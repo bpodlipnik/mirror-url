@@ -290,7 +290,8 @@ class ReportMixin(MirrorHost):
                     self.clean_obsolete(set(remote_files))
 
                 run.finish("failed dry run" if self.scan_incomplete else "dry run")
-                logging.info(self.metrics.report(prefix))
+                if not run.job_active:
+                    logging.info(self.metrics.report(prefix))
                 return not getattr(self, "scan_incomplete", False)
 
             if len(remote_files) > 0:
@@ -795,19 +796,15 @@ class ReportMixin(MirrorHost):
             if cleanup_failures > 0:
                 reasons.append(f"{cleanup_failures} cleanup failures")
             run.finish("failed" if reasons else "success", "; ".join(reasons))
-            logging.info("-" * 50)
-            logging.info(self.metrics.report(prefix, show_stats=self.config.stats))
-            logging.info("-" * 50)
+            if not run.job_active:
+                logging.info("-" * 50)
+                logging.info(self.metrics.report(prefix, show_stats=self.config.stats))
+                logging.info("-" * 50)
 
-            if self.config.metrics_json and not self.config.dry_run:
-                self.metrics.export_json(self.config.metrics_json, self.config)
-
-            if reasons:
-                log_run_completion(False, prefix=prefix, reasons="; ".join(reasons))
-                return False
-
-            log_run_completion(True, prefix=prefix)
-            return True
+                if self.config.metrics_json and not self.config.dry_run:
+                    self.metrics.export_json(self.config.metrics_json, self.config)
+                log_run_completion(not reasons, prefix=prefix, reasons="; ".join(reasons))
+            return not reasons
 
         except Exception as e:
             if progress is not None:
@@ -815,7 +812,8 @@ class ReportMixin(MirrorHost):
             logging.critical(f"{prefix}Fatal error: {e}", exc_info=True)
             self.metrics.add_error(str(e), "fatal")
             run.finish("failed", type(e).__name__)
-            logging.info(self.metrics.report(prefix))
+            if not run.job_active:
+                logging.info(self.metrics.report(prefix))
             return False
         finally:
             if progress is not None:
