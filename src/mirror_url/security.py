@@ -12,7 +12,7 @@ import logging
 import os
 import socket
 import sys
-from pathlib import Path
+from pathlib import Path, PurePath, PureWindowsPath
 from threading import RLock
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import unquote, urlparse
@@ -328,6 +328,34 @@ class PathSafety:
     """Utility class for safe path operations"""
 
     @staticmethod
+    def _comparison_path(path: Path) -> PurePath:
+        """Resolve links, then compare equivalent Windows DOS/UNC namespaces.
+
+        Keep the caller's filesystem path for I/O. Windows can return an
+        extended-length spelling while a missing parent is created by another
+        download; only the resolved comparison identity needs normalization.
+        Other device namespaces are deliberately left distinct.
+        """
+        resolved = path.resolve()
+        if isinstance(resolved, PureWindowsPath) and resolved.is_absolute():
+            drive = resolved.drive
+            if drive.startswith("\\\\?\\UNC\\"):
+                return type(resolved)("\\\\" + str(resolved)[8:])
+            if (
+                len(drive) == 6
+                and drive.startswith("\\\\?\\")
+                and drive[4] in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+                and drive[5] == ":"
+            ):
+                return type(resolved)(str(resolved)[4:])
+        return resolved
+
+    @staticmethod
+    def resolved_relative_to(path: Path, base: Path) -> PurePath:
+        """Return a contained relative identity, raising for outside paths."""
+        return PathSafety._comparison_path(path).relative_to(PathSafety._comparison_path(base))
+
+    @staticmethod
     def _resolve_destination_root(path: Path) -> Path:
         """Reject selected-root symlinks before resolution erases their identity."""
         absolute = path if path.is_absolute() else Path.cwd() / path
@@ -357,9 +385,7 @@ class PathSafety:
             True if child is inside parent
         """
         try:
-            parent_resolved = parent.resolve()
-            child_resolved = child.resolve()
-            child_resolved.relative_to(parent_resolved)
+            PathSafety.resolved_relative_to(child, parent)
             return True
         except (ValueError, RuntimeError, OSError) as e:
             logging.warning(f"Path safety resolution failed: {e}")
@@ -463,11 +489,7 @@ class PathSafety:
         try:
             if not base.exists():
                 return None
-            path_resolved = path.resolve()
-            base_resolved = base.resolve()
-            if not PathSafety.is_subpath(base_resolved, path_resolved):
-                return None
-            rel = path_resolved.relative_to(base_resolved)
+            rel = PathSafety.resolved_relative_to(path, base)
             return str(rel)
         except (ValueError, RuntimeError, OSError):
             return None
