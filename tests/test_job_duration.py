@@ -225,14 +225,14 @@ def test_final_json_and_logged_summary_use_the_frozen_job_clock(
     assert len(captured) == 1
     run = captured[0]
     result = (
-        json.loads(exported.read_text())["metrics"]["run"]
+        json.loads(exported.read_text(encoding="utf-8"))["metrics"]["run"]
         if mode == "mirror"
         else json.loads(output.out)
     )
     assert result["duration_scope"] == "job"
     assert result["elapsed_seconds"] == run["elapsed_seconds"]
     assert run["elapsed_seconds"] > run["phase_seconds"]["downloads"]
-    log = "\n".join(path.read_text() for path in logs.glob("*.log"))
+    log = "\n".join(path.read_text(encoding="utf-8") for path in logs.glob("*.log"))
     assert f"Total duration: {run['elapsed_seconds']:.3f}s" in log
     assert log.count("SUMMARY:") == 1
     assert (destination / "a").read_bytes() == payload
