@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Select parallel whole-file downloads for small-file batches before automatic
+  disk, network-speed and range-capability probes that cannot change the choice.
+- Include mirror's file-size HEAD requests and automatic-selection work in the
+  shared timing breakdown without double-counting fallback probes. Keep the
+  `range_metadata` JSON key and label its complete scope as transfer metadata.
+- Request uncompressed size metadata consistently with payload GETs, discard
+  encoded or invalid size estimates, and close completed probe responses.
+
 ## [3.8.0] - 2026-10-13
 
 ### Added

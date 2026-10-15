@@ -58,8 +58,7 @@ class DownloadMixin(MirrorHost):
                 # Use passed size or fetch it
                 current_size = file_size
                 if current_size is None:
-                    with self.metrics.run_report.transfer_stage("range_metadata"):
-                        current_size = self._get_file_size(remote_url)
+                    current_size = self._get_file_size(remote_url)
                 if current_size and self.parallel_manager.should_use_parallel(current_size):
                     # Create parallel download
                     download = self.parallel_manager.create_chunks(

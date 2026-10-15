@@ -34,6 +34,7 @@ from ..connection import ConnectionManager
 from ..constants import ADAPTIVE_MAX_CONCURRENCY
 from ..destination_lock import DestinationLock, MirrorFileHandler, current_run_lock
 from ..download import ParallelDownloadManager, PartialDownloadManager
+from ..download_integrity import content_length
 from ..enums import CleanupPolicy
 from ..exceptions import URLScopeError
 from ..health import HealthChecker, HealthCheckServer
@@ -1248,12 +1249,21 @@ class _MirrorBase(MirrorHost):
             logging.debug(f"Connection warm-up failed (non-critical): {e}")
 
     def _get_file_size(self, url: str) -> Optional[int]:
-        """Get file size via HEAD request."""
+        """Plan against the same uncompressed representation as payload GETs."""
         try:
-            response = self.connection_manager.request(url, method="HEAD")
-            content_length = response.headers.get("Content-Length")
-            if content_length:
-                return int(content_length)
+            with self.metrics.run_report.transfer_stage("range_metadata"):
+                response = self.connection_manager.request(
+                    url, method="HEAD", headers={"Accept-Encoding": "identity"}
+                )
+                try:
+                    if (
+                        response.status_code == 200
+                        and response.headers.get("Content-Encoding", "identity").lower()
+                        == "identity"
+                    ):
+                        return content_length(response.headers)
+                finally:
+                    response.close()
         except Exception as e:
             logging.debug(f"Failed to get file size for {url}: {e}")
         return None

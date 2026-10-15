@@ -783,6 +783,12 @@ complete, render the normal summary, and optionally export metrics JSON.
 A failed download, incomplete scan, or recorded cleanup-operation
 failure makes <code>sync()</code> return <code>False</code>.</li>
 </ol>
+<p>Automatic selection handles single-file and predominantly small-file
+batches before disk, network-speed and range-support probes. Mirror's
+size-planning HEAD requests use <code>Accept-Encoding: identity</code>,
+matching payload GETs. A non-200, encoded or invalid-length HEAD
+supplies no size estimate; the whole-file path still validates the
+actual GET length. Probe responses close on every completed request.</p>
 <h3 id="run-reporting">Run reporting</h3>
 <p><code>MetricsCollector.run_report</code> starts a fresh reporting
 interval for each <code>sync()</code>. It records file decisions by
@@ -814,22 +820,33 @@ CPU parsing time.</p>
 monotonic timer for both backends and coordinators. It accumulates
 <code>transfer_stage_seconds</code> and
 <code>transfer_stage_operations</code> for <code>range_metadata</code>,
-<code>transfer</code>, <code>assembly</code>, <code>flush</code> and
-<code>hash</code>. Its <code>finally</code> retains failed/cancelled
-attempts. <code>start()</code> clears both maps for the next run, and
-snapshots copy them independently. Instrument actual
-request/receive/write, copy, payload flush and staged-payload hash
-operations, rather than whole methods containing other timed stages.
-Streaming writes count under transfer, without a separate assembly
-operation. Disabled SHA-256 calls are not measured as hashing. Freshness
-checks and receipt hash validation retain their existing coordinator
-accounting. These worker sums can overlap between threads/tasks and do
-not replace <code>phase_seconds</code> or the elapsed throughput
-denominator. The shared summary labels each as <code>(sum)</code> and
-reports absent stages as <code>not performed</code>; interval counts are
-not HTTP request counts. Download results add the same maps while
-preserving the older <code>stage_seconds</code> API. Timing does not
-initiate requests or filesystem queries.</p>
+<code>method_selection</code>, <code>transfer</code>,
+<code>assembly</code>, <code>flush</code> and <code>hash</code>. Its
+<code>finally</code> retains failed/cancelled attempts.
+<code>start()</code> clears both maps for the next run, and snapshots
+copy them independently. Instrument actual request/receive/write, copy,
+payload flush and staged-payload hash operations, rather than whole
+methods containing other timed stages. The existing
+<code>range_metadata</code> JSON key is retained, with the display label
+<strong>Transfer metadata probes</strong>: it includes mirror
+size-prefetch HEADs and range-capability HEADs, measured once at their
+request sites. The fallback caller does not wrap
+<code>_get_file_size()</code> again. <strong>Automatic selection
+work</strong> (<code>method_selection</code>) measures disk detection
+and sampled network-speed work separately from the capability HEAD;
+sample bytes do not receive payload credit. These preparation
+measurements remain inside the preparation elapsed phase and are not
+added to it or to the total duration. Streaming writes count under
+transfer, without a separate assembly operation. Disabled SHA-256 calls
+are not measured as hashing. Freshness checks and receipt hash
+validation retain their existing coordinator accounting. These worker
+sums can overlap between threads/tasks and do not replace
+<code>phase_seconds</code> or the elapsed throughput denominator. The
+shared summary labels each as <code>(sum)</code> and reports absent
+stages as <code>not performed</code>; interval counts are not HTTP
+request counts. Download results add the same maps while preserving the
+older <code>stage_seconds</code> API. Timing does not initiate requests
+or filesystem queries.</p>
 <p><code>begin_discovery()</code> records the actual BFS strategy and
 worker bound; <code>record_directory_examined()</code> counts each
 distinct directory admitted by the coordinator, including entries at the

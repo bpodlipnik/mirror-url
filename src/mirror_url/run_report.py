@@ -9,7 +9,8 @@ from threading import RLock
 from typing import Dict, Iterator, Optional
 
 TRANSFER_STAGES = (
-    ("range_metadata", "Range metadata probes"),
+    ("range_metadata", "Transfer metadata probes"),
+    ("method_selection", "Automatic selection work"),
     ("transfer", "Data transfer/write"),
     ("assembly", "Chunk assembly"),
     ("flush", "Disk flushing"),
