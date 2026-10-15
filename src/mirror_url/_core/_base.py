@@ -988,7 +988,7 @@ class _MirrorBase(MirrorHost):
         # 12. Save final metrics if configured
         if hasattr(self, "config") and self.config.metrics_json and not self.config.dry_run:
             try:
-                if hasattr(self, "metrics"):
+                if hasattr(self, "metrics") and not self.metrics.run_report.job_active:
                     self.metrics.export_json(self.config.metrics_json, self.config)
                     logging.info(f"Final metrics exported to {self.config.metrics_json}")
             except Exception as e:

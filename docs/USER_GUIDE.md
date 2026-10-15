@@ -1077,7 +1077,8 @@ The completion log uses the same **SUMMARY** layout as mirror mode. It shows
 requested files, successful missing/existing-file downloads, failures,
 downloaded bytes, measured download preparation/download/cleanup times,
 download throughput and total duration. Throughput uses the download phase;
-total duration also includes preparation and cleanup. The field order and labels
+total duration includes job initialization, preparation, cleanup and transfer-resource
+shutdown, using the same boundaries as mirror mode. The field order and labels
 match mirror mode. Direct downloads mark discovery and metadata as not performed;
 their scan, freshness and obsolete-file counters remain zero. Files requested
 records the supplied URL count. Existing-file downloads are counted from local file presence;
@@ -1843,8 +1844,13 @@ limit tracker behavior; they do not make the heuristic a definitive detector.
   elapsed times. **Download throughput** divides newly transferred bytes by the
   download phase's wall-clock duration, including concurrent transfers, retries,
   pacing and publication. It is `n/a` when nothing was published. **Total
-  duration** covers `sync()` after manager setup; initial construction and final
-  shutdown are outside that interval. The summary reports the actual **Discovery
+  duration** in both CLI modes starts after argument/config-file parsing, before mode-specific configuration, ownership and
+  logging setup and ends after worker/client shutdown, before the final summary.
+  Python startup, argument parsing, terminal report output and the enclosing
+  log/ownership release are outside that interval. For multiple suffixes, common
+  CLI setup belongs to the first job; each later job starts before its own
+  configuration. Use `/usr/bin/time` when comparing complete command runtimes.
+  The summary reports the actual **Discovery
   mode** and worker count, **Directories examined**, **Discovery elapsed time**
   and **Discovery throughput** together. Throughput divides examined directories
   by the discovery phase's elapsed time, including cache loading and file-list

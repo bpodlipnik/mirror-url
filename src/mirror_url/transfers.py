@@ -1117,5 +1117,6 @@ def download_url_list(
             if outcome is not None and not outcome.get("dry_run"):
                 run = report.snapshot()
                 outcome["elapsed_seconds"] = run["elapsed_seconds"]
+                outcome["duration_scope"] = run["duration_scope"]
                 outcome["transfer_stage_seconds"] = run["transfer_stage_seconds"]
                 outcome["transfer_stage_operations"] = run["transfer_stage_operations"]

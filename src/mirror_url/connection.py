@@ -33,6 +33,7 @@ from .exceptions import (
 )
 from .metrics import log_connection_pools_closed
 from .rate_limiter import PerIPRateLimiter, RateLimiter
+from .run_report import RunReport
 from .security import SecurityValidator
 from .transport import SecureTransport
 from .utils import (
@@ -300,7 +301,7 @@ class ConnectionPool:
         except Exception as e:
             logging.debug(f"Failed to warm up domain {domain}: {e}")
 
-    def close_all(self) -> None:
+    def close_all(self, *, report: Optional[RunReport] = None) -> None:
         """Close all connection pools and clean up resources"""
         with self.lock:
             pool_count = len(self.pools)
@@ -314,7 +315,10 @@ class ConnectionPool:
             self.pools.clear()
             self.pool_usage.clear()
             self.last_used.clear()
-            log_connection_pools_closed(pool_count)
+            if report is not None and report.job_active:
+                report.closed_connection_pools += pool_count
+            else:
+                log_connection_pools_closed(pool_count)
 
     def get_stats(self) -> Dict[str, Any]:
         """
@@ -867,7 +871,7 @@ class ConnectionManager:
     def close(self) -> None:
         """Close all connections"""
         try:
-            self.connection_pool.close_all()
+            self.connection_pool.close_all(report=self.metrics.run_report)
         finally:
             if getattr(self, "_owns_concurrency_manager", False):
                 self.concurrency_manager.shutdown()

@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Use the same shared job-duration clock in both CLI modes, including
+  initialization and worker/client shutdown. Render mirror's final summary and
+  metrics after shutdown, retain shutdown failures, and keep download throughput
+  based on the download phase alone.
+
 ## [3.8.1] - 2026-10-15
 
 ### Fixed

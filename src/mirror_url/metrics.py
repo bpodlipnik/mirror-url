@@ -693,6 +693,7 @@ def format_download_summary(
             if summary["success"]
             else "failed",
             elapsed_seconds=summary.get("elapsed_seconds"),
+            duration_scope=summary.get("duration_scope", "operation"),
             remote_files_found=summary.get(
                 "files", summary.get("files_downloaded", 0) + summary.get("files_failed", 0)
             ),

@@ -130,6 +130,7 @@ def test_cli_reads_selection_file_once_for_all_suffixes(tmp_path, monkeypatch, f
     from types import SimpleNamespace
 
     from mirror_url import cli
+    from mirror_url.metrics import MetricsCollector
 
     listing = tmp_path / "selection.txt"
     listing.write_text("soho/gen/a\nsoho/lasco/monthly/b\n")
@@ -147,6 +148,8 @@ def test_cli_reads_selection_file_once_for_all_suffixes(tmp_path, monkeypatch, f
     class Mirror:
         def __init__(self, cfg, **kwargs):
             captured.append(cfg)
+            self.config = cfg
+            self.metrics = MetricsCollector()
             self.connection_manager = SimpleNamespace()
             self.connection_ok = True
 
@@ -160,9 +163,14 @@ def test_cli_reads_selection_file_once_for_all_suffixes(tmp_path, monkeypatch, f
             pass
 
         def sync(self):
+            self.metrics.run_report.start({}, len(self.config.check_files))
             # Changing the input after the first suffix must not change the run.
             listing.write_text("different/file\n")
+            self.metrics.run_report.finish("success")
             return True
+
+        def _get_prefix(self):
+            return ""
 
     monkeypatch.setattr(cli, "MirrorURL", Mirror)
     argv = ["mirror-url", "--dir-suffix", "soho/gen", "soho/lasco/monthly"]

@@ -25,6 +25,8 @@ class RunReport:
         self._lock = RLock()
         self.started: Optional[float] = None
         self.finished: Optional[float] = None
+        self.job_started: Optional[float] = None
+        self.job_finished: Optional[float] = None
         self.status = "not started"
         self.reasons = ""
         self.checks: Dict[str, tuple[str, bool]] = {}
@@ -45,10 +47,38 @@ class RunReport:
         self.closed_connection_pools = 0
         self.peak_parallel_chunks = 0
 
+    @property
+    def job_active(self) -> bool:
+        """CLI reporting waits until the job's transfer resources have closed."""
+        return self.job_started is not None and self.job_finished is None
+
+    def start_job(self, started: float) -> None:
+        """Bind a CLI job clock captured before mode-specific initialization.
+
+        The coordinator's phase clock remains independent. Reporting output and
+        its enclosing log/ownership teardown are outside this job interval.
+        """
+        with self._lock:
+            self.job_started = started
+            self.job_finished = None
+
+    def finish_job(self, error: Optional[BaseException] = None) -> None:
+        """Freeze after worker/client shutdown, retaining a shutdown failure."""
+        with self._lock:
+            if self.job_active:
+                self.job_finished = time.perf_counter()
+                if error is not None:
+                    self.status = "failed"
+                    detail = f"job finalization: {type(error).__name__}"
+                    self.reasons = "; ".join(filter(None, (self.reasons, detail)))
+
     def start(
         self, metrics: dict, selected_configured: int, *, verify_content: Optional[bool] = None
     ) -> None:
         with self._lock:
+            # Reusing an API collector must not carry an earlier CLI job clock.
+            if self.job_finished is not None:
+                self.job_started = self.job_finished = None
             self.started = time.perf_counter()
             self.finished = None
             self.status = "running"
@@ -159,6 +189,10 @@ class RunReport:
                 if self.started is not None
                 else 0.0
             )
+            if self.job_started is not None:
+                elapsed = (
+                    self.job_finished if self.job_finished is not None else time.perf_counter()
+                ) - self.job_started
             download_seconds = self.phases.get("downloads", 0.0)
             discovery_seconds = self.phases.get("discovery", 0.0)
             return {
@@ -187,6 +221,7 @@ class RunReport:
                 "transfer_stage_seconds": dict(self.transfer_seconds),
                 "transfer_stage_operations": dict(self.transfer_operations),
                 "elapsed_seconds": elapsed,
+                "duration_scope": "job" if self.job_started is not None else "operation",
                 "discovery_mode": self.discovery_mode,
                 "discovery_workers": self.discovery_workers,
                 "directories_examined": self.directories_examined,

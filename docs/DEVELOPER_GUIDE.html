@@ -812,10 +812,27 @@ wall-clock intervals with <code>perf_counter()</code>, including
 exception unwinding. Download preparation is separate from actual
 transfers. Aggregate download throughput uses transferred bytes divided
 by the download phase's elapsed time, rather than summed worker times.
-Completion freezes elapsed time; beginning another sync clears its
-decisions, publication set and phases. Listing work is measured per
-call, includes fetch wait, and is reported as summed work rather than
-CPU parsing time.</p>
+<code>finish()</code> freezes the coordinator interval; beginning
+another sync clears its decisions, publication set and phases. CLI jobs
+call the shared <code>RunReport.start_job()</code> with a monotonic
+timestamp captured before mode-specific configuration, ownership and
+logging setup (after argument/config-file parsing). They call
+<code>finish_job()</code> only after worker/client shutdown, and then
+render the summary. A shutdown exception changes the result to failed,
+including when transfers succeeded. <code>elapsed_seconds</code> uses
+this frozen job interval and <code>duration_scope</code> is
+<code>job</code>; direct API operations without a job clock retain
+<code>duration_scope=operation</code>. Reusing a finished report clears
+the old job clock. Final report output and enclosing log/ownership
+release stay outside the interval so reporting writes retain their
+kernel ownership. Python startup and argument/config-file parsing are
+also excluded. The first suffix includes shared CLI setup; later
+suffixes have independent job starts. Mirror defers its CLI summary and
+final metrics export until shutdown. Operation-only API summaries retain
+their existing behavior. These job boundaries do not change coordinator
+phases or the download-throughput denominator. Listing work is measured
+per call, includes fetch wait, and is reported as summed work rather
+than CPU parsing time.</p>
 <p><code>RunReport.transfer_stage()</code> is the shared, thread-safe
 monotonic timer for both backends and coordinators. It accumulates
 <code>transfer_stage_seconds</code> and
@@ -864,9 +881,9 @@ Summed worker time can exceed elapsed discovery time.</p>
 baseline of lifetime counters. JSON retains existing metric keys and
 adds <code>metrics.run</code> with explicit outcomes, selection
 coverage, status, reasons, <code>phase_seconds</code>,
-<code>elapsed_seconds</code>, <code>discovery_mode</code>,
-<code>discovery_workers</code>, <code>directories_examined</code> and
-nullable
+<code>elapsed_seconds</code>, <code>duration_scope</code>,
+<code>discovery_mode</code>, <code>discovery_workers</code>,
+<code>directories_examined</code> and nullable
 <code>discovery_throughput</code>/<code>download_throughput</code>.
 Directory signatures, in-memory listing reuse, HTML hits/misses and
 cache bypasses remain distinct. <code>listing_fetches</code> remains the

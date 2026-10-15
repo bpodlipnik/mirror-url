@@ -471,8 +471,21 @@ wall-clock intervals with `perf_counter()`, including exception unwinding.
 Download preparation is separate
 from actual transfers. Aggregate download throughput uses transferred bytes
 divided by the download phase's elapsed time, rather than summed worker times.
-Completion freezes elapsed time; beginning another sync clears its decisions,
-publication set and phases. Listing work is measured per call, includes fetch
+`finish()` freezes the coordinator interval; beginning another sync clears its
+decisions, publication set and phases. CLI jobs call the shared
+`RunReport.start_job()` with a monotonic timestamp captured before mode-specific
+configuration, ownership and logging setup (after argument/config-file parsing). They call `finish_job()` only after
+worker/client shutdown, and then render the summary. A shutdown exception changes
+the result to failed, including when transfers succeeded. `elapsed_seconds` uses
+this frozen job interval and `duration_scope` is `job`; direct API operations
+without a job clock retain `duration_scope=operation`. Reusing a finished report
+clears the old job clock. Final report output and enclosing log/ownership release
+stay outside the interval so reporting writes retain their kernel ownership.
+Python startup and argument/config-file parsing are also excluded. The first suffix includes
+shared CLI setup; later suffixes have independent job starts. Mirror defers its
+CLI summary and final metrics export until shutdown. Operation-only API summaries
+retain their existing behavior. These job boundaries do not change coordinator
+phases or the download-throughput denominator. Listing work is measured per call, includes fetch
 wait, and is reported as summed work rather than CPU parsing time.
 
 `RunReport.transfer_stage()` is the shared, thread-safe monotonic timer for
@@ -514,7 +527,7 @@ from summed listing work. Summed worker time can exceed elapsed discovery time.
 The text summary reports this sync's cache/subsystem activity using a baseline
 of lifetime counters. JSON retains existing metric keys and adds `metrics.run`
 with explicit outcomes, selection coverage, status, reasons, `phase_seconds`,
-`elapsed_seconds`, `discovery_mode`, `discovery_workers`, `directories_examined`
+`elapsed_seconds`, `duration_scope`, `discovery_mode`, `discovery_workers`, `directories_examined`
 and nullable `discovery_throughput`/`download_throughput`. Directory signatures,
 in-memory listing reuse, HTML hits/misses and cache bypasses remain distinct.
 `listing_fetches` remains the logical listing GET count. `listing_get_seconds`,
