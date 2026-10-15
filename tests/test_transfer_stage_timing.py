@@ -163,7 +163,7 @@ def test_both_modes_backends_and_strategies_report_measured_stages(
     assert stages["transfer"] > 0 and stages["flush"] > 0
     assert ("hash" in stages) is verify
     assert ("assembly" in stages) is (strategy == "parallel")
-    assert ("range_metadata" in stages) is (strategy != "sequential")
+    assert ("range_metadata" in stages) is (mode == "mirror" or strategy != "sequential")
     assert all(seconds >= 0 for seconds in stages.values())
     for _, label in TRANSFER_STAGES:
         assert text.count(f"{label} (sum):") == 1

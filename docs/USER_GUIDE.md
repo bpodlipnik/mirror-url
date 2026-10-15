@@ -1083,14 +1083,20 @@ their scan, freshness and obsolete-file counters remain zero. Files requested
 records the supplied URL count. Existing-file downloads are counted from local file presence;
 they do not imply the remote file changed.
 
-Both modes also show **Transfer stage times**: **Range metadata probes**,
-**Data transfer/write**, **Chunk assembly**, **Disk flushing** and **SHA-256
+Both modes also show **Transfer stage times**: **Transfer metadata probes**,
+**Automatic selection work**, **Data transfer/write**, **Chunk assembly**, **Disk flushing** and **SHA-256
 hashing**, each labelled **(sum)**. These are accumulated worker times, not
 additional elapsed phases. Concurrent workers overlap, so the sums can exceed
 **Downloads time** and must not be added to **Total duration**.
 Transfer/write includes response waits and writes to staging; it is not pure
-network time. Range probes measure transfer-planning HEAD calls, separately
-from mirror's freshness **Metadata time**. Chunk assembly measures copying
+network time. Transfer metadata probes include file-size and range-capability
+HEAD calls, including mirror's download preparation, separately from freshness
+**Metadata time**. Size probes request the same uncompressed representation as
+downloads; an encoded response or invalid length is treated as an unknown size.
+Automatic selection work measures disk detection and the network-speed sample;
+sample bytes are not credited as downloaded files. Small-file batches choose
+parallel whole-file transfers without these automatic-selection probes. An
+explicit download strategy also bypasses automatic selection. Chunk assembly measures copying
 temporary chunks; streaming writes directly into staging and normally reports
 assembly as `not performed`. Disk flushing measures payload buffer/fsync/mmap
 flush operations; receipt and cache persistence remain in their coordinator

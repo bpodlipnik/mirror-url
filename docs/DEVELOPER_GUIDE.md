@@ -442,6 +442,13 @@ A full mirror run is driven by `ReportMixin.sync()`. The high-level path:
    optionally export metrics JSON. A failed download, incomplete scan, or
    recorded cleanup-operation failure makes `sync()` return `False`.
 
+Automatic selection handles single-file and predominantly small-file batches
+before disk, network-speed and range-support probes. Mirror's size-planning
+HEAD requests use `Accept-Encoding: identity`, matching payload GETs. A
+non-200, encoded or invalid-length HEAD supplies no size estimate; the
+whole-file path still validates the actual GET length. Probe responses close
+on every completed request.
+
 ### Run reporting
 
 `MetricsCollector.run_report` starts a fresh reporting interval for each
@@ -470,11 +477,19 @@ wait, and is reported as summed work rather than CPU parsing time.
 
 `RunReport.transfer_stage()` is the shared, thread-safe monotonic timer for
 both backends and coordinators. It accumulates `transfer_stage_seconds` and
-`transfer_stage_operations` for `range_metadata`, `transfer`, `assembly`,
+`transfer_stage_operations` for `range_metadata`, `method_selection`, `transfer`, `assembly`,
 `flush` and `hash`. Its `finally` retains failed/cancelled attempts. `start()`
 clears both maps for the next run, and snapshots copy them independently.
 Instrument actual request/receive/write, copy, payload flush and staged-payload
 hash operations, rather than whole methods containing other timed stages.
+The existing `range_metadata` JSON key is retained, with the display label
+**Transfer metadata probes**: it includes mirror size-prefetch HEADs and
+range-capability HEADs, measured once at their request sites. The fallback
+caller does not wrap `_get_file_size()` again. **Automatic selection work**
+(`method_selection`) measures disk detection and sampled network-speed work
+separately from the capability HEAD; sample bytes do not receive payload credit.
+These preparation measurements remain inside the preparation elapsed phase and
+are not added to it or to the total duration.
 Streaming writes count under transfer, without a separate assembly operation.
 Disabled SHA-256 calls are not measured as hashing. Freshness checks and receipt
 hash validation retain their existing coordinator accounting. These worker

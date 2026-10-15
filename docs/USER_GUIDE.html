@@ -1316,24 +1316,32 @@ Files requested records the supplied URL count. Existing-file downloads
 are counted from local file presence; they do not imply the remote file
 changed.</p>
 <p>Both modes also show <strong>Transfer stage times</strong>:
-<strong>Range metadata probes</strong>, <strong>Data
-transfer/write</strong>, <strong>Chunk assembly</strong>, <strong>Disk
-flushing</strong> and <strong>SHA-256 hashing</strong>, each labelled
-<strong>(sum)</strong>. These are accumulated worker times, not
-additional elapsed phases. Concurrent workers overlap, so the sums can
-exceed <strong>Downloads time</strong> and must not be added to
-<strong>Total duration</strong>. Transfer/write includes response waits
-and writes to staging; it is not pure network time. Range probes measure
-transfer-planning HEAD calls, separately from mirror's freshness
-<strong>Metadata time</strong>. Chunk assembly measures copying
-temporary chunks; streaming writes directly into staging and normally
-reports assembly as <code>not performed</code>. Disk flushing measures
-payload buffer/fsync/mmap flush operations; receipt and cache
-persistence remain in their coordinator phases. Hashing measures new
-staged payloads only and is <code>not performed</code> without
-<code>--verify-content</code>. Failed attempts retain their measured
-work, without adding successful-file or byte credit. An unchanged run
-reports no transfer-stage work.</p>
+<strong>Transfer metadata probes</strong>, <strong>Automatic selection
+work</strong>, <strong>Data transfer/write</strong>, <strong>Chunk
+assembly</strong>, <strong>Disk flushing</strong> and <strong>SHA-256
+hashing</strong>, each labelled <strong>(sum)</strong>. These are
+accumulated worker times, not additional elapsed phases. Concurrent
+workers overlap, so the sums can exceed <strong>Downloads time</strong>
+and must not be added to <strong>Total duration</strong>. Transfer/write
+includes response waits and writes to staging; it is not pure network
+time. Transfer metadata probes include file-size and range-capability
+HEAD calls, including mirror's download preparation, separately from
+freshness <strong>Metadata time</strong>. Size probes request the same
+uncompressed representation as downloads; an encoded response or invalid
+length is treated as an unknown size. Automatic selection work measures
+disk detection and the network-speed sample; sample bytes are not
+credited as downloaded files. Small-file batches choose parallel
+whole-file transfers without these automatic-selection probes. An
+explicit download strategy also bypasses automatic selection. Chunk
+assembly measures copying temporary chunks; streaming writes directly
+into staging and normally reports assembly as
+<code>not performed</code>. Disk flushing measures payload
+buffer/fsync/mmap flush operations; receipt and cache persistence remain
+in their coordinator phases. Hashing measures new staged payloads only
+and is <code>not performed</code> without <code>--verify-content</code>.
+Failed attempts retain their measured work, without adding
+successful-file or byte credit. An unchanged run reports no
+transfer-stage work.</p>
 <p>Neither mode recursively sizes the whole destination for completion
 output. <strong>Downloaded bytes</strong> counts files successfully
 published in this run; it is not the destination's total size or
