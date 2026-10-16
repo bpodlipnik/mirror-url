@@ -58,6 +58,7 @@ from .models import ChunkInfo, ParallelFileDownload
 from .progress import DownloadProgress, get_download_progress
 from .rate_limiter import ChunkAwareRateLimiter
 from .scratch import OwnedScratch
+from .security import PathSafety
 from .utils import bounded_executor_shutdown, exponential_backoff, format_bytes
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, avoids an import cycle
@@ -1422,15 +1423,24 @@ class ParallelDownloadManager:
             logging.info("📊 Auto-selected: SEQUENTIAL (single file detected)")
             return DownloadMethod.SEQUENTIAL
 
+        # This choice depends only on the known sizes. Avoid disk detection,
+        # a sampled GET and a range-capability HEAD that cannot change it.
+        small_files_count = sum(1 for s in file_sizes if s < 10 * 1024 * 1024)
+        if small_files_count > total_files * 0.7 and total_files >= 3:
+            logging.info(
+                f"📊 Auto-selected: TRADITIONAL_PARALLEL ({small_files_count} small files detected)"
+            )
+            return DownloadMethod.TRADITIONAL_PARALLEL
+
         # Calculate average file size
         avg_file_size = sum(file_sizes) / total_files if file_sizes else 0
         avg_file_size_mb = avg_file_size / (1024 * 1024)
 
-        # Detect disk type
-        disk_is_ssd = self._detect_ssd()
-
-        # Estimate network speed
-        network_speed_mbps = self._estimate_network_speed(remote_urls[:5])
+        # Keep heuristic disk/speed work separate from metadata HEAD requests
+        # and successful payload transfer work in the shared report.
+        with self.metrics.run_report.transfer_stage("method_selection"):
+            disk_is_ssd = self._detect_ssd()
+            network_speed_mbps = self._estimate_network_speed(remote_urls[:5])
 
         # Check server capabilities
         supports_range = self._check_range_support(remote_urls[0] if remote_urls else None)
@@ -1441,14 +1451,6 @@ class ParallelDownloadManager:
             f"disk={'SSD' if disk_is_ssd else 'HDD'}, network={network_speed_mbps:.0f}Mbps, "
             f"range={supports_range}"
         )
-
-        # Many small files - parallel files without chunking
-        small_files_count = sum(1 for s in file_sizes if s < 10 * 1024 * 1024)
-        if small_files_count > total_files * 0.7 and total_files >= 3:
-            logging.info(
-                f"📊 Auto-selected: TRADITIONAL_PARALLEL ({small_files_count} small files detected)"
-            )
-            return DownloadMethod.TRADITIONAL_PARALLEL
 
         # Large files with SSD and good network - streaming parallel
         if (
@@ -1564,9 +1566,15 @@ class ParallelDownloadManager:
         if not test_url:
             return False
         try:
-            response = self.connection_manager.request(test_url, method="HEAD", timeout=10)
-            accept_ranges = response.headers.get("Accept-Ranges", "").lower()
-            return accept_ranges == "bytes"
+            with self.metrics.run_report.transfer_stage("range_metadata"):
+                response = self.connection_manager.request(
+                    test_url, method="HEAD", headers={"Accept-Encoding": "identity"}, timeout=10
+                )
+                try:
+                    accept_ranges = response.headers.get("Accept-Ranges", "").lower()
+                    return accept_ranges == "bytes"
+                finally:
+                    response.close()
         except Exception:
             return False
 
@@ -1641,7 +1649,9 @@ class PartialDownloadManager:
         """
         if self.download_dir is None:
             raise ValueError("Partial download directory is unavailable")
-        relative = final_path.resolve().relative_to(self.download_dir.resolve())
+        relative = PathSafety.resolved_relative_to(final_path, self.download_dir)
+        if not relative.parts:
+            raise ValueError("Partial download path must name a file below the destination")
         if relative.parts[0].casefold() == self.STATE_DIRECTORY:
             raise ValueError("Remote path conflicts with the partial-download directory")
         digest = hashlib.sha256(str(relative).encode("utf-8")).hexdigest()

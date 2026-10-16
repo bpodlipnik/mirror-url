@@ -11,7 +11,7 @@ If you only want to *use* MirrorURL (install, CLI, config, Python API), read
 repeats the essentials so you can work from it alone.
 
 - **Package:** `mirror_url` (src-layout under `src/`)
-- **Version:** 3.8.0
+- **Version:** 3.8.2
 - **Python:** 3.10 or newer; CI tests Python 3.10–3.14
 - **Runtime deps:** `httpx[http2]` (including `h2`), `aiohttp`, `pydantic` v2, `PyYAML`, `portalocker` 3.x, `tqdm` (optional: `stringzilla`,
   `lxml`, `psutil`)
@@ -442,6 +442,13 @@ A full mirror run is driven by `ReportMixin.sync()`. The high-level path:
    optionally export metrics JSON. A failed download, incomplete scan, or
    recorded cleanup-operation failure makes `sync()` return `False`.
 
+Automatic selection handles single-file and predominantly small-file batches
+before disk, network-speed and range-support probes. Mirror's size-planning
+HEAD requests use `Accept-Encoding: identity`, matching payload GETs. A
+non-200, encoded or invalid-length HEAD supplies no size estimate; the
+whole-file path still validates the actual GET length. Probe responses close
+on every completed request.
+
 ### Run reporting
 
 `MetricsCollector.run_report` starts a fresh reporting interval for each
@@ -464,17 +471,38 @@ wall-clock intervals with `perf_counter()`, including exception unwinding.
 Download preparation is separate
 from actual transfers. Aggregate download throughput uses transferred bytes
 divided by the download phase's elapsed time, rather than summed worker times.
-Completion freezes elapsed time; beginning another sync clears its decisions,
-publication set and phases. Listing work is measured per call, includes fetch
+`finish()` freezes the coordinator interval; beginning another sync clears its
+decisions, publication set and phases. CLI jobs call the shared
+`RunReport.start_job()` with a monotonic timestamp captured before mode-specific
+configuration, ownership and logging setup (after argument/config-file parsing). They call `finish_job()` only after
+worker/client shutdown, and then render the summary. A shutdown exception changes
+the result to failed, including when transfers succeeded. `elapsed_seconds` uses
+this frozen job interval and `duration_scope` is `job`; direct API operations
+without a job clock retain `duration_scope=operation`. Reusing a finished report
+clears the old job clock. Final report output and enclosing log/ownership release
+stay outside the interval so reporting writes retain their kernel ownership.
+Python startup and argument/config-file parsing are also excluded. The first suffix includes
+shared CLI setup; later suffixes have independent job starts. Mirror defers its
+CLI summary and final metrics export until shutdown. Operation-only API summaries
+retain their existing behavior. These job boundaries do not change coordinator
+phases or the download-throughput denominator. Listing work is measured per call, includes fetch
 wait, and is reported as summed work rather than CPU parsing time.
 
 `RunReport.transfer_stage()` is the shared, thread-safe monotonic timer for
 both backends and coordinators. It accumulates `transfer_stage_seconds` and
-`transfer_stage_operations` for `range_metadata`, `transfer`, `assembly`,
+`transfer_stage_operations` for `range_metadata`, `method_selection`, `transfer`, `assembly`,
 `flush` and `hash`. Its `finally` retains failed/cancelled attempts. `start()`
 clears both maps for the next run, and snapshots copy them independently.
 Instrument actual request/receive/write, copy, payload flush and staged-payload
 hash operations, rather than whole methods containing other timed stages.
+The existing `range_metadata` JSON key is retained, with the display label
+**Transfer metadata probes**: it includes mirror size-prefetch HEADs and
+range-capability HEADs, measured once at their request sites. The fallback
+caller does not wrap `_get_file_size()` again. **Automatic selection work**
+(`method_selection`) measures disk detection and sampled network-speed work
+separately from the capability HEAD; sample bytes do not receive payload credit.
+These preparation measurements remain inside the preparation elapsed phase and
+are not added to it or to the total duration.
 Streaming writes count under transfer, without a separate assembly operation.
 Disabled SHA-256 calls are not measured as hashing. Freshness checks and receipt
 hash validation retain their existing coordinator accounting. These worker
@@ -499,7 +527,7 @@ from summed listing work. Summed worker time can exceed elapsed discovery time.
 The text summary reports this sync's cache/subsystem activity using a baseline
 of lifetime counters. JSON retains existing metric keys and adds `metrics.run`
 with explicit outcomes, selection coverage, status, reasons, `phase_seconds`,
-`elapsed_seconds`, `discovery_mode`, `discovery_workers`, `directories_examined`
+`elapsed_seconds`, `duration_scope`, `discovery_mode`, `discovery_workers`, `directories_examined`
 and nullable `discovery_throughput`/`download_throughput`. Directory signatures,
 in-memory listing reuse, HTML hits/misses and cache bypasses remain distinct.
 `listing_fetches` remains the logical listing GET count. `listing_get_seconds`,
@@ -1384,5 +1412,5 @@ Preserve these constraints when extending or refactoring the current code.
 
 ---
 
-*This guide describes the architecture as of version 3.8.0. When you change the
+*This guide describes the architecture as of version 3.8.2. When you change the
 structure, update this document in the same PR.*

@@ -421,6 +421,24 @@ def main() -> None:
             _close_run_handlers([handler for handler in _log_files if handler not in previous])
 
 
+def _finish_mirror_job(mirror, success, error, suffix, index, total) -> None:
+    """Render after resource shutdown while CLI still owns reporting outputs."""
+    report = mirror.metrics.run_report
+    report.finish_job(error)
+    if mirror.config.metrics_json and not mirror.config.dry_run:
+        mirror.metrics.export_json(mirror.config.metrics_json, mirror.config)
+    if success is not None:
+        prefix = mirror._get_prefix()
+        success = success and error is None
+        if report.status not in ("quick", "survey"):
+            logging.info("-" * 50)
+            logging.info(mirror.metrics.report(prefix, show_stats=mirror.config.stats))
+            logging.info("-" * 50)
+            log_run_completion(success, prefix=prefix, reasons=report.reasons)
+        log_processed_result(success, suffix, index, total)
+    log_connection_pools_closed(report.closed_connection_pools)
+
+
 def _close_run_handlers(handlers) -> None:
     for handler in handlers:
         logging.root.removeHandler(handler)
@@ -1288,6 +1306,8 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
     except ValueError:
         args.cleanup_policy = CleanupPolicy.SAFE_NO_DELETE
 
+    # Both modes start before job configuration, ownership and logging setup.
+    first_job_started = time.perf_counter()
     effective, base_config = None, None
     if args.config:
         try:
@@ -1337,8 +1357,17 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
                 logging.debug("Range metadata probes enabled for parallel chunk downloads")
             metrics = MetricsCollector()
             report = metrics.run_report
-            summary = download_url_list(download_config, metrics=metrics)
+            report.start_job(first_job_started)
+            try:
+                summary = download_url_list(download_config, metrics=metrics)
+            except BaseException as error:
+                report.finish_job(error)
+                raise
+            report.finish_job()
             run = report.snapshot(summary.get("bytes_downloaded", 0))
+            if not summary.get("dry_run"):
+                summary["elapsed_seconds"] = run["elapsed_seconds"]
+                summary["duration_scope"] = run["duration_scope"]
             logging.info(
                 format_download_summary(download_config, summary, target, run, metrics=metrics)
             )
@@ -1602,6 +1631,7 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
     skipped = []
 
     for i, suf in enumerate(suffixes, 1):
+        job_started = first_job_started if i == 1 else time.perf_counter()
         try:
             if args.config:
                 base_config = MirrorConfig.from_dict(
@@ -1752,37 +1782,50 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
             continue
 
         try:
-            with MirrorURL(suffix_config, suffix_index=i, total_suffixes=total) as mirror:
-                mirror.install_signal_handlers()
-                if not hasattr(mirror, "connection_manager") or not mirror.connection_manager:
-                    logging.warning(f"[{i}/{total}] No connection manager for {suf or 'ROOT'}")
-                    skipped.append(suf or "ROOT")
-                elif not mirror.connection_ok:
-                    logging.warning(f"[{i}/{total}] Connection failed for {suf or 'ROOT'} (404?)")
-                    failed.append(suf or "ROOT")
-                elif getattr(suffix_config, "list_dirs", False):
-                    if mirror.list_directories():
-                        logging.info(f"[{i}/{total}] ✅ Listed directories: {suf or 'ROOT'}")
-                        processed.append(suf or "ROOT")
-                    else:
-                        logging.error(
-                            f"[{i}/{total}] ❌ Failed to list directories: {suf or 'ROOT'}"
+            mirror = None
+            job_report = None
+            sync_success = None
+            job_error = None
+            try:
+                with MirrorURL(suffix_config, suffix_index=i, total_suffixes=total) as mirror:
+                    mirror.install_signal_handlers()
+                    if not hasattr(mirror, "connection_manager") or not mirror.connection_manager:
+                        logging.warning(f"[{i}/{total}] No connection manager for {suf or 'ROOT'}")
+                        skipped.append(suf or "ROOT")
+                    elif not mirror.connection_ok:
+                        logging.warning(
+                            f"[{i}/{total}] Connection failed for {suf or 'ROOT'} (404?)"
                         )
                         failed.append(suf or "ROOT")
-                elif getattr(suffix_config, "list_files", False):
-                    if mirror.list_files():
-                        logging.info(f"[{i}/{total}] ✅ Listed files: {suf or 'ROOT'}")
-                        processed.append(suf or "ROOT")
+                    elif getattr(suffix_config, "list_dirs", False):
+                        if mirror.list_directories():
+                            logging.info(f"[{i}/{total}] ✅ Listed directories: {suf or 'ROOT'}")
+                            processed.append(suf or "ROOT")
+                        else:
+                            logging.error(
+                                f"[{i}/{total}] ❌ Failed to list directories: {suf or 'ROOT'}"
+                            )
+                            failed.append(suf or "ROOT")
+                    elif getattr(suffix_config, "list_files", False):
+                        if mirror.list_files():
+                            logging.info(f"[{i}/{total}] ✅ Listed files: {suf or 'ROOT'}")
+                            processed.append(suf or "ROOT")
+                        else:
+                            logging.error(f"[{i}/{total}] ❌ Failed to list files: {suf or 'ROOT'}")
+                            failed.append(suf or "ROOT")
                     else:
-                        logging.error(f"[{i}/{total}] ❌ Failed to list files: {suf or 'ROOT'}")
-                        failed.append(suf or "ROOT")
-                else:
-                    sync_success = mirror.sync()
-                    log_processed_result(sync_success, suf, i, total)
-                    if sync_success:
-                        processed.append(suf or "ROOT")
-                    else:
-                        failed.append(suf or "ROOT")
+                        job_report = mirror.metrics.run_report
+                        job_report.start_job(job_started)
+                        sync_success = mirror.sync()
+
+            except BaseException as error:
+                job_error = error
+                raise
+            finally:
+                if job_report is not None:
+                    _finish_mirror_job(mirror, sync_success, job_error, suf, i, total)
+            if sync_success is not None:
+                (processed if sync_success else failed).append(suf or "ROOT")
 
             # Flush handlers to ensure logs are written
             for handler in logging.root.handlers:

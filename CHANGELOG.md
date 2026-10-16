@@ -4,6 +4,37 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Compare equivalent resolved Windows drive and UNC path spellings consistently
+  when checking containment and deriving partial-download identities. Concurrent
+  file creation can return an extended-length spelling for one path and an
+  ordinary spelling for the other; keep outside paths and other device
+  namespaces rejected.
+
+## [3.8.2] - 2026-10-15
+
+### Fixed
+
+- Use the same shared job-duration clock in both CLI modes, including
+  initialization and worker/client shutdown. Render mirror's final summary and
+  metrics after shutdown, retain shutdown failures, and keep download throughput
+  based on the download phase alone.
+
+## [3.8.1] - 2026-10-15
+
+### Fixed
+
+- Select parallel whole-file downloads for small-file batches before automatic
+  disk, network-speed and range-capability probes that cannot change the choice.
+- Include mirror's file-size HEAD requests and automatic-selection work in the
+  shared timing breakdown without double-counting fallback probes. Keep the
+  `range_metadata` JSON key and label its complete scope as transfer metadata.
+- Request uncompressed size metadata consistently with payload GETs, discard
+  encoded or invalid size estimates, and close completed probe responses.
+
 ## [3.8.0] - 2026-10-13
 
 ### Added

@@ -8,7 +8,7 @@ integrity checks and incremental caching. It also supports direct file URLs
 and exact URL lists without directory discovery. URL-scope, private-network
 and filesystem protections guard discovery and transfers.
 
-- **Version:** 3.8.0
+- **Version:** 3.8.2
 - **Python:** 3.10 or newer; CI tests Python 3.10–3.14
 - **License:** MIT
 
@@ -106,21 +106,21 @@ From a checkout of the repository on a build machine:
 
 ```bash
 pip install build
-python -m build          # produces dist/mirror_url-3.8.0-py3-none-any.whl
+python -m build          # produces dist/mirror_url-3.8.2-py3-none-any.whl
 ```
 
 Copy the wheel to the target server and install it:
 
 ```bash
 python3 -m venv /opt/mirror-url
-/opt/mirror-url/bin/pip install /tmp/mirror_url-3.8.0-py3-none-any.whl
+/opt/mirror-url/bin/pip install /tmp/mirror_url-3.8.2-py3-none-any.whl
 /opt/mirror-url/bin/mirror-url --help
 ```
 
 To include the optional speed extras:
 
 ```bash
-/opt/mirror-url/bin/pip install "/tmp/mirror_url-3.8.0-py3-none-any.whl[fast]"
+/opt/mirror-url/bin/pip install "/tmp/mirror_url-3.8.2-py3-none-any.whl[fast]"
 ```
 
 Available extras: `fast` (stringzilla + lxml),
@@ -131,24 +131,24 @@ and aiohttp backends are installed with the base package.
 ### From a Git repository
 
 ```bash
-pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.8.0"
+pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.8.2"
 # private repo over SSH:
-pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.8.0"
+pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.8.2"
 ```
 
 ### As an isolated CLI with pipx
 
 ```bash
-pipx install /tmp/mirror_url-3.8.0-py3-none-any.whl
-# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.8.0"
+pipx install /tmp/mirror_url-3.8.2-py3-none-any.whl
+# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.8.2"
 ```
 
 ### With Docker
 
 ```dockerfile
 FROM python:3.12-slim
-COPY dist/mirror_url-3.8.0-py3-none-any.whl /tmp/
-RUN pip install --no-cache-dir "/tmp/mirror_url-3.8.0-py3-none-any.whl[fast]"
+COPY dist/mirror_url-3.8.2-py3-none-any.whl /tmp/
+RUN pip install --no-cache-dir "/tmp/mirror_url-3.8.2-py3-none-any.whl[fast]"
 ENTRYPOINT ["mirror-url"]
 ```
 
@@ -1077,20 +1077,27 @@ The completion log uses the same **SUMMARY** layout as mirror mode. It shows
 requested files, successful missing/existing-file downloads, failures,
 downloaded bytes, measured download preparation/download/cleanup times,
 download throughput and total duration. Throughput uses the download phase;
-total duration also includes preparation and cleanup. The field order and labels
+total duration includes job initialization, preparation, cleanup and transfer-resource
+shutdown, using the same boundaries as mirror mode. The field order and labels
 match mirror mode. Direct downloads mark discovery and metadata as not performed;
 their scan, freshness and obsolete-file counters remain zero. Files requested
 records the supplied URL count. Existing-file downloads are counted from local file presence;
 they do not imply the remote file changed.
 
-Both modes also show **Transfer stage times**: **Range metadata probes**,
-**Data transfer/write**, **Chunk assembly**, **Disk flushing** and **SHA-256
+Both modes also show **Transfer stage times**: **Transfer metadata probes**,
+**Automatic selection work**, **Data transfer/write**, **Chunk assembly**, **Disk flushing** and **SHA-256
 hashing**, each labelled **(sum)**. These are accumulated worker times, not
 additional elapsed phases. Concurrent workers overlap, so the sums can exceed
 **Downloads time** and must not be added to **Total duration**.
 Transfer/write includes response waits and writes to staging; it is not pure
-network time. Range probes measure transfer-planning HEAD calls, separately
-from mirror's freshness **Metadata time**. Chunk assembly measures copying
+network time. Transfer metadata probes include file-size and range-capability
+HEAD calls, including mirror's download preparation, separately from freshness
+**Metadata time**. Size probes request the same uncompressed representation as
+downloads; an encoded response or invalid length is treated as an unknown size.
+Automatic selection work measures disk detection and the network-speed sample;
+sample bytes are not credited as downloaded files. Small-file batches choose
+parallel whole-file transfers without these automatic-selection probes. An
+explicit download strategy also bypasses automatic selection. Chunk assembly measures copying
 temporary chunks; streaming writes directly into staging and normally reports
 assembly as `not performed`. Disk flushing measures payload buffer/fsync/mmap
 flush operations; receipt and cache persistence remain in their coordinator
@@ -1837,8 +1844,13 @@ limit tracker behavior; they do not make the heuristic a definitive detector.
   elapsed times. **Download throughput** divides newly transferred bytes by the
   download phase's wall-clock duration, including concurrent transfers, retries,
   pacing and publication. It is `n/a` when nothing was published. **Total
-  duration** covers `sync()` after manager setup; initial construction and final
-  shutdown are outside that interval. The summary reports the actual **Discovery
+  duration** in both CLI modes starts after argument/config-file parsing, before mode-specific configuration, ownership and
+  logging setup and ends after worker/client shutdown, before the final summary.
+  Python startup, argument parsing, terminal report output and the enclosing
+  log/ownership release are outside that interval. For multiple suffixes, common
+  CLI setup belongs to the first job; each later job starts before its own
+  configuration. Use `/usr/bin/time` when comparing complete command runtimes.
+  The summary reports the actual **Discovery
   mode** and worker count, **Directories examined**, **Discovery elapsed time**
   and **Discovery throughput** together. Throughput divides examined directories
   by the discovery phase's elapsed time, including cache loading and file-list

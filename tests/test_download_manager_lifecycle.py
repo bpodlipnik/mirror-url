@@ -259,7 +259,12 @@ def test_auto_selection_decision_matrix(manager, sizes, ssd, speed, ranges, meth
     assert (
         manager.auto_select_method([size * 1024**2 for size in sizes], len(sizes), urls) == method
     )
-    if len(sizes) != 1:
+    small_batch = len(sizes) >= 3 and sum(size < 10 for size in sizes) > len(sizes) * 0.7
+    if len(sizes) == 1 or small_batch:
+        manager._detect_ssd.assert_not_called()
+        manager._estimate_network_speed.assert_not_called()
+        manager._check_range_support.assert_not_called()
+    else:
         manager._estimate_network_speed.assert_called_once_with(urls[:5])
         manager._check_range_support.assert_called_once_with(urls[0] if urls else None)
 
