@@ -18,6 +18,23 @@ from test_immediate_audit_fixes import parallel as parallel
 from test_transfer_batch_logging import scope as scope
 
 
+def _sync_failure_details(mirror, remote):
+    logs = []
+    for path in sorted(mirror.log_path.glob("*.log")):
+        try:
+            logs.append(f"{path.name}:\n{path.read_text(encoding='utf-8')}")
+        except OSError as error:
+            logs.append(f"{path.name}: could not read log: {error!r}")
+    requests = [(method, path) for method, path, _ in remote.requests]
+    return "\n".join(
+        [
+            f"Sync failed; metrics: {mirror.metrics.get_summary()!r}",
+            f"Fixture requests: {requests!r}",
+            *logs,
+        ]
+    )
+
+
 @pytest.mark.parametrize("count", [11, 72])
 def test_lasco_sized_batches_never_probe_disk_speed_or_range(manager, count):
     manager.config.parallel_downloads = False
@@ -175,7 +192,7 @@ def test_real_small_file_mirror_reports_planning_heads_and_only_whole_file_gets(
         max_retries=0,
     )
     with MirrorURL(config) as mirror:
-        assert mirror.sync()
+        assert mirror.sync(), _sync_failure_details(mirror, remote)
         run = mirror.metrics.get_summary()["run"]
         assert run["transfer_stage_operations"]["range_metadata"] == 11
         assert "method_selection" not in run["transfer_stage_seconds"]
@@ -196,7 +213,7 @@ def test_real_small_file_mirror_reports_planning_heads_and_only_whole_file_gets(
         assert all("Range" not in headers for _, _, headers in requests)
         assert not list(config.dest_path.rglob("*.part"))
         assert not list(config.dest_path.rglob("workspace-*"))
-        assert mirror.sync()
+        assert mirror.sync(), _sync_failure_details(mirror, remote)
         repeated = mirror.metrics.get_summary()["run"]
         assert repeated["freshness_checks_skipped"] == 11
         assert repeated["transfer_stage_seconds"] == {}

@@ -58,6 +58,7 @@ from .models import ChunkInfo, ParallelFileDownload
 from .progress import DownloadProgress, get_download_progress
 from .rate_limiter import ChunkAwareRateLimiter
 from .scratch import OwnedScratch
+from .security import PathSafety
 from .utils import bounded_executor_shutdown, exponential_backoff, format_bytes
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, avoids an import cycle
@@ -1648,7 +1649,9 @@ class PartialDownloadManager:
         """
         if self.download_dir is None:
             raise ValueError("Partial download directory is unavailable")
-        relative = final_path.resolve().relative_to(self.download_dir.resolve())
+        relative = PathSafety.resolved_relative_to(final_path, self.download_dir)
+        if not relative.parts:
+            raise ValueError("Partial download path must name a file below the destination")
         if relative.parts[0].casefold() == self.STATE_DIRECTORY:
             raise ValueError("Remote path conflicts with the partial-download directory")
         digest = hashlib.sha256(str(relative).encode("utf-8")).hexdigest()
