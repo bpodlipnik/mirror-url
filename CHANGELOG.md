@@ -8,6 +8,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Install pywin32 explicitly on Windows so shared destination locks continue to
+  work with portalocker 4.x. Allow portalocker versions below 5 without adding
+  the Windows dependency on other platforms.
 - Compare equivalent resolved Windows drive and UNC path spellings consistently
   when checking containment and deriving partial-download identities. Concurrent
   file creation can return an extended-length spelling for one path and an
