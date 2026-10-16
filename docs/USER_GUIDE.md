@@ -84,7 +84,8 @@ directory index; direct file and URL-list downloads do not require a listing.
 - **Python 3.10 or newer.**
 - Runtime dependencies (installed automatically): `httpx` (with the
   `http2` extra, which pulls in `h2` -- HTTP/2 is on by default, see
-  `--no-http2`), `pydantic` (v2), `PyYAML`, `portalocker` 3.x (and `pywin32` on Windows), and `tqdm` (progress bars).
+  `--no-http2`), `aiohttp`, `pydantic` (v2), `PyYAML`, `portalocker` 3.x or 4.x
+  (and `pywin32` on Windows), and `tqdm` (progress bars).
 - Optional accelerators (install via extras, see below): `stringzilla` + `lxml`
   (faster parsing), `psutil` (memory/disk monitoring).
 

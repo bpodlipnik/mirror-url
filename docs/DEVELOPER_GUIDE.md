@@ -13,7 +13,7 @@ repeats the essentials so you can work from it alone.
 - **Package:** `mirror_url` (src-layout under `src/`)
 - **Version:** 3.8.2
 - **Python:** 3.10 or newer; CI tests Python 3.10–3.14
-- **Runtime deps:** `httpx[http2]` (including `h2`), `aiohttp`, `pydantic` v2, `PyYAML`, `portalocker` 3.x, `tqdm` (optional: `stringzilla`,
+- **Runtime deps:** `httpx[http2]` (including `h2`), `aiohttp`, `pydantic` v2, `PyYAML`, `portalocker` 3.x or 4.x (with `pywin32` on Windows), `tqdm` (optional: `stringzilla`,
   `lxml`, `psutil`)
 
 ---
