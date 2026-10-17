@@ -282,7 +282,7 @@ repeats the essentials so you can work from it alone.</p>
 <ul>
 <li><strong>Package:</strong> <code>mirror_url</code> (src-layout under
 <code>src/</code>)</li>
-<li><strong>Version:</strong> 3.8.3</li>
+<li><strong>Version:</strong> 3.8.4</li>
 <li><strong>Python:</strong> 3.10 or newer; CI tests Python
 3.10–3.14</li>
 <li><strong>Runtime deps:</strong> <code>httpx[http2]</code> (including
@@ -1226,17 +1226,20 @@ transfer bars and the timer close before the summary. Both trackers use
 the same tqdm constructor; the base package requires <code>tqdm</code>,
 while the <code>progress</code> extra remains a compatibility alias.
 Renderer failures still degrade safely. Byte formatting uses the shared
-<code>utils.format_bytes()</code>; completion summaries follow mirror
-units and live byte progress uses IEC labels. One timer thread waits ten
-seconds between progress messages, independently of the async loop so
-synchronous fsync and optional SHA-256 work remain visible. Workers
-update bounded active-file observations under a short lock; logging runs
-outside that lock. Retry attempts reset per-file progress, while
-aggregate received bytes include discarded attempts. Completion/failure
-counts update only after the worker result and publication receipt hook.
-The context stops and joins the timer before releasing destination
-ownership or closing logs, including exception unwinding. No timer is
-started for silent or quiet runs.</p>
+<code>utils.format_bytes()</code>; summaries, completion lines, fallback
+messages and live byte progress use IEC labels (KiB/MiB/GiB and their
+per-second rates), with the same 1024-based calculations. Explicit
+<code>binary_units=False</code> remains available to API callers for
+legacy labels. One timer thread waits ten seconds between progress
+messages, independently of the async loop so synchronous fsync and
+optional SHA-256 work remain visible. Workers update bounded active-file
+observations under a short lock; logging runs outside that lock. Retry
+attempts reset per-file progress, while aggregate received bytes include
+discarded attempts. Completion/failure counts update only after the
+worker result and publication receipt hook. The context stops and joins
+the timer before releasing destination ownership or closing logs,
+including exception unwinding. No timer is started for silent or quiet
+runs.</p>
 <p><code>--progress-bar</code> and its explicit <code>--progress</code>
 alias enable per-file byte bars without requiring
 <code>--print-logs</code>. Positions are reused after workers finish;
@@ -1849,7 +1852,7 @@ refactoring nearby code.</li>
 </table>
 
 <hr />
-<p><em>This guide describes the architecture as of version 3.8.3. When
+<p><em>This guide describes the architecture as of version 3.8.4. When
 you change the structure, update this document in the same PR.</em></p>
 </body>
 </html>

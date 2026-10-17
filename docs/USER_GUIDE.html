@@ -276,7 +276,7 @@ It also supports direct file URLs and exact URL lists without directory
 discovery. URL-scope, private-network and filesystem protections guard
 discovery and transfers.</p>
 <ul>
-<li><strong>Version:</strong> 3.8.3</li>
+<li><strong>Version:</strong> 3.8.4</li>
 <li><strong>Python:</strong> 3.10 or newer; CI tests Python
 3.10–3.14</li>
 <li><strong>License:</strong> MIT</li>
@@ -383,15 +383,15 @@ class="sourceCode bash"><code class="sourceCode bash"><span id="cb1-1"><a href="
 <p>From a checkout of the repository on a build machine:</p>
 <div class="sourceCode" id="cb2"><pre
 class="sourceCode bash"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> install build</span>
-<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> <span class="at">-m</span> build          <span class="co"># produces dist/mirror_url-3.8.3-py3-none-any.whl</span></span></code></pre></div>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> <span class="at">-m</span> build          <span class="co"># produces dist/mirror_url-3.8.4-py3-none-any.whl</span></span></code></pre></div>
 <p>Copy the wheel to the target server and install it:</p>
 <div class="sourceCode" id="cb3"><pre
 class="sourceCode bash"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="ex">python3</span> <span class="at">-m</span> venv /opt/mirror-url</span>
-<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="ex">/opt/mirror-url/bin/pip</span> install /tmp/mirror_url-3.8.3-py3-none-any.whl</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="ex">/opt/mirror-url/bin/pip</span> install /tmp/mirror_url-3.8.4-py3-none-any.whl</span>
 <span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="ex">/opt/mirror-url/bin/mirror-url</span> <span class="at">--help</span></span></code></pre></div>
 <p>To include the optional speed extras:</p>
 <div class="sourceCode" id="cb4"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="ex">/opt/mirror-url/bin/pip</span> install <span class="st">&quot;/tmp/mirror_url-3.8.3-py3-none-any.whl[fast]&quot;</span></span></code></pre></div>
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="ex">/opt/mirror-url/bin/pip</span> install <span class="st">&quot;/tmp/mirror_url-3.8.4-py3-none-any.whl[fast]&quot;</span></span></code></pre></div>
 <p>Available extras: <code>fast</code> (stringzilla + lxml),
 <code>monitor</code> (psutil), <code>all</code> (everything),
 <code>dev</code> (test/lint toolchain). The <code>progress</code> and
@@ -399,18 +399,18 @@ class="sourceCode bash"><code class="sourceCode bash"><span id="cb4-1"><a href="
 both HTTPX and aiohttp backends are installed with the base package.</p>
 <h3 id="from-a-git-repository">From a Git repository</h3>
 <div class="sourceCode" id="cb5"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> install <span class="st">&quot;git+https://github.com/bpodlipnik/mirror-url.git@v3.8.3&quot;</span></span>
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> install <span class="st">&quot;git+https://github.com/bpodlipnik/mirror-url.git@v3.8.4&quot;</span></span>
 <span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="co"># private repo over SSH:</span></span>
-<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> install <span class="st">&quot;git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.8.3&quot;</span></span></code></pre></div>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> install <span class="st">&quot;git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.8.4&quot;</span></span></code></pre></div>
 <h3 id="as-an-isolated-cli-with-pipx">As an isolated CLI with pipx</h3>
 <div class="sourceCode" id="cb6"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pipx</span> install /tmp/mirror_url-3.8.3-py3-none-any.whl</span>
-<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="co"># or:  pipx install &quot;git+https://github.com/bpodlipnik/mirror-url.git@v3.8.3&quot;</span></span></code></pre></div>
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pipx</span> install /tmp/mirror_url-3.8.4-py3-none-any.whl</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="co"># or:  pipx install &quot;git+https://github.com/bpodlipnik/mirror-url.git@v3.8.4&quot;</span></span></code></pre></div>
 <h3 id="with-docker">With Docker</h3>
 <div class="sourceCode" id="cb7"><pre
 class="sourceCode dockerfile"><code class="sourceCode dockerfile"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="kw">FROM</span> python:3.12-slim</span>
-<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="kw">COPY</span> dist/mirror_url-3.8.3-py3-none-any.whl /tmp/</span>
-<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a><span class="kw">RUN</span> <span class="ex">pip</span> install <span class="at">--no-cache-dir</span> <span class="st">&quot;/tmp/mirror_url-3.8.3-py3-none-any.whl[fast]&quot;</span></span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="kw">COPY</span> dist/mirror_url-3.8.4-py3-none-any.whl /tmp/</span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a><span class="kw">RUN</span> <span class="ex">pip</span> install <span class="at">--no-cache-dir</span> <span class="st">&quot;/tmp/mirror_url-3.8.4-py3-none-any.whl[fast]&quot;</span></span>
 <span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a><span class="kw">ENTRYPOINT</span> [<span class="st">&quot;mirror-url&quot;</span>]</span></code></pre></div>
 <h3 id="verify-the-install">Verify the install</h3>
 <div class="sourceCode" id="cb8"><pre
@@ -552,16 +552,16 @@ below.</p>
 <td>Max chunks per file (default 8).</td>
 </tr>
 <tr>
-<td nowrap><samp>--min-chunk-size MB</samp></td>
-<td>Minimum chunk size in MB (default 10).</td>
+<td nowrap><samp>--min-chunk-size MiB</samp></td>
+<td>Minimum chunk size in MiB (default 10; 1 MiB = 1,048,576 bytes).</td>
 </tr>
 <tr>
 <td nowrap><samp>--auto-concurrency</samp></td>
 <td>Tune parallel concurrency from measured throughput.</td>
 </tr>
 <tr>
-<td nowrap><samp>--bandwidth-limit MB/S</samp></td>
-<td>Cap total download bandwidth.</td>
+<td nowrap><samp>--bandwidth-limit MiB/S</samp></td>
+<td>Cap total download bandwidth in MiB/s.</td>
 </tr>
 <tr>
 <td nowrap><samp>--max-parallel-chunks N</samp></td>
@@ -1013,7 +1013,7 @@ class="sourceCode yaml"><code class="sourceCode yaml"><span id="cb18-1"><a href=
 <span id="cb18-20"><a href="#cb18-20" aria-hidden="true" tabindex="-1"></a><span class="fu">max_concurrent_downloads</span><span class="kw">:</span><span class="at"> </span><span class="dv">10</span></span>
 <span id="cb18-21"><a href="#cb18-21" aria-hidden="true" tabindex="-1"></a><span class="fu">max_chunks_per_file</span><span class="kw">:</span><span class="at"> </span><span class="dv">8</span></span>
 <span id="cb18-22"><a href="#cb18-22" aria-hidden="true" tabindex="-1"></a><span class="fu">min_chunk_size_mb</span><span class="kw">:</span><span class="at"> </span><span class="dv">10</span></span>
-<span id="cb18-23"><a href="#cb18-23" aria-hidden="true" tabindex="-1"></a><span class="fu">bandwidth_limit</span><span class="kw">:</span><span class="at"> </span><span class="ch">null</span><span class="co">          # e.g. 50  (MB/s)</span></span>
+<span id="cb18-23"><a href="#cb18-23" aria-hidden="true" tabindex="-1"></a><span class="fu">bandwidth_limit</span><span class="kw">:</span><span class="at"> </span><span class="ch">null</span><span class="co">          # e.g. 50  (MiB/s)</span></span>
 <span id="cb18-24"><a href="#cb18-24" aria-hidden="true" tabindex="-1"></a><span class="fu">enable_resume</span><span class="kw">:</span><span class="at"> </span><span class="ch">true</span><span class="co">            # whole-file transfers; no CLI toggle</span></span>
 <span id="cb18-25"><a href="#cb18-25" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb18-26"><a href="#cb18-26" aria-hidden="true" tabindex="-1"></a><span class="co"># Filtering</span></span>
@@ -1304,6 +1304,10 @@ file with a known length shows received/expected bytes and an estimated
 remaining transfer time while receiving bytes; unknown lengths have no
 ETA. Received bytes include discarded retry attempts, while completed
 files count only successful publications and their receipt entries.</p>
+<p>Both modes label binary sizes as KiB, MiB and GiB, and transfer rates
+as KiB/s, MiB/s and GiB/s. One MiB is 1,048,576 bytes; the displayed
+calculations and numeric bandwidth/chunk-size settings continue to use
+powers of 1024.</p>
 <p>The completion log uses the same <strong>SUMMARY</strong> layout as
 mirror mode. It shows requested files, successful missing/existing-file
 downloads, failures, downloaded bytes, measured download

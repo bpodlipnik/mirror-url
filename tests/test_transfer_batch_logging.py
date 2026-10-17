@@ -92,7 +92,8 @@ def test_mixed_batch_reports_actual_outcomes_once(
     if strategy != "sequential":
         fallback = [message for message in messages if "Whole-file fallback for" in message]
         assert sum("small.bin:" in message for message in fallback) == 1
-        assert any("below the 2.00 MB needed for two chunks" in message for message in fallback)
+        assert any("below the 2.00 MiB needed for two chunks" in message for message in fallback)
+        assert any("minimum chunk size 1.00 MiB" in message for message in fallback)
     else:
         assert not any("Whole-file fallback for" in message for message in messages)
     expected = f"File download batch completed: 2 downloaded, {int(failed)} failed"

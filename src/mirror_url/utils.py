@@ -223,22 +223,23 @@ def format_duration(seconds: float, show_ms: bool = False) -> str:
     return f"{int(hours)}h {int(minutes)}m {int(seconds)}s"
 
 
-def format_bytes(bytes_count: float, *, binary_units: bool = False) -> str:
+def format_bytes(bytes_count: float, *, binary_units: bool = True) -> str:
     """
     Format bytes to human-readable string.
 
     Args:
         bytes_count: Number of bytes
-        binary_units: Use IEC labels (KiB, MiB, ...) instead of legacy labels.
+        binary_units: Use IEC labels (KiB, MiB, ...). False retains legacy labels
+            for explicit API callers; both choices keep the same 1024-based values.
 
     Returns:
         Formatted string with appropriate unit
 
     Example:
         >>> format_bytes(1536)
-        '1.50 KB'
+        '1.50 KiB'
         >>> format_bytes(1048576)
-        '1.00 MB'
+        '1.00 MiB'
     """
     units = ("B", "KiB", "MiB", "GiB", "TiB") if binary_units else ("B", "KB", "MB", "GB", "TB")
     for unit in units:

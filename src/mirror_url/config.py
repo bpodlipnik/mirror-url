@@ -383,7 +383,7 @@ class MirrorConfig(BaseModel):
     )
     streaming_min_file_size_mb: int = Field(
         default=STREAMING_MIN_FILE_SIZE_MB,
-        description="Reserved: currently has no effect. Minimum file size in MB for streaming parallel",
+        description="Reserved: currently has no effect. Minimum file size in MiB for streaming parallel",
     )
     streaming_min_files: int = Field(
         default=4,
@@ -622,8 +622,8 @@ class MirrorConfig(BaseModel):
                 min_free_mb = 100
                 if usage.free < min_free_mb * 1024 * 1024:
                     logging.warning(
-                        f"Low free space in {check_path}: {usage.free / (1024 * 1024):.1f}MB free "
-                        f"(< {min_free_mb}MB recommended for chunk assembly)"
+                        f"Low free space in {check_path}: {usage.free / (1024 * 1024):.1f} MiB free "
+                        f"(< {min_free_mb} MiB recommended for chunk assembly)"
                     )
             except OSError as e:
                 raise ConfigError(f"Cannot check disk space for {check_path}: {e}") from e
@@ -795,7 +795,7 @@ class MirrorConfig(BaseModel):
                 f"🔄 Adaptive async enabled (start={config.adaptive_start_concurrency})"
             )
         if config.bandwidth_limit:
-            warnings.append(f"⏱️ Bandwidth limit: {config.bandwidth_limit} MB/s")
+            warnings.append(f"⏱️ Bandwidth limit: {config.bandwidth_limit} MiB/s")
         if config.enable_resume:
             warnings.append("↩️ Resume capability enabled")
         if config.handle_symlinks:
@@ -814,7 +814,7 @@ class MirrorConfig(BaseModel):
         # NEW v3.0.0 warnings
         if config.parallel_downloads:
             warnings.append(
-                f"🚀 Parallel downloads enabled (max {config.max_chunks_per_file} chunks, {config.min_chunk_size_mb}MB min)"
+                f"🚀 Parallel downloads enabled (max {config.max_chunks_per_file} chunks, {config.min_chunk_size_mb} MiB min)"
             )
             if config.max_chunks_per_file > 8:
                 warnings.append("⚠️ High chunk count may be excessive for most servers")

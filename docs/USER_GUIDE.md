@@ -8,7 +8,7 @@ integrity checks and incremental caching. It also supports direct file URLs
 and exact URL lists without directory discovery. URL-scope, private-network
 and filesystem protections guard discovery and transfers.
 
-- **Version:** 3.8.3
+- **Version:** 3.8.4
 - **Python:** 3.10 or newer; CI tests Python 3.10–3.14
 - **License:** MIT
 
@@ -107,21 +107,21 @@ From a checkout of the repository on a build machine:
 
 ```bash
 pip install build
-python -m build          # produces dist/mirror_url-3.8.3-py3-none-any.whl
+python -m build          # produces dist/mirror_url-3.8.4-py3-none-any.whl
 ```
 
 Copy the wheel to the target server and install it:
 
 ```bash
 python3 -m venv /opt/mirror-url
-/opt/mirror-url/bin/pip install /tmp/mirror_url-3.8.3-py3-none-any.whl
+/opt/mirror-url/bin/pip install /tmp/mirror_url-3.8.4-py3-none-any.whl
 /opt/mirror-url/bin/mirror-url --help
 ```
 
 To include the optional speed extras:
 
 ```bash
-/opt/mirror-url/bin/pip install "/tmp/mirror_url-3.8.3-py3-none-any.whl[fast]"
+/opt/mirror-url/bin/pip install "/tmp/mirror_url-3.8.4-py3-none-any.whl[fast]"
 ```
 
 Available extras: `fast` (stringzilla + lxml),
@@ -132,24 +132,24 @@ and aiohttp backends are installed with the base package.
 ### From a Git repository
 
 ```bash
-pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.8.3"
+pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.8.4"
 # private repo over SSH:
-pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.8.3"
+pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.8.4"
 ```
 
 ### As an isolated CLI with pipx
 
 ```bash
-pipx install /tmp/mirror_url-3.8.3-py3-none-any.whl
-# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.8.3"
+pipx install /tmp/mirror_url-3.8.4-py3-none-any.whl
+# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.8.4"
 ```
 
 ### With Docker
 
 ```dockerfile
 FROM python:3.12-slim
-COPY dist/mirror_url-3.8.3-py3-none-any.whl /tmp/
-RUN pip install --no-cache-dir "/tmp/mirror_url-3.8.3-py3-none-any.whl[fast]"
+COPY dist/mirror_url-3.8.4-py3-none-any.whl /tmp/
+RUN pip install --no-cache-dir "/tmp/mirror_url-3.8.4-py3-none-any.whl[fast]"
 ENTRYPOINT ["mirror-url"]
 ```
 
@@ -302,16 +302,16 @@ The most commonly used options:
 <td>Max chunks per file (default 8).</td>
 </tr>
 <tr>
-<td nowrap><samp>--min-chunk-size MB</samp></td>
-<td>Minimum chunk size in MB (default 10).</td>
+<td nowrap><samp>--min-chunk-size MiB</samp></td>
+<td>Minimum chunk size in MiB (default 10; 1 MiB = 1,048,576 bytes).</td>
 </tr>
 <tr>
 <td nowrap><samp>--auto-concurrency</samp></td>
 <td>Tune parallel concurrency from measured throughput.</td>
 </tr>
 <tr>
-<td nowrap><samp>--bandwidth-limit MB/S</samp></td>
-<td>Cap total download bandwidth.</td>
+<td nowrap><samp>--bandwidth-limit MiB/S</samp></td>
+<td>Cap total download bandwidth in MiB/s.</td>
 </tr>
 <tr>
 <td nowrap><samp>--max-parallel-chunks N</samp></td>
@@ -779,7 +779,7 @@ sequential_downloads: false
 max_concurrent_downloads: 10
 max_chunks_per_file: 8
 min_chunk_size_mb: 10
-bandwidth_limit: null          # e.g. 50  (MB/s)
+bandwidth_limit: null          # e.g. 50  (MiB/s)
 enable_resume: true            # whole-file transfers; no CLI toggle
 
 # Filtering
@@ -1073,6 +1073,10 @@ their current stage. A file with a known length shows received/expected bytes
 and an estimated remaining transfer time while receiving bytes; unknown lengths
 have no ETA. Received bytes include discarded retry attempts, while completed
 files count only successful publications and their receipt entries.
+
+Both modes label binary sizes as KiB, MiB and GiB, and transfer rates as KiB/s,
+MiB/s and GiB/s. One MiB is 1,048,576 bytes; the displayed calculations and
+numeric bandwidth/chunk-size settings continue to use powers of 1024.
 
 The completion log uses the same **SUMMARY** layout as mirror mode. It shows
 requested files, successful missing/existing-file downloads, failures,

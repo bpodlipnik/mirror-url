@@ -36,6 +36,33 @@ def _create_progress_bar(**settings):
     try:
         from tqdm import tqdm
 
+        if settings.get("unit") == "B":
+
+            class ByteProgress(tqdm):
+                @property
+                def format_dict(self):
+                    values = super().format_dict
+                    rate = values["rate"]
+                    if rate is None and values["elapsed"]:
+                        rate = (values["n"] - values["initial"]) / values["elapsed"]
+                    values.update(
+                        received_bytes=format_bytes(values["n"]),
+                        expected_bytes=(
+                            format_bytes(values["total"]) if values["total"] is not None else "?"
+                        ),
+                        byte_rate=f"{format_bytes(rate)}/s" if rate is not None else "? B/s",
+                        bar_format=(
+                            "{l_bar}{bar}| {received_bytes}/{expected_bytes} "
+                            + (
+                                "[{elapsed}<{remaining}, {byte_rate}{postfix}]"
+                                if values["total"] is not None
+                                else "[{elapsed}, {byte_rate}{postfix}]"
+                            )
+                        ),
+                    )
+                    return values
+
+            return ByteProgress(**settings)
         return tqdm(**settings)
     except Exception as error:
         logging.debug("Failed to initialize tqdm: %s", error)

@@ -11,7 +11,7 @@ If you only want to *use* MirrorURL (install, CLI, config, Python API), read
 repeats the essentials so you can work from it alone.
 
 - **Package:** `mirror_url` (src-layout under `src/`)
-- **Version:** 3.8.3
+- **Version:** 3.8.4
 - **Python:** 3.10 or newer; CI tests Python 3.10–3.14
 - **Runtime deps:** `httpx[http2]` (including `h2`), `aiohttp`, `pydantic` v2, `PyYAML`, `portalocker` 3.x or 4.x (with `pywin32` on Windows), `tqdm` (optional: `stringzilla`,
   `lxml`, `psutil`)
@@ -830,7 +830,10 @@ transfer bars and the timer close before the summary. Both trackers use the
 same tqdm constructor; the base package requires `tqdm`, while
 the `progress` extra remains a compatibility alias. Renderer failures still
 degrade safely. Byte formatting uses the shared `utils.format_bytes()`;
-completion summaries follow mirror units and live byte progress uses IEC labels. One timer thread waits ten
+summaries, completion lines, fallback messages and live byte progress use IEC labels
+(KiB/MiB/GiB and their per-second rates), with the same 1024-based calculations.
+Explicit `binary_units=False` remains available to API callers for legacy labels.
+One timer thread waits ten
 seconds between progress messages, independently
 of the async loop so synchronous fsync and optional SHA-256 work remain visible.
 Workers update bounded active-file observations under a short lock; logging
@@ -1412,5 +1415,5 @@ Preserve these constraints when extending or refactoring the current code.
 
 ---
 
-*This guide describes the architecture as of version 3.8.3. When you change the
+*This guide describes the architecture as of version 3.8.4. When you change the
 structure, update this document in the same PR.*

@@ -278,8 +278,8 @@ class DiskBackedSet:
             # Need 2x for safety (temp file + final file during rename)
             if usage.free < total_bytes * 2:
                 logging.warning(
-                    f"Low disk space for buffer flush: need ~{total_bytes / 1024 / 1024:.1f}MB, "
-                    f"have {usage.free / 1024 / 1024:.1f}MB free"
+                    f"Low disk space for buffer flush: need ~{total_bytes / 1024 / 1024:.1f} MiB, "
+                    f"have {usage.free / 1024 / 1024:.1f} MiB free"
                 )
                 # Put items back and try later
                 self._write_buffer = items_to_write + self._write_buffer
@@ -288,7 +288,7 @@ class DiskBackedSet:
             # Also check if total_bytes exceeds warning threshold
             if total_bytes > MAX_BATCH_BYTES:
                 logging.warning(
-                    f"Batch size {total_bytes / 1024 / 1024:.1f}MB exceeds {MAX_BATCH_BYTES / 1024 / 1024:.1f}MB, "
+                    f"Batch size {total_bytes / 1024 / 1024:.1f} MiB exceeds {MAX_BATCH_BYTES / 1024 / 1024:.1f} MiB, "
                     f"consider increasing _buffer_max_size or reducing batch size"
                 )
         except Exception as e:
