@@ -269,7 +269,7 @@ def test_ineligible_files_fall_back_to_whole_file(
         "weak": "no strong ETag",
         "no-ranges": "does not advertise byte ranges",
         "no-head": "HEAD returned HTTP 405",
-        "small": "below the 8.00 MB needed for two chunks",
+        "small": "below the 8.00 MiB needed for two chunks",
         "no-length": "no valid Content-Length",
         "one-chunk": "--max-chunks is 1",
     }[fault]

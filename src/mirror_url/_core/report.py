@@ -653,7 +653,7 @@ class ReportMixin(MirrorHost):
                                                         if new_concurrency <= remaining:
                                                             logging.info(
                                                                 f"{prefix}🤖 Adjusting concurrency: {max_parallel} → {new_concurrency} "
-                                                                f"(throughput: {throughput:.2f} MB/s after {downloaded_count} files)"
+                                                                f"(throughput: {throughput:.2f} MiB/s after {downloaded_count} files)"
                                                             )
                                                             max_parallel = new_concurrency
 
@@ -669,7 +669,7 @@ class ReportMixin(MirrorHost):
                                                     else 0
                                                 )
                                                 logging.info(
-                                                    f"{prefix}📊 Throughput: {throughput:.2f} MB/s after {downloaded_count} files, "
+                                                    f"{prefix}📊 Throughput: {throughput:.2f} MiB/s after {downloaded_count} files, "
                                                     f"concurrency={max_parallel}"
                                                 )
                                                 last_throughput_log = time.time()
@@ -697,7 +697,7 @@ class ReportMixin(MirrorHost):
                                 logging.info(
                                     f"{prefix}🤖 Auto-concurrency stats: {tuner_stats['adjustments']} adjustments, "
                                     f"final concurrency={tuner_stats['current_concurrency']}, "
-                                    f"final throughput={tuner_stats['last_throughput']:.2f} MB/s"
+                                    f"final throughput={tuner_stats['last_throughput']:.2f} MiB/s"
                                 )
 
                             self.metrics.update_queue_metrics(

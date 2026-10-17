@@ -1447,7 +1447,7 @@ class ParallelDownloadManager:
 
         # Decision matrix
         logging.debug(
-            f"Auto-select stats: files={total_files}, avg_size={avg_file_size_mb:.1f}MB, "
+            f"Auto-select stats: files={total_files}, avg_size={avg_file_size_mb:.1f} MiB, "
             f"disk={'SSD' if disk_is_ssd else 'HDD'}, network={network_speed_mbps:.0f}Mbps, "
             f"range={supports_range}"
         )
@@ -1462,7 +1462,7 @@ class ParallelDownloadManager:
         ):
             logging.info(
                 f"📊 Auto-selected: STREAMING_PARALLEL "
-                f"(avg:{avg_file_size_mb:.0f}MB, SSD, {network_speed_mbps:.0f}Mbps, {total_files} files)"
+                f"(avg:{avg_file_size_mb:.0f} MiB, SSD, {network_speed_mbps:.0f}Mbps, {total_files} files)"
             )
             return DownloadMethod.STREAMING_PARALLEL
 

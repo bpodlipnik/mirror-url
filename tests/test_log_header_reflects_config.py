@@ -85,7 +85,7 @@ def test_defaults_still_reported_without_yaml_overrides(monkeypatch, tmp_path):
 
 def test_yaml_value_shows_in_header(monkeypatch, tmp_path):
     text = _run(monkeypatch, tmp_path, "bandwidth_limit: 12.5\n")
-    assert "Bandwidth limit: 12.5 MB/s" in text
+    assert "Bandwidth limit: 12.5 MiB/s" in text
 
 
 def test_yaml_backend_and_hash_setting_show_once_in_header(monkeypatch, tmp_path):

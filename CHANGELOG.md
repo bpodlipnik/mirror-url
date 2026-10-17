@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.8.4] - 2026-10-17
+
+### Fixed
+
+- Label binary sizes and throughput consistently with KiB/MiB/GiB and their
+  per-second rates in both modes, including summaries, completion messages,
+  live byte bars, chunk fallback reasons, bandwidth settings and CLI help.
+  Preserve the existing 1024-based calculations, byte counters and transfer
+  behavior. Keep explicit legacy labels available to byte-formatter API callers.
+
 ## [3.8.3] - 2026-10-16
 
 ### Fixed

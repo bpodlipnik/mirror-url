@@ -587,8 +587,8 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
         "--min-chunk-size",
         type=int,
         default=10,
-        metavar="MB",
-        help="Minimum chunk size in MB (default: 10MB)",
+        metavar="MiB",
+        help="Minimum chunk size in MiB (default: 10 MiB)",
     )
     parallel_grp.add_argument(
         "--max-parallel-chunks",
@@ -725,7 +725,7 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
         help="Request rate ceiling (default: 20; 0 removes this ceiling, subject to --request-delay)",
     )
     performance.add_argument(
-        "--bandwidth-limit", type=float, metavar="MB/S", help="Limit download bandwidth (MB/s)"
+        "--bandwidth-limit", type=float, metavar="MiB/S", help="Limit download bandwidth (MiB/s)"
     )
 
     cache = parser.add_argument_group("Cache Options")

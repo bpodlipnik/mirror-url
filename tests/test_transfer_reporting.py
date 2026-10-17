@@ -5,6 +5,7 @@ from __future__ import annotations
 import builtins
 import io
 import logging
+import sys
 import threading
 
 import pytest
@@ -125,8 +126,8 @@ def test_download_summary_has_no_separate_details_footer(tmp_path, caplog, verif
     )
     logging.info(format_download_summary(config, summary, tmp_path, run))
     assert "SUMMARY:" in caplog.text and "Result: SUCCESS" in caplog.text
-    assert "Downloaded bytes: 8.89 GB" in caplog.text
-    assert "Download throughput: 113.76 MB/s" in caplog.text and "90.831s" in caplog.text
+    assert "Downloaded bytes: 8.89 GiB" in caplog.text
+    assert "Download throughput: 113.76 MiB/s" in caplog.text and "90.831s" in caplog.text
     for extra in (
         "Backend:",
         "Destination:",
@@ -244,6 +245,91 @@ def test_download_summary_retains_mirror_field_order_and_labels(tmp_path):
 @pytest.mark.parametrize("size, expected", [(0, "0.00 B"), (1024**4, "1.00 TiB")])
 def test_binary_units(size, expected):
     assert format_bytes(size, binary_units=True) == expected
+
+
+@pytest.mark.parametrize("mode", ["mirror", "download"])
+@pytest.mark.parametrize(
+    "size,amount,rate",
+    [
+        (8 * 1024**2, "8.00 MiB", "1.00 MiB/s"),
+        (8 * 1024**3, "8.00 GiB", "1.00 GiB/s"),
+        (268509609, "256.07 MiB", "32.01 MiB/s"),
+    ],
+)
+def test_both_summaries_use_iec_labels_without_changing_bytes_or_throughput(
+    tmp_path, monkeypatch, mode, size, amount, rate
+):
+    clock = [20.0]
+    monkeypatch.setattr("mirror_url.run_report.time.perf_counter", lambda: clock[0])
+    metrics = MetricsCollector()
+    metrics.run_report.start(metrics.metrics, 0)
+    metrics.run_report.record_check("https://files.example/a", "missing")
+    metrics.run_report.record_publication("https://files.example/a")
+    metrics.increment("files_downloaded")
+    metrics.add_bytes(size)
+    metrics.run_report.begin_phase("downloads")
+    clock[0] = 28.0
+    metrics.run_report.finish("success")
+    before = metrics.get_summary()
+    config = MirrorConfig(
+        mode=mode,
+        base_url="https://files.example/",
+        dest_path=tmp_path,
+        log_path=tmp_path,
+        download_files=["a"] if mode == "download" else [],
+    )
+    text = (
+        metrics.report()
+        if mode == "mirror"
+        else format_download_summary(config, before, tmp_path, before["run"], metrics=metrics)
+    )
+    assert f"Downloaded bytes: {amount}" in text
+    assert f"Download throughput: {rate}" in text
+    after = metrics.get_summary()
+    assert after["bytes_downloaded"] == before["bytes_downloaded"] == size
+    assert after["run"] == before["run"]
+    assert after["run"]["download_throughput"] == size / 8
+
+
+def test_cli_help_labels_chunk_and_bandwidth_units(monkeypatch, capsys):
+    from mirror_url import cli
+
+    monkeypatch.setattr(sys, "argv", ["mirror-url", "--help"])
+    with pytest.raises(SystemExit) as stopped:
+        cli.main()
+    assert stopped.value.code == 0
+    help_text = capsys.readouterr().out
+    assert "--min-chunk-size MiB" in help_text
+    assert "Minimum chunk size in MiB" in help_text
+    assert "--bandwidth-limit MiB/S" in help_text
+    assert "Limit download bandwidth (MiB/s)" in help_text
+
+
+@pytest.mark.parametrize("total", [None, 4 * 1024**2, 4 * 1024**3])
+def test_actual_byte_bars_use_iec_labels_for_amounts_and_rates(total, monkeypatch):
+    scale = 1024**3 if total == 4 * 1024**3 else 1024**2
+    label = "GiB" if scale == 1024**3 else "MiB"
+    bar = report._create_progress_bar(
+        total=total,
+        unit="B",
+        unit_scale=True,
+        unit_divisor=1024,
+        mininterval=float("inf"),
+        file=io.StringIO(),
+    )
+    assert bar is not None
+    try:
+        monkeypatch.setattr(bar, "_time", lambda: bar.start_t + 2)
+        bar.update(2 * scale)
+        text = str(bar)
+        assert f"2.00 {label}" in text and f"1.00 {label}/s" in text
+        if total is None:
+            assert "/?" in text and "<" not in text
+        else:
+            assert f"/4.00 {label}" in text and "50%" in text
+        assert bar.n == 2 * scale and bar.total == total
+    finally:
+        bar.close()
 
 
 class RecordingBar:

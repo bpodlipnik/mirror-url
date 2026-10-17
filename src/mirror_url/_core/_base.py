@@ -537,7 +537,7 @@ class _MirrorBase(MirrorHost):
 
         # Log bandwidth limit
         if config.bandwidth_limit:
-            logging.info(f"{prefix}⏱️ Bandwidth limit: {config.bandwidth_limit} MB/s")
+            logging.info(f"{prefix}⏱️ Bandwidth limit: {config.bandwidth_limit} MiB/s")
 
         # Log resume capability
         if config.enable_resume:

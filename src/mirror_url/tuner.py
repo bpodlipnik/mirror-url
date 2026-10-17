@@ -45,7 +45,7 @@ class AutoConcurrencyTuner:
 
         Args:
             concurrency: Current concurrency level
-            throughput: Measured throughput in MB/s
+            throughput: Measured throughput in MiB/s
 
         Returns:
             New concurrency value if adjustment needed, None otherwise

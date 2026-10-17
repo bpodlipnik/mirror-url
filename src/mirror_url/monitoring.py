@@ -41,8 +41,8 @@ class MemoryMonitor:
         Initialize memory monitor.
 
         Args:
-            warning_threshold_mb: Warning threshold in MB
-            critical_threshold_mb: Critical threshold in MB
+            warning_threshold_mb: Warning threshold in MiB
+            critical_threshold_mb: Critical threshold in MiB
             check_interval: Check interval in seconds
         """
         self.warning_threshold = warning_threshold_mb * 1024 * 1024
@@ -91,10 +91,10 @@ class MemoryMonitor:
                 self.last_check = now
 
                 if rss > self.critical_threshold:
-                    logging.warning(f"Critical memory pressure: {rss / (1024 * 1024):.1f}MB")
+                    logging.warning(f"Critical memory pressure: {rss / (1024 * 1024):.1f} MiB")
                     return MemoryPressure.CRITICAL
                 elif rss > self.warning_threshold:
-                    logging.debug(f"Memory pressure warning: {rss / (1024 * 1024):.1f}MB")
+                    logging.debug(f"Memory pressure warning: {rss / (1024 * 1024):.1f} MiB")
                     return MemoryPressure.WARNING
 
                 return MemoryPressure.NORMAL
@@ -104,10 +104,10 @@ class MemoryMonitor:
 
     def get_usage_mb(self) -> float:
         """
-        Get current memory usage in MB.
+        Get current memory usage in MiB.
 
         Returns:
-            Memory usage in MB
+            Memory usage in MiB
         """
         if not self.psutil_available:
             return 0.0
@@ -166,13 +166,13 @@ class DiskSpaceManager:
             if free_bytes < MIN_FREE_SPACE_BYTES:
                 return (
                     False,
-                    f"Only {free_bytes / (1024 * 1024):.1f}MB free, need at least {MIN_FREE_SPACE_BYTES / (1024 * 1024):.1f}MB",
+                    f"Only {free_bytes / (1024 * 1024):.1f} MiB free, need at least {MIN_FREE_SPACE_BYTES / (1024 * 1024):.1f} MiB",
                 )
 
             if free_bytes < required_bytes:
                 return (
                     False,
-                    f"Insufficient space: need {required_bytes / (1024 * 1024):.1f}MB, have {free_bytes / (1024 * 1024):.1f}MB",
+                    f"Insufficient space: need {required_bytes / (1024 * 1024):.1f} MiB, have {free_bytes / (1024 * 1024):.1f} MiB",
                 )
 
             # Fullness percentages are advisory warnings only — they DO NOT
@@ -182,7 +182,7 @@ class DiskSpaceManager:
                 if self.warnings_issued % 10 == 0:
                     logging.warning(
                         f"Disk usage critical: {usage_percent * 100:.1f}% "
-                        f"({free_bytes / (1024 * 1024):.1f}MB free) — proceeding anyway"
+                        f"({free_bytes / (1024 * 1024):.1f} MiB free) — proceeding anyway"
                     )
                 self.warnings_issued += 1
             elif usage_percent > DISK_SPACE_WARNING_THRESHOLD:
