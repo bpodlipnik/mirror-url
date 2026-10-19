@@ -735,6 +735,13 @@ returns the validated public address directly to its connector, preserving the
 original hostname for Host and TLS. aiohttp requests retain encoded URL paths,
 use HTTP/1.1 and disable implicit redirects, decompression, cookies and proxies.
 
+Transfer preparation and publication use `PathSafety.same_resolved_path()` to
+compare the checked destination with its planned path. This shares the existing
+Windows DOS/UNC namespace normalization with containment checks, while comparing
+the already-observed paths without another filesystem resolution. A concurrently
+created parent can change a Windows namespace prefix; other paths and device
+namespaces still fail, and symlink checks remain in `safe_join()`.
+
 The controller samples `shutil.disk_usage(target).free` once per batch, at the
 first accepted response before payload writes, and subtracts worker write
 headroom. The shared in-memory budget reserves a known `Content-Length` before

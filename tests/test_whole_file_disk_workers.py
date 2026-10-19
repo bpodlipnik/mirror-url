@@ -5,6 +5,7 @@ import hashlib
 import os
 import threading
 from contextlib import asynccontextmanager
+from pathlib import PureWindowsPath
 
 import httpx
 import pytest
@@ -293,3 +294,43 @@ async def test_receipt_hook_transport_error_never_repeats_a_published_get(
     assert len(calls) == 1 and local.read_bytes() == payload
     assert not results[0].success and results[0].error == "receipt hook failed"
     assert not engine.scratch._active and not list(engine.target.rglob("work_*"))
+
+
+@pytest.mark.parametrize(
+    "planned,checked",
+    [
+        ("C:/mirror/c2/a.fts", "//?/C:/mirror/c2/a.fts"),
+        ("//?/C:/mirror/c2/a.fts", "C:/mirror/c2/a.fts"),
+        ("//server/share/mirror/c2/a.fts", "//?/UNC/server/share/mirror/c2/a.fts"),
+        ("//?/UNC/server/share/mirror/c2/a.fts", "//server/share/mirror/c2/a.fts"),
+    ],
+)
+def test_publication_accepts_equivalent_resolved_windows_spellings(
+    engine, monkeypatch, planned, checked
+):
+    staging = engine.scratch.staging(engine.target / "a", "streaming")
+    staging.write_bytes(PAYLOAD)
+    inode = staging.stat()
+    planned, checked = PureWindowsPath(planned), PureWindowsPath(checked)
+    engine.target = planned.parent
+    original_identity = transfers._identity
+    monkeypatch.setattr(
+        transfers, "_identity", lambda path: None if path is planned else original_identity(path)
+    )
+    monkeypatch.setattr(transfers.PathSafety, "safe_join", lambda *args, **kwargs: checked)
+    replacements = []
+    monkeypatch.setattr(transfers.os, "replace", lambda *paths: replacements.append(paths))
+    try:
+        result = engine._publish(
+            BASE + "a",
+            planned,
+            staging,
+            len(PAYLOAD),
+            None,
+            None,
+            None,
+            (inode.st_dev, inode.st_ino),
+        )
+        assert result.success and replacements == [(staging, planned)]
+    finally:
+        assert engine.scratch.release(staging.parent)

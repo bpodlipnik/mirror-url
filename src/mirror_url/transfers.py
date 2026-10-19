@@ -666,7 +666,7 @@ class AsyncTransfers:
             max_depth=self.config.max_depth,
             max_filename_len=self.config.max_filename_len,
         )
-        if checked != local or _identity(local) != original:
+        if not PathSafety.same_resolved_path(checked, local) or _identity(local) != original:
             raise ValueError("Destination changed during transfer; preserving existing entry")
         if cancelled is not None and cancelled.is_set():
             raise ValueError("Chunk transfer cancelled before publication")
@@ -682,7 +682,7 @@ class AsyncTransfers:
             max_depth=self.config.max_depth,
             max_filename_len=self.config.max_filename_len,
         )
-        if checked != local:
+        if not PathSafety.same_resolved_path(checked, local):
             raise ValueError("Destination path changed before transfer")
         local.parent.mkdir(parents=True, exist_ok=True)
         self.progress.stage(local, "checking range support")
@@ -798,15 +798,15 @@ class AsyncTransfers:
             nonlocal staging
             original = _identity(local)
             relative = local.relative_to(self.target)
-            if (
+            if not PathSafety.same_resolved_path(
                 PathSafety.safe_join(
                     self.target,
                     *relative.parts,
                     create_base=False,
                     max_depth=self.config.max_depth,
                     max_filename_len=self.config.max_filename_len,
-                )
-                != local
+                ),
+                local,
             ):
                 raise ValueError("Destination path changed before transfer")
             local.parent.mkdir(parents=True, exist_ok=True)

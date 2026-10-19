@@ -14,6 +14,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   fallbacks. Preserve durable writes, publication checks and recovery manifests;
   drain disk operations on cancellation and retain receipts when publication wins
   the cancellation race.
+- Compare already-validated Windows destination spellings with the shared DOS/UNC
+  namespace normalization during preparation and publication. Concurrent parent
+  creation can return equivalent ordinary and extended-length paths; preserve
+  symlink checks and compare those observed paths without resolving them again.
 
 ## [3.8.5] - 2026-10-19
 
