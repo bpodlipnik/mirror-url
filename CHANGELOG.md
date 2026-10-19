@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Move whole-file staging preparation, finalization and cleanup off the download
+  event loop so filesystem work can overlap other files' transfers. Use the shared
+  pipeline for both download backends and aiohttp mirroring, including whole-file
+  fallbacks. Preserve durable writes, publication checks and recovery manifests;
+  drain disk operations on cancellation and retain receipts when publication wins
+  the cancellation race.
+
 ## [3.8.5] - 2026-10-19
 
 ### Changed
