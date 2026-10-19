@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Reduce worker/event-loop handoffs for small aiohttp chunk reads in both modes.
+  Batch small buffers for up to 10 ms after the first bytes arrive, with a
+  1 MiB cap, and return initial buffers of at least 64 KiB immediately. Preserve
+  reader timeouts, cancellation drainage and the shared range/publication checks.
+  This reduces CPU work on small-buffer workloads; elapsed-time gains depend
+  on the workload.
+
 ## [3.8.4] - 2026-10-17
 
 ### Fixed

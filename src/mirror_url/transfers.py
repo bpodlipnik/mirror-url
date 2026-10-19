@@ -388,9 +388,55 @@ class _AIOHTTPChunkResponse:
             raise ValueError("Non-streaming chunk metadata requests require HEAD")
         return self._call(self.response.read)
 
+    async def _read_batch(self, size: int) -> bytes:
+        """Collect at most one bounded batch, yielding promptly on a trickle."""
+        first = await self.response.content.read(size)
+        if not first:
+            return b""
+        if len(first) >= 64 * 1024:
+            return first
+        blocks, received = [first], len(first)
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + 0.01
+        while received < size:
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                break
+            pending = asyncio.create_task(self.response.content.read(size - received))
+            try:
+                done, _ = await asyncio.wait((pending,), timeout=remaining)
+            except BaseException:
+                pending.cancel()
+                try:
+                    await _drain_operation(asyncio.gather(pending, return_exceptions=True))
+                except asyncio.CancelledError:
+                    pass
+                raise
+            if done:
+                # Preserve a genuine reader exception, including socket timeout.
+                block = pending.result()
+            else:
+                pending.cancel()
+                settled = await _drain_operation(asyncio.gather(pending, return_exceptions=True))
+                block = settled[0]
+                if isinstance(block, asyncio.CancelledError):
+                    break
+                if isinstance(block, BaseException):
+                    raise block
+            if not block:
+                break
+            blocks.append(block)
+            received += len(block)
+            if not done:
+                # Data won the cancellation race. Retain it, then return.
+                break
+        return b"".join(blocks)
+
     def iter_bytes(self, chunk_size: Optional[int] = None) -> Iterator[bytes]:
-        size = chunk_size or 256 * 1024
-        while block := self._call(lambda: self.response.content.read(size)):
+        size = min(chunk_size or 256 * 1024, 1024**2)
+        if size <= 0:
+            raise ValueError("Chunk buffer size must be positive")
+        while block := self._call(lambda: self._read_batch(size)):
             yield block
 
     def iter_raw(self, chunk_size: Optional[int] = None) -> Iterator[bytes]:
