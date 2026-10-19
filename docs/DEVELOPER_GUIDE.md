@@ -777,6 +777,15 @@ The aiohttp adapter submits HEAD, Range GET, bounded reads and response closure
 to its session's existing event loop from the chunk worker threads. It keeps
 aiohttp IO on that loop, normalizes transport failures to the existing retry
 contract, and leaves representation validation in the shared range engine.
+`_AIOHTTPChunkResponse` batches small reads before returning bytes to a chunk
+worker, reducing event-loop handoffs and consumer writes in both modes. An
+initial buffer of at least 64 KiB returns immediately. Smaller initial buffers
+can collect more data for approximately 10 ms, bounded by the requested buffer
+size and a 1 MiB maximum. The initial read retains its normal timeout. At the
+batch deadline, a pending additional read is cancelled and drained; bytes that
+win the cancellation race are retained. Actual reader timeouts still propagate
+through the existing retry contract. CPU savings depend on buffer delivery;
+they do not guarantee shorter elapsed transfers.
 The same cancellation drain protects threaded operations, workers and final
 session closure, including repeated cancellation during cleanup. Client and
 scratch ownership outlive all readers and writers. aiohttp mirror mode creates
