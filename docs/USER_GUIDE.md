@@ -1894,6 +1894,20 @@ limit tracker behavior; they do not make the heuristic a definitive detector.
   message. A metadata failure is reported as uncertain freshness, not as proof
   of a remote change. DEBUG logs include returned freshness headers.
 
+  If async metadata checks fall back, the warning shows the effective speed
+  threshold. The switch message reports the remaining files and the files
+  already examined or queued for download. A synchronous batch count covers
+  that batch; **Metadata check complete** reports the combined total before
+  downloads start. Retry messages identify the request method and sanitized
+  URL; recovered requests report the response status and attempt count.
+
+  **ETag unavailable** counts HTTP 200 freshness responses with no ETag header
+  when ETags are enabled, including responses whose size already proves a
+  change. It excludes missing local files, skipped checks, failed HTTP
+  responses and checks with `--no-etag`. A conditional HTTP 304 can reuse a
+  saved ETag without returning that header, so it does not increase this count.
+  ETag counters describe metadata responses, rather than all file outcomes.
+
   Discovery, metadata, download preparation, downloads and cleanup have separate
   elapsed times. **Download throughput** divides newly transferred bytes by the
   download phase's wall-clock duration, including concurrent transfers, retries,

@@ -463,6 +463,7 @@ class MetricsCollector:
             summary["etag_matches"] > 0
             or summary["etag_mismatches"] > 0
             or summary["etag_304_responses"] > 0
+            or summary["etag_unavailable"] > 0
         ):
             lines.extend(
                 [
