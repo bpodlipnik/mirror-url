@@ -282,7 +282,7 @@ repeats the essentials so you can work from it alone.</p>
 <ul>
 <li><strong>Package:</strong> <code>mirror_url</code> (src-layout under
 <code>src/</code>)</li>
-<li><strong>Version:</strong> 3.8.5</li>
+<li><strong>Version:</strong> 3.8.6</li>
 <li><strong>Python:</strong> 3.10 or newer; CI tests Python
 3.10–3.14</li>
 <li><strong>Runtime deps:</strong> <code>httpx[http2]</code> (including
@@ -1101,13 +1101,29 @@ writes without requiring slow streams to fill a complete block. Multiple
 workers use <code>SecureAsyncTransport</code>. Both readers only supply
 response headers and raw bytes; <code>AsyncTransfers._one</code>
 provides whole-file policy and <code>_publish</code> provides the shared
-identity, hash, timestamp and atomic-publication policy. Cancellation
-drains an in-flight thread operation before response closure and staging
-cleanup, even when shutdown cancels a worker again. The aiohttp resolver
-returns the validated public address directly to its connector,
-preserving the original hostname for Host and TLS. aiohttp requests
-retain encoded URL paths, use HTTP/1.1 and disable implicit redirects,
-decompression, cookies and proxies.</p>
+identity, hash, timestamp and atomic-publication policy. Whole-file
+staging preparation, flush/hash/publication and scratch cleanup run
+through <code>asyncio.to_thread</code>, with at most one pending disk
+operation per file worker. This lets other file workers receive data
+while filesystem operations run; body writes retain their existing
+buffering. The payload handle closes before atomic publication,
+including on Windows. Publication hooks execute in the finalization
+worker, as they already do for chunks, so a completed publication keeps
+its receipt even when cancellation wins delivery of the worker result.
+Cancellation drains an in-flight thread operation before response
+closure and staging cleanup, even when shutdown cancels a worker again.
+The aiohttp resolver returns the validated public address directly to
+its connector, preserving the original hostname for Host and TLS.
+aiohttp requests retain encoded URL paths, use HTTP/1.1 and disable
+implicit redirects, decompression, cookies and proxies.</p>
+<p>Transfer preparation and publication use
+<code>PathSafety.same_resolved_path()</code> to compare the checked
+destination with its planned path. This shares the existing Windows
+DOS/UNC namespace normalization with containment checks, while comparing
+the already-observed paths without another filesystem resolution. A
+concurrently created parent can change a Windows namespace prefix; other
+paths and device namespaces still fail, and symlink checks remain in
+<code>safe_join()</code>.</p>
 <p>The controller samples <code>shutil.disk_usage(target).free</code>
 once per batch, at the first accepted response before payload writes,
 and subtracts worker write headroom. The shared in-memory budget
@@ -1162,23 +1178,23 @@ and response closure to its session's existing event loop from the chunk
 worker threads. It keeps aiohttp IO on that loop, normalizes transport
 failures to the existing retry contract, and leaves representation
 validation in the shared range engine.
-<code>_AIOHTTPChunkResponse</code> batches small reads before returning bytes
-to a chunk worker, reducing event-loop handoffs and consumer writes in both
-modes. An initial buffer of at least 64 KiB returns immediately. Smaller
-initial buffers can collect more data for approximately 10 ms, bounded by
-the requested buffer size and a 1 MiB maximum. The initial read retains its
-normal timeout. At the batch deadline, a pending additional read is cancelled
-and drained; bytes that win the cancellation race are retained. Actual reader
-timeouts still propagate through the existing retry contract. CPU savings
-depend on buffer delivery; they do not guarantee shorter elapsed transfers.
-The same cancellation drain
-protects threaded operations, workers and final session closure,
-including repeated cancellation during cleanup. Client and scratch
-ownership outlive all readers and writers. aiohttp mirror mode creates
-its chunk manager inside the owned transfer batch, instead of starting
-an idle HTTPX chunk manager during mirror initialization. Whole-file
-mode remains available, and auto-concurrency remains restricted to
-HTTPX.</p>
+<code>_AIOHTTPChunkResponse</code> batches small reads before returning
+bytes to a chunk worker, reducing event-loop handoffs and consumer
+writes in both modes. An initial buffer of at least 64 KiB returns
+immediately. Smaller initial buffers can collect more data for
+approximately 10 ms, bounded by the requested buffer size and a 1 MiB
+maximum. The initial read retains its normal timeout. At the batch
+deadline, a pending additional read is cancelled and drained; bytes that
+win the cancellation race are retained. Actual reader timeouts still
+propagate through the existing retry contract. CPU savings depend on
+buffer delivery; they do not guarantee shorter elapsed transfers. The
+same cancellation drain protects threaded operations, workers and final
+session closure, including repeated cancellation during cleanup. Client
+and scratch ownership outlive all readers and writers. aiohttp mirror
+mode creates its chunk manager inside the owned transfer batch, instead
+of starting an idle HTTPX chunk manager during mirror initialization.
+Whole-file mode remains available, and auto-concurrency remains
+restricted to HTTPX.</p>
 <p>The CLI creates one <code>MetricsCollector</code> and passes it
 through <code>download_url_list</code>, <code>AsyncTransfers</code>,
 <code>ParallelDownloadManager</code>, and
@@ -1862,7 +1878,7 @@ refactoring nearby code.</li>
 </table>
 
 <hr />
-<p><em>This guide describes the architecture as of version 3.8.5. When
+<p><em>This guide describes the architecture as of version 3.8.6. When
 you change the structure, update this document in the same PR.</em></p>
 </body>
 </html>
