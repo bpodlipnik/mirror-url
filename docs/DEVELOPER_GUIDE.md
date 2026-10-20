@@ -721,12 +721,26 @@ batches with a short batching window, reducing thread handoffs and file writes
 without requiring slow streams to fill a complete block. Multiple workers use
 `SecureAsyncTransport`. Both readers only supply response headers and raw bytes;
 `AsyncTransfers._one` provides whole-file policy and `_publish` provides the
-shared identity, hash, timestamp and atomic-publication policy. Cancellation drains an
+shared identity, hash, timestamp and atomic-publication policy. Whole-file staging
+preparation, flush/hash/publication and scratch cleanup run through
+`asyncio.to_thread`, with at most one pending disk operation per file worker.
+This lets other file workers receive data while filesystem operations run; body
+writes retain their existing buffering. The payload handle closes before atomic
+publication, including on Windows. Publication hooks execute in the finalization
+worker, as they already do for chunks, so a completed publication keeps its receipt
+even when cancellation wins delivery of the worker result. Cancellation drains an
 in-flight thread operation before response closure and staging cleanup, even
 when shutdown cancels a worker again. The aiohttp resolver
 returns the validated public address directly to its connector, preserving the
 original hostname for Host and TLS. aiohttp requests retain encoded URL paths,
 use HTTP/1.1 and disable implicit redirects, decompression, cookies and proxies.
+
+Transfer preparation and publication use `PathSafety.same_resolved_path()` to
+compare the checked destination with its planned path. This shares the existing
+Windows DOS/UNC namespace normalization with containment checks, while comparing
+the already-observed paths without another filesystem resolution. A concurrently
+created parent can change a Windows namespace prefix; other paths and device
+namespaces still fail, and symlink checks remain in `safe_join()`.
 
 The controller samples `shutil.disk_usage(target).free` once per batch, at the
 first accepted response before payload writes, and subtracts worker write

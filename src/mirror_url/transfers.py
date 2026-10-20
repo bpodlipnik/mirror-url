@@ -666,7 +666,7 @@ class AsyncTransfers:
             max_depth=self.config.max_depth,
             max_filename_len=self.config.max_filename_len,
         )
-        if checked != local or _identity(local) != original:
+        if not PathSafety.same_resolved_path(checked, local) or _identity(local) != original:
             raise ValueError("Destination changed during transfer; preserving existing entry")
         if cancelled is not None and cancelled.is_set():
             raise ValueError("Chunk transfer cancelled before publication")
@@ -682,7 +682,7 @@ class AsyncTransfers:
             max_depth=self.config.max_depth,
             max_filename_len=self.config.max_filename_len,
         )
-        if checked != local:
+        if not PathSafety.same_resolved_path(checked, local):
             raise ValueError("Destination path changed before transfer")
         local.parent.mkdir(parents=True, exist_ok=True)
         self.progress.stage(local, "checking range support")
@@ -725,10 +725,7 @@ class AsyncTransfers:
                 log_whole_file_fallback(
                     url, manager.whole_file_fallback_reason(size, chunk_count, response=response)
                 )
-                result = await self._one(backend, url, local)
-                if published is not None:
-                    published(result)
-                return result
+                return await self._one(backend, url, local, published)
             self._reserve_space(local, size * (1 if manager.use_streaming else 2))
             cancelled = threading.Event()
             result = None
@@ -793,24 +790,34 @@ class AsyncTransfers:
         finally:
             await _HTTPXBackend._thread_call(response.close)
 
-    async def _one(self, backend, url: str, local: Path) -> TransferResult:
-        original = _identity(local)
-        relative = local.relative_to(self.target)
-        if (
-            PathSafety.safe_join(
-                self.target,
-                *relative.parts,
-                create_base=False,
-                max_depth=self.config.max_depth,
-                max_filename_len=self.config.max_filename_len,
-            )
-            != local
-        ):
-            raise ValueError("Destination path changed before transfer")
-        local.parent.mkdir(parents=True, exist_ok=True)
-        staging = self.scratch.staging(local, "streaming")
-        published_size = 0
+    async def _one(self, backend, url: str, local: Path, published=None) -> TransferResult:
+        staging = None
+        published_size = None
+
+        def prepare():
+            nonlocal staging
+            original = _identity(local)
+            relative = local.relative_to(self.target)
+            if not PathSafety.same_resolved_path(
+                PathSafety.safe_join(
+                    self.target,
+                    *relative.parts,
+                    create_base=False,
+                    max_depth=self.config.max_depth,
+                    max_filename_len=self.config.max_filename_len,
+                ),
+                local,
+            ):
+                raise ValueError("Destination path changed before transfer")
+            local.parent.mkdir(parents=True, exist_ok=True)
+            staging = self.scratch.staging(local, "streaming")
+            return original
+
         try:
+            # Each file worker owns at most one disk operation at a time. Drain
+            # it on cancellation before retiring staging or destination locks.
+            original = await _drain_operation(asyncio.to_thread(prepare))
+            assert staging is not None
             for attempt in range(self.config.max_retries + 1):
                 self.progress.begin(local, "waiting for response")
                 try:
@@ -863,35 +870,54 @@ class AsyncTransfers:
                                     raise ValueError(
                                         "Response length does not match Content-Length"
                                     )
-                                self.progress.stage(local, "flushing file")
-                                started = time.perf_counter()
-                                with self.metrics.run_report.transfer_stage("flush"):
-                                    file.flush()
-                                    os.fsync(file.fileno())
-                                    self._record_stage("fsync", started)
-                            mtime = None
-                            if headers.get("Last-Modified"):
-                                try:
-                                    mtime = parsedate_to_datetime(
-                                        headers["Last-Modified"]
-                                    ).timestamp()
-                                except (ValueError, TypeError, OverflowError):
-                                    pass
-                            result = self._publish(
-                                url,
-                                local,
-                                staging,
-                                size,
-                                strong_etag(headers),
-                                mtime,
-                                original,
-                                (staged_inode.st_dev, staged_inode.st_ino),
-                            )
-                            published_size = size
+                                cancelled = threading.Event()
+
+                                def finalize(file, headers, size, staged_inode, cancelled):
+                                    nonlocal published_size
+                                    self.progress.stage(local, "flushing file")
+                                    started = time.perf_counter()
+                                    with self.metrics.run_report.transfer_stage("flush"):
+                                        file.flush()
+                                        os.fsync(file.fileno())
+                                        self._record_stage("fsync", started)
+                                    file.close()
+                                    mtime = None
+                                    if headers.get("Last-Modified"):
+                                        try:
+                                            mtime = parsedate_to_datetime(
+                                                headers["Last-Modified"]
+                                            ).timestamp()
+                                        except (ValueError, TypeError, OverflowError):
+                                            pass
+                                    result = self._publish(
+                                        url,
+                                        local,
+                                        staging,
+                                        size,
+                                        strong_etag(headers),
+                                        mtime,
+                                        original,
+                                        (staged_inode.st_dev, staged_inode.st_ino),
+                                        cancelled=cancelled,
+                                    )
+                                    published_size = size
+                                    # Publication can win a cancellation race.
+                                    # Keep its receipt before returning to the loop.
+                                    if published is not None:
+                                        published(result)
+                                    return result
+
+                                result = await _drain_operation(
+                                    asyncio.to_thread(
+                                        finalize, file, headers, size, staged_inode, cancelled
+                                    ),
+                                    cancelled.set,
+                                )
                             log_file_downloaded(local, size, result.sha256)
                             return result
                 except backend.retryable:
-                    if attempt == self.config.max_retries:
+                    # A receipt-hook failure after publication cannot retry its GET.
+                    if published_size is not None or attempt == self.config.max_retries:
                         raise
                     logging.warning(
                         "Connection retry for %s (attempt %s)",
@@ -902,9 +928,11 @@ class AsyncTransfers:
                     await asyncio.sleep(self.config.retry_delay * 2**attempt)
             raise RuntimeError("Transfer retry budget exhausted")
         finally:
-            if not self.scratch.release(staging.parent):
+            if staging is not None and not await _drain_operation(
+                asyncio.to_thread(self.scratch.release, staging.parent)
+            ):
                 raise ValueError("Owned staging cleanup failed; preserved for investigation")
-            self._release_space(local, published_size)
+            self._release_space(local, published_size or 0)
 
     async def run(
         self,
@@ -935,9 +963,7 @@ class AsyncTransfers:
                             manager, connection, backend, url, local, published
                         )
                     else:
-                        result = await self._one(backend, url, local)
-                        if published is not None:
-                            published(result)
+                        result = await self._one(backend, url, local, published)
                 except Exception as error:
                     result = TransferResult(url, local, False, error=str(error))
                     logging.error("Download failed for %s: %s", sanitize_url_for_log(url), error)

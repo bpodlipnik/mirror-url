@@ -336,7 +336,11 @@ class PathSafety:
         download; only the resolved comparison identity needs normalization.
         Other device namespaces are deliberately left distinct.
         """
-        resolved = path.resolve()
+        return PathSafety._normalize_resolved_path(path.resolve())
+
+    @staticmethod
+    def _normalize_resolved_path(resolved: PurePath) -> PurePath:
+        """Normalize an observed path spelling without another filesystem lookup."""
         if isinstance(resolved, PureWindowsPath) and resolved.is_absolute():
             drive = resolved.drive
             if drive.startswith("\\\\?\\UNC\\"):
@@ -349,6 +353,17 @@ class PathSafety:
             ):
                 return type(resolved)(str(resolved)[4:])
         return resolved
+
+    @staticmethod
+    def same_resolved_path(checked: Optional[PurePath], expected: PurePath) -> bool:
+        """Compare validated paths, retaining their observed filesystem identities.
+
+        Concurrent parent creation can change a Windows DOS/UNC namespace prefix.
+        Normalize that spelling only; resolving again could follow a changed link.
+        """
+        return checked is not None and PathSafety._normalize_resolved_path(
+            checked
+        ) == PathSafety._normalize_resolved_path(expected)
 
     @staticmethod
     def resolved_relative_to(path: Path, base: Path) -> PurePath:

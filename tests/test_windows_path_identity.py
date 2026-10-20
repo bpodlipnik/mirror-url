@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import hashlib
-from pathlib import Path, PureWindowsPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -92,3 +92,38 @@ def test_partial_paths_must_name_a_file_below_the_destination(tmp_path, monkeypa
     with pytest.raises(ValueError):
         manager.get_partial_path(manager.download_dir / relative)
     state.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "checked,expected,equal",
+    [
+        ("//?/C:/mirror/a", "C:/mirror/a", True),
+        ("C:/mirror/a", "//?/C:/mirror/a", True),
+        ("//?/UNC/server/share/a", "//server/share/a", True),
+        ("//server/share/a", "//?/UNC/server/share/a", True),
+        ("c:/mirror/a", "//?/C:/MIRROR/a", True),
+        ("//?/D:/mirror/a", "C:/mirror/a", False),
+        ("//?/C:/outside/a", "C:/mirror/a", False),
+        ("//?/UNC/server/other/a", "//server/share/a", False),
+        ("//?/GLOBALROOT/Device/HarddiskVolume1/a", "C:/mirror/a", False),
+        ("//./C:/mirror/a", "C:/mirror/a", False),
+        ("//?/C:mirror/a", "C:/mirror/a", False),
+        (None, "C:/mirror/a", False),
+    ],
+)
+def test_observed_windows_path_equality_never_resolves_again(checked, expected, equal):
+    class ObservedPath(PureWindowsPath):
+        def resolve(self, *args, **kwargs):
+            pytest.fail("An observed destination must not follow a changed link")
+
+    assert (
+        PathSafety.same_resolved_path(
+            ObservedPath(checked) if checked is not None else None, ObservedPath(expected)
+        )
+        is equal
+    )
+
+
+@pytest.mark.parametrize("other,equal", [("/mirror/a", True), ("/MIRROR/a", False)])
+def test_observed_posix_paths_keep_their_original_spelling(other, equal):
+    assert PathSafety.same_resolved_path(PurePosixPath("/mirror/a"), PurePosixPath(other)) is equal
