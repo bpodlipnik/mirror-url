@@ -518,7 +518,11 @@ class ReportMixin(MirrorHost):
                                     "Async transfers require owned destination and staging state"
                                 )
                             transfers = AsyncTransfers(
-                                self.config,
+                                # Mirror depth counts directories; the shared
+                                # transfer guard also counts the final filename.
+                                self.config.model_copy(
+                                    update={"max_depth": self.config.max_depth + 1}
+                                ),
                                 self.target_dir,
                                 self.target_base_url,
                                 self.scratch_manager,

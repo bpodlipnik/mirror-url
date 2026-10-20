@@ -565,6 +565,31 @@ Test repeated syncs, async fallback, HTTP skips, failed publication and both
 backends when changing reporting. No release-version labels belong in usage
 descriptions.
 
+`directory_selection.resolve_directory_selection()` resolves CLI `--dir-regex`
+patterns into ordinary `dir_suffix` jobs. `--dir` and the hidden legacy
+`--dir-suffix` alias share the original argparse destination; existing config
+files and Python calls retain `dir_suffix`. Regexes are CLI orchestration inputs,
+compiled before I/O, full-matched case-sensitively against decoded root-relative
+paths, and never passed through as URL suffixes or local names.
+
+The CLI reserves the entire destination tree and shared outputs while selection
+is unresolved. The selection instance uses the existing bounded BFS, URL scope,
+exclusion and symlink policies, with dry-run/no-cache settings and shared logging;
+it creates no payloads, scratch, metrics server or cache writes. It closes before
+any selected jobs start. Missing matches never fall back to ROOT, and any listing
+failure invalidates the full plan. `FilenameMap.key(directory=True)` checks root
+prefix identities without treating selected roots as payload files. Unsafe,
+reserved or colliding names fail before transfer.
+
+Regex-selected roots share the original root-relative directory-depth budget.
+An internally derived zero budget means files in that selected root only; public
+`MirrorConfig.max_depth` validation is unchanged. aiohttp mirror adapters add the
+filename component to the shared transfer path-depth allowance, matching HTTPX
+mirroring's `max_depth + 1` mapping. Cleanup uses the same reduced directory
+budget. Explicit literal roots retain their existing per-root limits. Overlapping
+roots are reduced before the normal CLI job loop, which handles both backends,
+listing modes, freshness checks, receipts and cleanup without a second crawler.
+
 `MirrorURL` is a context manager — use `with MirrorURL(cfg) as mirror:` so
 `__exit__`/`cleanup` tears down pools, async loops, and the health server.
 

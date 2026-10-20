@@ -95,12 +95,13 @@ class FilenameMap:
                 raise ValueError(f"Cannot inspect destination filenames: {parent}") from error
         return self.existing[key]
 
-    def key(self, local: Path) -> Tuple[str, ...]:
+    def key(self, local: Path, *, directory: bool = False) -> Tuple[str, ...]:
+        """Check component identities; directory roots do not consume a file node."""
         raw = local.relative_to(self.root).parts
         normalized = tuple(unicodedata.normalize("NFC", name) for name in raw)
         for length, name in enumerate(normalized, 1):
             prefix, original = normalized[:length], raw[:length]
-            is_file = length == len(raw)
+            is_file = length == len(raw) and not directory
             previous = self.nodes.get(prefix)
             if previous is not None:
                 # Unicode-normalized aliases and file/directory conflicts remain
