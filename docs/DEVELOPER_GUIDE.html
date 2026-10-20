@@ -925,6 +925,35 @@ prevent obsolete-file cleanup and signature-cache publication.</p>
 <p>Test repeated syncs, async fallback, HTTP skips, failed publication
 and both backends when changing reporting. No release-version labels
 belong in usage descriptions.</p>
+<p><code>directory_selection.resolve_directory_selection()</code>
+resolves CLI <code>--dir-regex</code> patterns into ordinary
+<code>dir_suffix</code> jobs. <code>--dir</code> and the hidden legacy
+<code>--dir-suffix</code> alias share the original argparse destination;
+existing config files and Python calls retain <code>dir_suffix</code>.
+Regexes are CLI orchestration inputs, compiled before I/O, full-matched
+case-sensitively against decoded root-relative paths, and never passed
+through as URL suffixes or local names.</p>
+<p>The CLI reserves the entire destination tree and shared outputs while
+selection is unresolved. The selection instance uses the existing
+bounded BFS, URL scope, exclusion and symlink policies, with
+dry-run/no-cache settings and shared logging; it creates no payloads,
+scratch, metrics server or cache writes. The discovery generator closes
+explicitly before its operation lease is released, including when
+selection raises. The instance closes before any selected jobs start.
+Missing matches never fall back to ROOT, and any listing failure
+invalidates the full plan. <code>FilenameMap.key(directory=True)</code>
+checks root prefix identities without treating selected roots as payload
+files. Unsafe, reserved or colliding names fail before transfer.</p>
+<p>Regex-selected roots share the original root-relative directory-depth
+budget. An internally derived zero budget means files in that selected
+root only; public <code>MirrorConfig.max_depth</code> validation is
+unchanged. aiohttp mirror adapters add the filename component to the
+shared transfer path-depth allowance, matching HTTPX mirroring's
+<code>max_depth + 1</code> mapping. Cleanup uses the same reduced
+directory budget. Explicit literal roots retain their existing per-root
+limits. Overlapping roots are reduced before the normal CLI job loop,
+which handles both backends, listing modes, freshness checks, receipts
+and cleanup without a second crawler.</p>
 <p><code>MirrorURL</code> is a context manager — use
 <code>with MirrorURL(cfg) as mirror:</code> so
 <code>__exit__</code>/<code>cleanup</code> tears down pools, async

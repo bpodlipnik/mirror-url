@@ -4,6 +4,24 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Add `--dir PATH [PATH ...]` for literal remote directory selection, retaining
+  `--dir-suffix` as a hidden compatibility alias and keeping existing config/API
+  fields unchanged.
+- Add CLI `--dir-regex PATTERN [PATTERN ...]` for complete, case-sensitive path
+  selection relative to `--url`. Resolve the full plan through existing owned
+  discovery before mirroring; preserve exclusions, depth budgets and symlink
+  policy, reject incomplete/no-match plans and unsafe or colliding roots, and
+  deduplicate overlapping subtrees. Reuse normal mirror and listing jobs.
+
+### Fixed
+
+- Include the filename component in aiohttp mirror transfer depth checks, matching
+  HTTPX mirror path mapping at directory-depth boundaries.
+
 ## [3.8.6] - 2026-10-20
 
 ### Changed

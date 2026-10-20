@@ -62,6 +62,7 @@ from .constants import (
 )
 from .core import MirrorURL
 from .destination_lock import MirrorFileHandler, run_ownership
+from .directory_selection import compile_directory_patterns, resolve_directory_selection
 from .enums import CleanupPolicy, ScanMode
 from .exceptions import (
     ConfigError,
@@ -253,7 +254,9 @@ _CLI_DEST_TO_CONFIG_KEY = {
 }
 
 # Options that are consumed by main() itself rather than copied into MirrorConfig.
-_CLI_NON_CONFIG_DESTS = frozenset({"config", "dir_suffix", "log_file", "version", "help"})
+_CLI_NON_CONFIG_DESTS = frozenset(
+    {"config", "dir_suffix", "dir_regex", "log_file", "version", "help"}
+)
 
 _DOWNLOAD_MODE_DESTS = ("parallel_downloads", "streaming_parallel", "sequential_downloads")
 
@@ -478,7 +481,7 @@ FILTERS:
   --filter .fits .txt                 # extensions
   --filter _fe_                      # substring
   --filter '2024.*\.fits$'            # regex
-  Use --dir-suffix/--exclude-dir to select directory paths.
+  Use --dir/--dir-regex/--exclude-dir to select directory paths.
 
 EXAMPLES (replace the example URL with your archive's directory listing):
   # Download one known file into the current directory
@@ -637,12 +640,31 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
     )
 
     directory = parser.add_argument_group("Directory Options")
-    directory.add_argument(
-        "--dir-suffix",
-        nargs="*",
+    selectors = directory.add_mutually_exclusive_group()
+    selectors.add_argument(
+        "--dir",
+        dest="dir_suffix",
+        nargs="+",
         default=[],
-        metavar="SUFFIX",
-        help="Directory suffixes to mirror (e.g., L1/v1 L2/v2)",
+        metavar="PATH",
+        help="Literal remote directories relative to --url (e.g., L1/v1 L2/v2)",
+    )
+    selectors.add_argument(
+        "--dir-suffix",
+        dest="dir_suffix",
+        nargs="*",
+        default=argparse.SUPPRESS,
+        help=argparse.SUPPRESS,
+    )
+    selectors.add_argument(
+        "--dir-regex",
+        nargs="+",
+        default=[],
+        metavar="PATTERN",
+        help=(
+            "Discover directories matching complete case-sensitive paths relative to --url; "
+            "quote patterns. Mirror mode only; respects --exclude-dir and root-relative --max-depth"
+        ),
     )
     directory.add_argument(
         "--exclude-dir",
@@ -650,7 +672,7 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
         default=[],
         metavar="DIR",
         help=(
-            "Exclude exact paths relative to --url, including with --dir-suffix. Use quoted '*' globs for nested matches: lasco matches the root child; '*/lasco' matches nested children. Use both to cover both"
+            "Exclude exact paths relative to --url, including with --dir. Use quoted '*' globs for nested matches: lasco matches the root child; '*/lasco' matches nested children. Use both to cover both"
         ),
     )
     directory.add_argument(
@@ -817,7 +839,7 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
         metavar="PATH",
         help=(
             "With --missing-files, check selected existing files for updates. "
-            "Exact paths relative to --url, including any --dir-suffix; "
+            "Exact paths relative to --url, including any --dir; "
             "use @FILE for a UTF-8 list (one path per line)"
         ),
     )
@@ -1224,7 +1246,7 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
                 args.dest_path = Path(config_dict["dest_path"])
             if not args.log_path and "log_path" in config_dict:
                 args.log_path = Path(config_dict["log_path"])
-            if not args.dir_suffix and "dir_suffix" in config_dict:
+            if not args.dir_suffix and not args.dir_regex and "dir_suffix" in config_dict:
                 args.dir_suffix = [config_dict["dir_suffix"]]
         except Exception as e:
             parser.error(f"Error reading config file: {e}")
@@ -1247,6 +1269,12 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
         if "mode" in explicit_dests or not args.config
         else config_dict.get("mode", "mirror")
     )
+    try:
+        compile_directory_patterns(args.dir_regex)
+    except ConfigError as error:
+        parser.error(str(error))
+    if args.dir_regex and (selected_mode != "mirror" or args.benchmark):
+        parser.error("--dir-regex requires mirror mode without --benchmark")
     input_values = {**config_dict, **_cli_overrides(args, explicit_dests)}
     _direct_download_defaults(args, input_values, selected_mode, parser)
     if args.config:
@@ -1389,7 +1417,7 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
     settings = effective if effective is not None else args
     resources = [Path(args.log_path)]
     try:
-        for suffix in args.dir_suffix or [""]:
+        for suffix in [""] if args.dir_regex else args.dir_suffix or [""]:
             target = Path(args.dest_path)
             for part in (part for part in suffix.split("/") if part):
                 target /= PathSafety._safe_filename(part, max_len=settings.max_filename_len)
@@ -1470,6 +1498,47 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
         logging.root.setLevel(logging.WARNING)
     else:
         logging.root.setLevel(logging.INFO)
+
+    directory_depths = {}
+    if args.dir_regex:
+        from .config import load_config_from_args
+
+        try:
+            if args.config:
+                selection_config = MirrorConfig.from_dict(
+                    {
+                        **config_dict,
+                        **_cli_overrides(args, explicit_dests),
+                        "base_url": args.url,
+                        "dest_path": args.dest_path,
+                        "log_path": args.log_path,
+                        "dir_suffix": "",
+                    },
+                    silent=True,
+                )
+            else:
+                selection_config = load_config_from_args(args, silent=True)
+            # Initialization logs must not install basicConfig's unsolicited
+            # stderr handler when neither a shared log nor --print-logs is used.
+            quiet_handler = None
+            if not logging.root.handlers:
+                quiet_handler = logging.NullHandler()
+                logging.root.addHandler(quiet_handler)
+            try:
+                directory_depths = resolve_directory_selection(
+                    selection_config, args.dir_regex, mirror_factory=MirrorURL
+                )
+            finally:
+                if quiet_handler is not None:
+                    logging.root.removeHandler(quiet_handler)
+                    quiet_handler.close()
+            args.dir_suffix = list(directory_depths)
+            logging.getLogger(__name__).info(
+                "Directory selection resolved %s directories", len(args.dir_suffix)
+            )
+        except Exception as error:
+            print(f"Directory selection error: {error}", file=sys.stderr)
+            sys.exit(1)
 
     # Run benchmark if requested
     if args.benchmark:
@@ -1787,7 +1856,17 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
             sync_success = None
             job_error = None
             try:
+                if suf in directory_depths:
+                    # A selected directory at the discovery limit still includes
+                    # its own files, but has zero remaining child-directory depth.
+                    suffix_config = suffix_config.model_copy(
+                        update={"max_depth": directory_depths[suf]}
+                    )
                 with MirrorURL(suffix_config, suffix_index=i, total_suffixes=total) as mirror:
+                    if args.dir_regex and i == 1:
+                        logging.info("Selected directories (%s):", len(args.dir_suffix))
+                        for selected_path in args.dir_suffix:
+                            logging.info("  %s", selected_path)
                     mirror.install_signal_handlers()
                     if not hasattr(mirror, "connection_manager") or not mirror.connection_manager:
                         logging.warning(f"[{i}/{total}] No connection manager for {suf or 'ROOT'}")

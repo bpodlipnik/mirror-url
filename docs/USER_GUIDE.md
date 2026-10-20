@@ -252,10 +252,6 @@ The most commonly used options:
 <td nowrap><samp>--overwrite</samp></td>
 <td>Allow replacing regular, owned local files without a matching URL-list receipt; download mode only.</td>
 </tr>
-<tr>
-<td nowrap><samp>--dir-suffix S [S ...]</samp></td>
-<td>Mirror one or more subpaths under the base URL (e.g. <code>L1/v1 L2/v2</code>).</td>
-</tr>
 </tbody>
 </table>
 
@@ -486,7 +482,7 @@ The most commonly used options:
 </tbody>
 </table>
 
-### Filtering and scope
+### Filter Options
 
 <table>
 <thead>
@@ -499,6 +495,27 @@ The most commonly used options:
 <tr>
 <td nowrap><samp>--filter P [P ...]</samp></td>
 <td>Only download matching files. Patterns can be extensions (<code>.fits</code>), plain substrings (<code>_fe_</code>), or regexes (<code>'2024.*\.fits$'</code>). Matching is case-insensitive and patterns are OR'd.</td>
+</tr>
+</tbody>
+</table>
+
+### Directory Options
+
+<table>
+<thead>
+<tr>
+<th scope="col" nowrap>Option</th>
+<th scope="col">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td nowrap><samp>--dir PATH [PATH ...]</samp></td>
+<td>Select literal remote directories relative to <code>--url</code>. Each retains its path beneath <code>--dest-path</code>. Works in both modes; download mode accepts one directory.</td>
+</tr>
+<tr>
+<td nowrap><samp>--dir-regex PATTERN [PATTERN ...]</samp></td>
+<td>Discover directories by full, case-sensitive regular expressions against decoded paths relative to <code>--url</code>. CLI selection for mirror/listing modes; respects exclusions and root-relative depth limits. Patterns are OR'd; quote them.</td>
 </tr>
 <tr>
 <td nowrap><samp>--exclude-dir D [D ...]</samp></td>
@@ -530,11 +547,11 @@ The most commonly used options:
 </tr>
 <tr>
 <td nowrap><samp>--list-dirs [N]</samp></td>
-<td>Discover and print the directory tree under <code>--url</code>/<code>--dir-suffix</code>, then exit — no file scanning, freshness checks, or downloads/deletes. Respects <code>--exclude-dir</code>/<code>--max-depth</code> (without <code>--config</code>, defaults to <code>1</code> — the current folder's immediate children only; config-file runs use the file/model depth unless <code>--max-depth</code> is explicit); <code>--filter</code> doesn't apply (files only). With <code>N</code>, shows only the last <code>N</code> directories overall, sorted <strong>lexicographically by relative path</strong> (a name sort, not a true timestamp sort), with the root (<code>.</code>) excluded from that ranking. Always followed by a <code># Directories N/total</code> summary line, including unrestricted runs (<code>N == total</code>). Without <code>--config</code>, doesn't require <code>--dest-path</code>/<code>--log-path</code>.</td>
+<td>Discover and print the directory tree under <code>--url</code>/<code>--dir</code>, then exit — no file scanning, freshness checks, or downloads/deletes. Respects <code>--exclude-dir</code>/<code>--max-depth</code> (without <code>--config</code>, defaults to <code>1</code> — the current folder's immediate children only; config-file runs use the file/model depth unless <code>--max-depth</code> is explicit); <code>--filter</code> doesn't apply (files only). With <code>N</code>, shows only the last <code>N</code> directories overall, sorted <strong>lexicographically by relative path</strong> (a name sort, not a true timestamp sort), with the root (<code>.</code>) excluded from that ranking. Always followed by a <code># Directories N/total</code> summary line, including unrestricted runs (<code>N == total</code>). Without <code>--config</code>, doesn't require <code>--dest-path</code>/<code>--log-path</code>.</td>
 </tr>
 <tr>
 <td nowrap><samp>--list-files [N]</samp></td>
-<td>Discover and print files under <code>--url</code>/<code>--dir-suffix</code>, then exit — no freshness checks or downloads/deletes. Respects <code>--exclude-dir</code>/<code>--max-depth</code>/<code>--filter</code>. With <code>N</code>, shows only the last <code>N</code> files <em>per directory</em>, sorted <strong>lexicographically by filename</strong> (a name sort, not a true timestamp sort — see "Filtering and scope" below). Without <code>--config</code>, doesn't require <code>--dest-path</code>/<code>--log-path</code>.</td>
+<td>Discover and print files under <code>--url</code>/<code>--dir</code>, then exit — no freshness checks or downloads/deletes. Respects <code>--exclude-dir</code>/<code>--max-depth</code>/<code>--filter</code>. With <code>N</code>, shows only the last <code>N</code> files <em>per directory</em>, sorted <strong>lexicographically by filename</strong> (a name sort, not a true timestamp sort — see "Filtering and scope" below). Without <code>--config</code>, doesn't require <code>--dest-path</code>/<code>--log-path</code>.</td>
 </tr>
 </tbody>
 </table>
@@ -661,18 +678,18 @@ The most commonly used options:
 </tbody>
 </table>
 
-Without `--log-file`, each `--dir-suffix` gets its own log file named
+Without `--log-file`, each `--dir` gets its own log file named
 `mirror_url_<suffix>_<timestamp>.log`. With `--log-file NAME`, the filename
 normally follows `NAME_<suffix>_<timestamp>.log` — where `<suffix>` is
-every `--dir-suffix` value joined with underscores (or `all` if none were
+every `--dir` value joined with underscores (or `all` if none were
 given), and `<timestamp>` is `YYYYMMDD_HHMMSS`. With more than one
-`--dir-suffix`, all of them share this single log file rather than each
+`--dir`, all of them share this single log file rather than each
 getting a separate one. Unsafe characters in the combined name are replaced
 with underscores, and long names are shortened with a digest to fit the
 filename limit. This is handy for wrapper scripts that invoke
 `mirror-url` once per date/target and want a recognizable, greppable
 filename prefix — e.g. `--log-file mirror_url_lasco_ql_nrl` on a run with
-`--dir-suffix 260727` produces
+`--dir 260727` produces
 `mirror_url_lasco_ql_nrl_260727_20260727_030308.log`.
 
 ### Examples
@@ -701,7 +718,7 @@ Dry-run to see what a first sync would download:
 mirror-url --url https://example.com/files/ --dest-path ./m --log-path ./l --dry-run
 ```
 
-See what's available under a base URL before picking a `--dir-suffix`
+See what's available under a base URL before picking a `--dir`
 (no `--dest-path`/`--log-path` needed):
 
 ```bash
@@ -719,7 +736,7 @@ Mirror several versioned subdirectories in one run:
 ```bash
 mirror-url --url https://example.com/product/ \
   --dest-path ./mirror --log-path ./logs \
-  --dir-suffix L1/v2 L2/v1
+  --dir L1/v2 L2/v1
 ```
 
 Conservative settings for a slow/throttled server:
@@ -744,7 +761,8 @@ configs can use the CLI shortcut defaults described under
 [known-URL downloads](#known-url-downloads). Standalone config validation still
 requires explicit target fields.
 Unknown keys are rejected. `dir_suffix` is one string in a config file; the
-CLI's `--dir-suffix` accepts several values. Logging controls such as
+CLI's `--dir` accepts several values. `--dir-regex` is a CLI selection option,
+not a configuration-model field. Logging controls such as
 `--print-logs`, `--quiet`, `--verbose`, `--debug`, and `--log-file` should be
 passed on the CLI to control its shared logging handlers.
 
@@ -899,7 +917,7 @@ otherwise successful transfer.
 ### Interrupted downloads and reserved state
 
 Whole-file transfers use an owned `.mirror-url-state/` directory inside each
-target directory (`--dest-path` plus any `--dir-suffix`). A `.partial.json`
+target directory (`--dest-path` plus any `--dir`). A `.partial.json`
 sidecar records the source URL, total size, and strong ETag. With
 `enable_resume: true` (the default), matching validated partials can resume.
 Partials without a strong validator restart from zero. A response of 200 to a
@@ -1020,9 +1038,9 @@ mirror-url --mode download --url https://example.org/data/ \
 
 This downloads `./downloads/a.bin` and `./downloads/nested/b.bin`. Changing the
 root to `https://example.org/` requires inputs `data/a.bin` and
-`data/nested/b.bin`, and retains `data/` locally. `--dir-suffix` narrows the
+`data/nested/b.bin`, and retains `data/` locally. `--dir` narrows the
 permitted selection; file inputs still include that suffix relative to `--url`.
-For example, `--url https://example.org/data/ --dir-suffix selected` accepts
+For example, `--url https://example.org/data/ --dir selected` accepts
 `selected/a.bin`, with destination `./downloads/selected/a.bin`.
 
 Relative paths are literal names, case-sensitive and without glob expansion.
@@ -1211,7 +1229,7 @@ surrounding whitespace and ignore blank/comment lines. A filename beginning
 with `#` can be supplied positionally or as an encoded absolute URL in the list.
 
 All resolved URLs and redirect hops must stay below the selected base URL, on its exact
-origin. One optional `--dir-suffix` narrows that scope and appends the suffix
+origin. One optional `--dir` narrows that scope and appends the suffix
 to the destination. Nested file paths are retained. The full list is checked
 for filename collisions before any GET. Direct IP URLs, private DNS answers,
 unsafe paths, symlinks, hard links and reserved-state collisions are rejected.
@@ -1288,9 +1306,40 @@ transfers preserve existing partials and do not resume them.
   at any depth (`--exclude-dir '*/lasco'` also catches `<root>/setup/lasco/`)
   — use both `lasco` and `*/lasco` if you want the root-level directory and
   nested directories with that name. Patterns stay relative to `--url` when
-  `--dir-suffix` is used.
-- **`--dir-suffix`** restricts mirroring to one or more subpaths under the base
-  URL and mirrors each in turn.
+  `--dir` is used.
+- **`--dir PATH [PATH ...]`** selects literal subpaths relative to `--url`
+  and mirrors each in turn. For example, `--dir level_05/261015 level_05/261016`
+  preserves those paths beneath `--dest-path`. The old `--dir-suffix` spelling
+  remains accepted as a compatibility alias; YAML/JSON and Python API callers
+  keep using the existing `dir_suffix` field.
+- **`--dir-regex PATTERN [PATTERN ...]`** discovers matching remote directories
+  before any mirror jobs start. Patterns match the **complete decoded path
+  relative to `--url`**, case-sensitively, without leading/trailing `/`.
+  Multiple patterns are OR'd. Quote patterns so the shell does not expand them:
+
+  ```bash
+  mirror-url --url https://example.org/archive/ \
+    --dir-regex 'level_05/2610[0-9]{2}' \
+    --dest-path ./archive --log-path ./logs
+  ```
+
+  This is a CLI selection step and can be combined with `--config`. It replaces
+  the file's `dir_suffix`. `--dir` and `--dir-regex` are mutually exclusive on
+  the command line; each accepts several values.
+  The resolved list is logged, repeated matches are removed, and a selected
+  parent covers its selected descendants once. Root-relative exclusions apply
+  during discovery. Regex matching never implicitly selects the URL root.
+  No matches is an error; an incomplete listing
+  aborts the entire selection before downloads or obsolete-file cleanup.
+
+  `--max-depth` bounds discovery **and subsequent traversal relative to `--url`**
+  for regex-selected roots. A root at that limit includes its own files, with
+  no deeper directories. Literal `--dir` roots keep their existing per-root
+  depth limit. `--list-dirs`/`--list-files` can preview selected subtrees using
+  the same selectors and normal listing output; remember that CLI-only
+  `--list-dirs` defaults to depth 1. Regex selection requires directory-listing
+  requests, while literal paths can go directly to the specified directories.
+  `--dir-regex` is unavailable in download and benchmark modes.
 - **`--check-files PATH [PATH ...]`** selects existing files
   for normal freshness checks when combined with `--missing-files`. Missing
   files anywhere in the mirroring scope still download; other existing files
@@ -1299,7 +1348,7 @@ transfers preserve existing partials and do not resume them.
   freshness checking still applies to every existing file in scope.
 
   Selectors are **exact, case-sensitive remote paths relative to `--url`**,
-  written with `/`. They include the suffix, even with multiple `--dir-suffix`
+  written with `/`. They include the suffix, even with multiple `--dir`
   values. They are not local destination paths or patterns. Use literal decoded
   filenames (quote arguments containing spaces); URL escaping and local filename
   mapping do not change the selected remote identity. Absolute paths, URLs,
@@ -1308,12 +1357,12 @@ transfers preserve existing partials and do not resume them.
   ```bash
   mirror-url --url https://sohoftp.nascom.nasa.gov/sdb/ \
     --dest-path /data/sdb --log-path /data/logs/sdb \
-    --dir-suffix soho/gen soho/lasco/monthly \
+    --dir soho/gen soho/lasco/monthly \
     --missing-files \
     --check-files soho/gen/file1 soho/gen/file2 soho/lasco/monthly/file3
   ```
 
-  `soho/gen/file1` refers to `/sdb/soho/gen/file1`. Removing `--dir-suffix`
+  `soho/gen/file1` refers to `/sdb/soho/gen/file1`. Removing `--dir`
   expands mirroring to the base URL's tree but leaves each selector's meaning
   unchanged. Selection never expands the configured suffix, depth, file-filter
   or directory-exclusion scope. Paths absent from the discovered selection do
@@ -1358,11 +1407,11 @@ transfers preserve existing partials and do not resume them.
   crawler stays within the configured host/path. Duplicate file URLs are
   downloaded once, and conflicting sanitized local names fail before downloads.
 - **`--list-dirs [N]`** discovers and prints the directory tree under `--url`/
-  `--dir-suffix`, then exits — it reuses the same directory-discovery walk as
+  `--dir`, then exits — it reuses the same directory-discovery walk as
   a real sync, so it respects `--exclude-dir` and `--max-depth`, but never
   scans files, checks freshness, or downloads/deletes anything. `--filter`
   doesn't apply, since it only matches filenames, not directories. Handy for
-  seeing what's on a remote server before choosing a `--dir-suffix`. Unlike
+  seeing what's on a remote server before choosing a `--dir`. Unlike
   download modes, a CLI-only run does **not** require `--dest-path` or
   `--log-path`; a config-file run still requires both paths.
 
@@ -1396,7 +1445,7 @@ transfers preserve existing partials and do not resume them.
   With no `N`, every directory (within `--max-depth`) is printed in
   discovery order, as above. With `N`, only the last `N` directories are
   printed, sorted **lexicographically** by relative path, with the root
-  (`.`) excluded from that ranking (it isn't a real `--dir-suffix`
+  (`.`) excluded from that ranking (it isn't a real `--dir`
   candidate, and would otherwise dilute the "last N real directories" a
   caller typically wants). Unlike `--list-files [N]`, which ranks *per
   directory* (files are naturally grouped by the directory that contains
@@ -1412,13 +1461,13 @@ transfers preserve existing partials and do not resume them.
   `grep -v '^\.$' | sort | tail -n N` to pick the most recent N
   directories to mirror next.
 
-  If you mirror more than one `--dir-suffix` in the same run, each line gets
+  If you mirror more than one `--dir` in the same run, each line gets
   a tab-separated suffix column prepended instead of a bare path (e.g.
   `L1/v2\tsome/subdir`), so you can tell which subtree it came from while
   keeping the path itself easy to `cut -f2`/`awk -F'\t'` out.
 
 - **`--list-files [N]`** discovers and prints the files under `--url`/
-  `--dir-suffix`, then exits — it reuses the same directory-discovery walk
+  `--dir`, then exits — it reuses the same directory-discovery walk
   and per-directory file scan as a real sync, so it respects
   `--exclude-dir`, `--max-depth`, **and** `--filter` (unlike `--list-dirs`,
   `--filter` *does* apply here, since it matches filenames). It never
@@ -1431,7 +1480,7 @@ transfers preserve existing partials and do not resume them.
   a directory with 200 files and one with 3 each contribute up to `N`).
 
   Each file is printed to **stdout** as its full path relative to
-  `--url`/`--dir-suffix` (e.g. `v03/orbit_0042/file_20260722_003.fits`),
+  `--url`/`--dir` (e.g. `v03/orbit_0042/file_20260722_003.fits`),
   one per line, independent of `--print-logs`/`--quiet`. Every directory's
   block of files is followed by a `# Files N/total` comment line — always,
   even on an unrestricted (no-`N`) run — so scripts can rely on the marker
@@ -1444,7 +1493,7 @@ transfers preserve existing partials and do not resume them.
     --list-files 5 | grep -v '^#'
   ```
 
-  When more than one `--dir-suffix` is mirrored in the same run, each file
+  When more than one `--dir` is mirrored in the same run, each file
   line gets the same tab-separated suffix column as `--list-dirs`. Comment
   lines are never suffix-qualified, since they aren't file paths.
 
@@ -1683,7 +1732,7 @@ process termination, not power loss or failure of the storage device.
 
 `--use-disk-backed-sets`, `--memory-cache-size`, and `--download-queue-size` do
 not bound the current workflow's remote file list: discovery collects that list
-in memory. Scope a large archive with `--dir-suffix`, `--exclude-dir`, or
+in memory. Scope a large archive with `--dir`, `--exclude-dir`, or
 `--max-depth` when you need smaller runs.
 
 ---

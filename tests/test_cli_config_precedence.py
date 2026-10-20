@@ -423,7 +423,7 @@ TYPED = [
 # Options that are covered by dedicated tests above, or are not config fields.
 _SEPARATELY_TESTED = {
     "url", "dest_path", "log_path", "config", "dir_suffix", "filter", "exclude_dir",
-    "list_dirs", "list_files", "log_file", "benchmark", "check_files",
+    "list_dirs", "list_files", "log_file", "benchmark", "check_files", "dir_regex",
 }  # fmt: skip
 
 

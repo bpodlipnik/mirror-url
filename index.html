@@ -545,7 +545,7 @@ mirror-url --mode download https://example.com/data/large.fits \
 <h3>Several files relative to the remote root</h3>
 <pre><code>mirror-url --mode download --url https://example.com/data/ \
   a.fits nested/b.fits --dest-path ./downloads --log-path ./logs</code></pre>
-<p>This writes <code>./downloads/a.fits</code> and <code>./downloads/nested/b.fits</code>. Inputs are literal names, without glob expansion. <code>--dir-suffix</code> narrows selection; file inputs still include that suffix relative to <code>--url</code>.</p>
+<p>This writes <code>./downloads/a.fits</code> and <code>./downloads/nested/b.fits</code>. Inputs are literal names, without glob expansion. <code>--dir</code> narrows selection; file inputs still include that suffix relative to <code>--url</code>.</p>
 <h3>A UTF-8 list of paths or absolute URLs</h3>
 <pre><code># Save as files.txt; blank lines and comments are ignored
 a.fits
@@ -672,8 +672,9 @@ mirror-url --config mirror.yaml --max-concurrent-downloads 4</code></pre>
 <summary>Directory Options</summary>
 <div class="table-wrapper" tabindex="0" role="region" aria-label="Argument reference"><table>
 <thead><tr><th scope="col">Argument</th><th scope="col">Current behavior</th><th scope="col">Default setting</th></tr></thead><tbody>
-<tr><td><code>--dir-suffix [SUFFIX ...]</code></td><td>Directory suffixes to mirror (e.g., L1/v1 L2/v2)</td><td>[]</td></tr>
-<tr><td><code>--exclude-dir [DIR ...]</code></td><td>Exclude exact paths relative to --url, including with --dir-suffix. Use quoted &#x27;*&#x27; globs for nested matches: lasco matches the root child; &#x27;*/lasco&#x27; matches nested children. Use both to cover both</td><td>[]</td></tr>
+<tr><td><code>--dir PATH [PATH ...]</code></td><td>Literal remote directories relative to --url (e.g., L1/v1 L2/v2)</td><td>[]</td></tr>
+<tr><td><code>--dir-regex PATTERN [PATTERN ...]</code></td><td>Discover directories matching complete case-sensitive paths relative to --url; quote patterns. Mirror mode only; respects --exclude-dir and root-relative --max-depth</td><td>[]</td></tr>
+<tr><td><code>--exclude-dir [DIR ...]</code></td><td>Exclude exact paths relative to --url, including with --dir. Use quoted &#x27;*&#x27; globs for nested matches: lasco matches the root child; &#x27;*/lasco&#x27; matches nested children. Use both to cover both</td><td>[]</td></tr>
 <tr><td><code>--list-dirs [N]</code></td><td>List directories and exit without file checks/downloads/cleanup. Respects exclusions/depth; ignores filters. Optional N selects the lexicographically last N paths across this target, excluding the root. CLI-only runs need no destination/log paths</td><td>Not set</td></tr>
 <tr><td><code>--list-files [N]</code></td><td>List matching files and exit without freshness checks/downloads/cleanup. Respects exclusions/depth/filters. Optional N selects the lexicographically last N filenames per directory, not timestamps. CLI-only runs need no destination/log paths</td><td>Not set</td></tr>
 </tbody></table></div>
@@ -708,7 +709,7 @@ mirror-url --config mirror.yaml --max-concurrent-downloads 4</code></pre>
 <tr><td><code>--force-rget-list</code></td><td>Force RGET-LIST use even if old. Currently has no effect; accepted for backward compatibility.</td><td>Disabled</td></tr>
 <tr><td><code>--no-etag</code></td><td>Disable ETag-based freshness checks; range transfers still require strong ETags for integrity</td><td>Disabled</td></tr>
 <tr><td><code>--missing-files</code></td><td>Download absent files and skip freshness checks for existing files, except paths selected by --check-files. Unselected in-place changes will be missed; use occasional full runs when needed.</td><td>Disabled</td></tr>
-<tr><td><code>--check-files PATH [PATH ...]</code></td><td>With --missing-files, check selected existing files for updates. Exact paths relative to --url, including any --dir-suffix; use @FILE for a UTF-8 list (one path per line)</td><td>[]</td></tr>
+<tr><td><code>--check-files PATH [PATH ...]</code></td><td>With --missing-files, check selected existing files for updates. Exact paths relative to --url, including any --dir; use @FILE for a UTF-8 list (one path per line)</td><td>[]</td></tr>
 </tbody></table></div>
 </details>
 <details class="argument-group" data-default-open="false">
@@ -831,7 +832,7 @@ mirror-url --config mirror.yaml --max-concurrent-downloads 4</code></pre>
 <p>Filename filters are case-insensitive. Extensions match suffixes, plain text matches substrings, and patterns with regex metacharacters use regular expressions. Multiple filters are OR'd.</p>
 <h3>Mirror several subdirectories</h3>
 <pre><code>mirror-url --url https://example.com/product/ \
-  --dest-path ./mirror --log-path ./logs --dir-suffix L1/v2 L2/v1</code></pre>
+  --dest-path ./mirror --log-path ./logs --dir L1/v2 L2/v1</code></pre>
 <p>Directory exclusions match exact paths relative to <code>--url</code>. To exclude a name at both root level and nested levels, use <code>--exclude-dir old '*/old'</code>.</p>
 <h3>Parallel transfers with metrics</h3>
 <pre><code>mirror-url --config mirror.yaml --streaming-parallel \
@@ -853,7 +854,7 @@ mirror-url --config mirror.yaml --max-concurrent-downloads 4</code></pre>
 <li><strong>Throttled servers:</strong> reduce file and metadata worker counts, increase <code>--request-delay</code>, and consider <code>--no-async-metadata</code>.</li>
 <li><strong>Bandwidth sharing:</strong> set <code>--bandwidth-limit</code> in MiB/s.</li>
 <li><strong>Mostly static archives:</strong> <code>--missing-files</code> skips freshness checks except for paths selected by <code>--check-files</code>. Run occasional full checks for changes elsewhere.</li>
-<li><strong>Large directory trees:</strong> limit scope with <code>--dir-suffix</code>, <code>--exclude-dir</code>, or <code>--max-depth</code>. <code>--scan-mode parallel</code> uses up to <code>min(--workers, 4)</code> directory-listing workers. Other scan modes use sequential discovery. Discovery keeps the remote file list in memory.</li>
+<li><strong>Large directory trees:</strong> limit scope with <code>--dir</code>, <code>--exclude-dir</code>, or <code>--max-depth</code>. <code>--scan-mode parallel</code> uses up to <code>min(--workers, 4)</code> directory-listing workers. Other scan modes use sequential discovery. Discovery keeps the remote file list in memory.</li>
 <li><strong>Request pacing:</strong> the default budget is 20 requests/second with 50 ms spacing. Set both <code>--requests-per-second 0</code> and <code>--request-delay 0</code> to remove pacing. <code>--trusted-server</code> relaxes chunk limits; request spacing still follows your explicit settings.</li>
 </ul>
 <h3>Cache behavior</h3>
@@ -865,7 +866,7 @@ mirror-url --config mirror.yaml --max-concurrent-downloads 4</code></pre>
 
 # Or read root-relative paths from a UTF-8 list
 mirror-url --config mirror.yaml --missing-files --check-files @checks.txt</code></pre>
-<p>Selected existing files receive normal freshness checks; all missing files in scope are still downloaded. Paths remain relative to <code>--url</code>, including any <code>--dir-suffix</code>. Without <code>--missing-files</code>, the run checks all selected existing files normally.</p>
+<p>Selected existing files receive normal freshness checks; all missing files in scope are still downloaded. Paths remain relative to <code>--url</code>, including any <code>--dir</code>. Without <code>--missing-files</code>, the run checks all selected existing files normally.</p>
 <h3>Verify local content against saved receipts</h3>
 <pre><code>mirror-url --config mirror.yaml --verify-content</code></pre>
 <p>SHA-256 is opt-in. Each downloaded staging file is hashed before publication, and existing local files are hashed before trusting freshness metadata. Missing, expired, malformed, or mismatched receipts require a new download, so the first verified run of an existing mirror can download files again. Keep the log/cache path stable. Hashing adds disk I/O; it does not check a server-provided digest. <code>--verify-content</code> cannot be combined with <code>--missing-files</code>; <code>--no-verify-content</code> overrides configuration.</p>
