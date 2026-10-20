@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable, Sequence
+from contextlib import ExitStack, closing
 
 from .config import MirrorConfig
 from .core import MirrorURL
@@ -63,23 +64,28 @@ def resolve_directory_selection(
     )
     roots: dict[str, int] = {}
     matches = 0
-    with mirror_factory(selection) as mirror:
+    with mirror_factory(selection) as mirror, ExitStack() as operations:
+        guard = mirror._destination_lock
+        if guard is None:
+            raise ConfigError("Directory selection requires destination ownership")
+        operations.enter_context(guard.operation())
         if not mirror.connection_ok:
             raise ConfigError("Directory selection failed: remote root is unavailable")
         mirror.install_signal_handlers()
-        for url in mirror._discover_directories_bfs():
-            relative = _relative_url_path(url, str(config.base_url))
-            if relative is None:
-                raise ConfigError("Directory selection returned a path outside --url")
-            relative = relative.rstrip("/")
-            depth = len(relative.split("/"))
-            if (
-                relative
-                and depth <= config.max_depth
-                and any(pattern.fullmatch(relative) for pattern in compiled)
-            ):
-                matches += 1
-                roots.setdefault(relative, config.max_depth - depth)
+        with closing(mirror._discover_directories_bfs()) as discovered:
+            for url in discovered:
+                relative = _relative_url_path(url, str(config.base_url))
+                if relative is None:
+                    raise ConfigError("Directory selection returned a path outside --url")
+                relative = relative.rstrip("/")
+                depth = len(relative.split("/"))
+                if (
+                    relative
+                    and depth <= config.max_depth
+                    and any(pattern.fullmatch(relative) for pattern in compiled)
+                ):
+                    matches += 1
+                    roots.setdefault(relative, config.max_depth - depth)
         if mirror.scan_incomplete:
             raise ConfigError("Directory selection failed: directory listing is incomplete")
         names = FilenameMap(config.dest_path)

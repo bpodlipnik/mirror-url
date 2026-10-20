@@ -575,8 +575,9 @@ paths, and never passed through as URL suffixes or local names.
 The CLI reserves the entire destination tree and shared outputs while selection
 is unresolved. The selection instance uses the existing bounded BFS, URL scope,
 exclusion and symlink policies, with dry-run/no-cache settings and shared logging;
-it creates no payloads, scratch, metrics server or cache writes. It closes before
-any selected jobs start. Missing matches never fall back to ROOT, and any listing
+it creates no payloads, scratch, metrics server or cache writes. The discovery
+generator closes explicitly before its operation lease is released, including
+when selection raises. The instance closes before any selected jobs start. Missing matches never fall back to ROOT, and any listing
 failure invalidates the full plan. `FilenameMap.key(directory=True)` checks root
 prefix identities without treating selected roots as payload files. Unsafe,
 reserved or colliding names fail before transfer.

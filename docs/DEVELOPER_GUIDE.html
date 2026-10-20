@@ -937,12 +937,13 @@ through as URL suffixes or local names.</p>
 selection is unresolved. The selection instance uses the existing
 bounded BFS, URL scope, exclusion and symlink policies, with
 dry-run/no-cache settings and shared logging; it creates no payloads,
-scratch, metrics server or cache writes. It closes before any selected
-jobs start. Missing matches never fall back to ROOT, and any listing
-failure invalidates the full plan.
-<code>FilenameMap.key(directory=True)</code> checks root prefix
-identities without treating selected roots as payload files. Unsafe,
-reserved or colliding names fail before transfer.</p>
+scratch, metrics server or cache writes. The discovery generator closes
+explicitly before its operation lease is released, including when
+selection raises. The instance closes before any selected jobs start.
+Missing matches never fall back to ROOT, and any listing failure
+invalidates the full plan. <code>FilenameMap.key(directory=True)</code>
+checks root prefix identities without treating selected roots as payload
+files. Unsafe, reserved or colliding names fail before transfer.</p>
 <p>Regex-selected roots share the original root-relative directory-depth
 budget. An internally derived zero budget means files in that selected
 root only; public <code>MirrorConfig.max_depth</code> validation is

@@ -7,7 +7,7 @@ import json
 import logging
 import socket
 import sys
-from contextlib import closing
+from contextlib import closing, nullcontext
 from unittest.mock import Mock
 
 import pytest
@@ -111,7 +111,8 @@ def selection(tmp_path):
         mirror.__exit__ = Mock(return_value=False)
         mirror.connection_ok = connected
         mirror.scan_incomplete = incomplete
-        mirror._discover_directories_bfs.return_value = iter(paths)
+        mirror._discover_directories_bfs.return_value = (url for url in paths)
+        mirror._destination_lock.operation.return_value = nullcontext()
         factory = Mock(return_value=mirror)
         try:
             result = resolve_directory_selection(config, patterns, mirror_factory=factory)
@@ -439,6 +440,48 @@ def test_empty_selector_never_starts_discovery(tmp_path):
     with pytest.raises(ConfigError, match="at least one pattern"):
         resolve_directory_selection(config, [], mirror_factory=factory)
     factory.assert_not_called()
+
+
+def test_interrupted_selection_closes_discovery_before_releasing_ownership(tmp_path):
+    from contextlib import contextmanager
+
+    events = []
+
+    @contextmanager
+    def lease():
+        events.append("leased")
+        try:
+            yield
+        finally:
+            events.append("released")
+
+    def discovery():
+        try:
+            yield "https://outside.test/escape/"
+        finally:
+            events.append("discovery drained")
+
+    mirror = Mock()
+    mirror.__enter__ = Mock(return_value=mirror)
+    mirror.__exit__ = Mock(side_effect=lambda *args: events.append("closed"))
+    mirror.connection_ok = True
+    mirror._destination_lock.operation.return_value = lease()
+    mirror._discover_directories_bfs.return_value = discovery()
+    config = MirrorConfig(base_url=ROOT, dest_path=tmp_path / "dest", log_path=tmp_path / "logs")
+    with pytest.raises(ConfigError, match="outside --url"):
+        resolve_directory_selection(config, [".*"], mirror_factory=Mock(return_value=mirror))
+    assert events == ["leased", "discovery drained", "released", "closed"]
+
+
+def test_selection_requires_owned_discovery(tmp_path):
+    mirror = Mock()
+    mirror.__enter__ = Mock(return_value=mirror)
+    mirror.__exit__ = Mock(return_value=False)
+    mirror._destination_lock = None
+    config = MirrorConfig(base_url=ROOT, dest_path=tmp_path / "dest", log_path=tmp_path / "logs")
+    with pytest.raises(ConfigError, match="ownership"):
+        resolve_directory_selection(config, [".*"], mirror_factory=Mock(return_value=mirror))
+    mirror._discover_directories_bfs.assert_not_called()
 
 
 @pytest.mark.integration
