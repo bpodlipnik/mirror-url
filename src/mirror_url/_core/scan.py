@@ -350,9 +350,6 @@ class ScanMixin(MirrorHost):
             ):
                 try:
                     self.cache_manager.save(dir_signatures, len(all_files))
-                    logging.info(
-                        f"{prefix}💾 Saved cache with {len(dir_signatures)} directory signatures"
-                    )
                 except Exception as e:
                     logging.warning(f"{prefix}Failed to save cache: {e}")
 
