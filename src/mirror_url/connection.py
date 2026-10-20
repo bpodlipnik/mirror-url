@@ -758,7 +758,8 @@ class ConnectionManager:
                             else computed_wait
                         )
                         logging.warning(
-                            f"HTTP 429 rate limited (attempt {attempt + 1}), "
+                            f"HTTP 429 rate limited for {method} {sanitize_url_for_log(normalized_url)} "
+                            f"(attempt {attempt + 1}), "
                             f"retrying in {wait_time:.1f}s"
                             + (
                                 f" (server requested {retry_after:.1f}s via Retry-After)"
@@ -792,7 +793,8 @@ class ConnectionManager:
                             )
                         wait_time = exponential_backoff(attempt, self.config.retry_delay)
                         logging.warning(
-                            f"HTTP {status_code} (attempt {attempt + 1}), retrying in {wait_time:.1f}s"
+                            f"HTTP {status_code} for {method} {sanitize_url_for_log(normalized_url)} "
+                            f"(attempt {attempt + 1}), retrying in {wait_time:.1f}s"
                         )
                         time.sleep(wait_time)
                         continue
@@ -830,6 +832,14 @@ class ConnectionManager:
                     self.consecutive_failures = 0
                     if self.circuit_breaker_manager:
                         self.circuit_breaker_manager.record_success(domain)
+                    if attempt:
+                        logging.info(
+                            "Request recovered: %s %s returned HTTP %d after %d attempts",
+                            method,
+                            sanitize_url_for_log(normalized_url),
+                            status_code,
+                            attempt + 1,
+                        )
                     if stream and thread_acquired and self.concurrency_manager:
                         response.stream = _LeasedStream(
                             response.stream, self.concurrency_manager.release_thread
@@ -849,13 +859,16 @@ class ConnectionManager:
                         if self.circuit_breaker_manager:
                             self.circuit_breaker_manager.record_failure(domain)
                         logging.error(
-                            f"Request failed after {self.config.max_retries} retries: {e}"
+                            f"Request failed for {method} {sanitize_url_for_log(normalized_url)} "
+                            f"after {self.config.max_retries} retries ({type(e).__name__}): {e}"
                         )
                         self.metrics.add_error(str(e), "request_error")
                         raise MirrorConnectionError(f"Request failed: {e}") from e
                     wait_time = exponential_backoff(attempt, self.config.retry_delay)
                     logging.warning(
-                        f"Request failed (attempt {attempt + 1}), retrying in {wait_time:.1f}s: {e}"
+                        f"Request failed for {method} {sanitize_url_for_log(normalized_url)} "
+                        f"(attempt {attempt + 1}, {type(e).__name__}), "
+                        f"retrying in {wait_time:.1f}s: {e}"
                     )
                     time.sleep(wait_time)
                 finally:

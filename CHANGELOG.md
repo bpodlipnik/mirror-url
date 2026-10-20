@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Report the effective async metadata fallback threshold and distinguish the
+  synchronous batch from the combined metadata total. Preserve existing speed
+  thresholds, freshness decisions and request pacing.
+- Count HTTP 200 freshness responses without an ETag when ETags are enabled,
+  and show the ETag section even when this is its only activity. Conditional
+  HTTP 304 responses can reuse the saved validator without echoing it.
+- Include the request method and sanitized URL in synchronous retry messages,
+  identify connection exception types, and log recovered response status and
+  attempt counts.
+
 ## [3.9.0] - 2026-10-20
 
 ### Added

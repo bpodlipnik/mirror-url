@@ -95,6 +95,14 @@ class CompareMixin(MirrorHost):
         """Return the existing policy decision with its reporting classification."""
         if response.status_code not in (200, 304):
             return False, "uncertain", f"metadata returned HTTP {response.status_code}"
+        # A conditional 304 can reuse the saved ETag without echoing it.
+        # Count missing response validators independently of the size decision.
+        if (
+            response.status_code == 200
+            and not self.config.no_etag
+            and not response.headers.get("ETag")
+        ):
+            self.metrics.increment("etag_unavailable")
         if getattr(self.config, "verify_content", False) and not (
             stored and stored.get("_local_verified")
         ):
@@ -321,7 +329,11 @@ class CompareMixin(MirrorHost):
                 # large cron-driven cache-hit runs. The final need-download
                 # count is still reported once, below, when the check completes.
 
-        logging.info(f"Sync check complete: {len(to_download)}/{total} files need download")
+        logging.info(
+            "Synchronous metadata batch complete: %d/%d files need download",
+            len(to_download),
+            total,
+        )
         return to_download
 
     async def _check_files_async(
@@ -430,6 +442,7 @@ class CompareMixin(MirrorHost):
         min_speed_threshold = (
             ASYNC_TEST_MIN_SPEED_THROTTLED * 2 if is_throttled else ASYNC_TEST_MIN_SPEED
         )
+        fallback_speed_threshold = min_speed_threshold * 0.6
         # Full-file disk reads can legitimately exceed metadata-only deadlines.
         # Keep the HEAD timeout below, without abandoning a hash still running
         # in a worker and repeating it through the synchronous fallback.
@@ -594,10 +607,10 @@ class CompareMixin(MirrorHost):
                     # Use rolling average for more stable decision
                     avg_speed = sum(self._speed_samples) / len(self._speed_samples)
 
-                    if avg_speed < min_speed_threshold * 0.6:
+                    if avg_speed < fallback_speed_threshold:
                         logging.warning(
                             f"Async speed test too slow (avg {avg_speed:.1f} files/s over {len(self._speed_samples)} batches, "
-                            f"threshold {min_speed_threshold:.1f}) → falling back to synchronous checking"
+                            f"threshold {fallback_speed_threshold:.1f}) → falling back to synchronous checking"
                         )
                         fallback_triggered = True
                         self.metrics.metrics["adaptive_fallback_to_sync"] = True
@@ -605,8 +618,14 @@ class CompareMixin(MirrorHost):
 
             # Handle fallback
             if fallback_triggered:
-                logging.info("Switching to synchronous mode for remaining files")
                 remaining_checks = file_checks[files_processed_in_test:]
+                logging.info(
+                    "Switching to synchronous mode for %d remaining files "
+                    "(%d already examined; %d queued for download)",
+                    len(remaining_checks),
+                    files_processed_in_test,
+                    len(to_download),
+                )
                 # Convert remaining_checks from (Path, url) to (url, Path) format
                 remaining_items = [(url, path) for path, url in remaining_checks]
                 remaining_to_download = self._check_files_sync(remaining_items, progress)

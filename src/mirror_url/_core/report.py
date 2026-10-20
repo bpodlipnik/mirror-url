@@ -409,6 +409,12 @@ class ReportMixin(MirrorHost):
                 to_download = self._check_files_sync(remote_files, progress)
 
             run.end_phase()
+            logging.info(
+                "%sMetadata check complete: %d/%d files need download",
+                prefix,
+                len(to_download),
+                len(remote_files),
+            )
 
             if progress:
                 progress.report_final()

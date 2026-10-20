@@ -538,6 +538,19 @@ failures, retries and pacing within that call. Counts exclude additional
 transport redirect/retry attempts. Text uses per-sync deltas; JSON retains
 collector totals for these keys.
 
+Metadata logging distinguishes `_check_files_sync()`'s batch from the combined
+coordinator result after `_check_files_async()` returns. The speed warning uses
+the same effective threshold as the fallback comparison (60% of the configured
+speed-test target); reporting does not change that policy or repeat requests.
+`_freshness_result()` increments `etag_unavailable` for HTTP 200 responses
+without an ETag when ETag processing is enabled, before early size/content
+decisions. A 304 may reuse a saved validator without echoing it. Missing local
+files, skipped checks, HTTP failures and `no_etag` do not contribute. Render the
+ETag section when unavailable responses are its only activity, retaining
+per-run deltas in text and lifetime counts in JSON. Synchronous retry logs
+include method and sanitized URL; a recovered response records its HTTP status
+and attempt count without implying that a streamed body has completed.
+
 Normal sync finalization goes directly from the transfer phase to obsolete-file
 cleanup and cache persistence. Do not walk the whole destination to produce a
 completion statistic: that includes unrelated files, delays unchanged runs and
