@@ -12,6 +12,7 @@ import logging
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import closing
 from email.utils import parsedate_to_datetime
 from itertools import islice
 from pathlib import Path
@@ -175,6 +176,94 @@ class CompareMixin(MirrorHost):
         )
         logging.log(level, "%s: %s — %s", action, display, reason)
 
+    @staticmethod
+    def _needs_empty_file_probe(response, stat, result) -> bool:
+        return (
+            stat.st_size == 0
+            and response.status_code == 200
+            and response.headers.get("Content-Length") is None
+            and result[1] == "uncertain"
+            and result[2]
+            in ("remote size is unavailable", "remote freshness metadata is unavailable")
+        )
+
+    def _probe_empty_file_freshness(
+        self, local_path: Path, remote_url: str, stat, stored, initial
+    ) -> Tuple[bool, str, str]:
+        """Resolve an omitted HEAD size without publishing another empty file.
+
+        Missing Content-Length never means zero. Inspect a streamed GET's
+        headers and at most one body byte, closing a nonempty response promptly.
+        The GET's own validators feed the normal freshness policy.
+        """
+        try:
+            with closing(
+                self.connection_manager.request(
+                    remote_url,
+                    method="GET",
+                    timeout=(10, 20),
+                    allow_redirects=True,
+                    headers={"Accept-Encoding": "identity"},
+                    stream=True,
+                )
+            ) as response:
+                if response.status_code != 200 or (
+                    response.headers.get("Content-Encoding", "identity").lower() != "identity"
+                ):
+                    return initial
+                raw_size = response.headers.get("Content-Length")
+                if raw_size is not None:
+                    size = int(raw_size)
+                    if size < 0:
+                        return initial
+                    if size > 0:
+                        return False, "changed", "remote size differs from local size"
+                if next(response.iter_bytes(chunk_size=1), b""):
+                    return False, "changed", "remote size differs from local size"
+
+                logging.debug(
+                    "Empty-file metadata GET %s: HTTP 200, verified size=0, "
+                    "ETag=%r, Last-Modified=%r",
+                    sanitize_url_for_log(remote_url),
+                    response.headers.get("ETag"),
+                    response.headers.get("Last-Modified"),
+                )
+                checked = httpx.Response(200, headers=response.headers)
+                checked.headers["Content-Length"] = "0"
+                result = self._freshness_result(checked, stat, stored)
+                if not result[0]:
+                    return result
+                now = local_path.stat()
+                identity = ("st_dev", "st_ino", "st_size", "st_mtime_ns", "st_ctime_ns")
+                if any(getattr(now, field) != getattr(stat, field) for field in identity):
+                    return False, "uncertain", "local file changed during empty-file metadata probe"
+                etag = response.headers.get("ETag")
+                if etag and not self.config.no_etag and not self.config.no_cache:
+                    try:
+                        self.cache_manager.save_file_metadata(
+                            local_path,
+                            etag,
+                            stat.st_mtime,
+                            0,
+                            sha256=(
+                                stored.get("sha256")
+                                if stored and stored.get("_local_verified")
+                                else None
+                            ),
+                        )
+                    except Exception as error:
+                        logging.debug(
+                            "Empty-file validator could not be cached (%s)", type(error).__name__
+                        )
+                return result
+        except Exception as error:
+            logging.debug(
+                "Empty-file metadata probe failed for %s (%s)",
+                sanitize_url_for_log(remote_url),
+                type(error).__name__,
+            )
+            return initial
+
     @log_performance("file_check")
     def file_exists_and_up_to_date(
         self, local_path: Path, remote_url: str, use_cache: bool = True
@@ -208,7 +297,12 @@ class CompareMixin(MirrorHost):
                 response.headers.get("Last-Modified"),
                 response.headers.get("Content-Length"),
             )
-            current, outcome, reason = self._freshness_result(response, stat, stored)
+            result = self._freshness_result(response, stat, stored)
+            if self._needs_empty_file_probe(response, stat, result):
+                result = self._probe_empty_file_freshness(
+                    local_path, remote_url, stat, stored, result
+                )
+            current, outcome, reason = result
             self._record_check(remote_url, outcome, reason)
             self.metrics.increment("cache_hits" if current else "cache_misses")
             return current
@@ -474,7 +568,18 @@ class CompareMixin(MirrorHost):
                     response.headers.get("Last-Modified"),
                     response.headers.get("Content-Length"),
                 )
-                current, outcome, reason = self._freshness_result(response, stat, stored)
+                result = self._freshness_result(response, stat, stored)
+                if self._needs_empty_file_probe(response, stat, result):
+                    result = await asyncio.get_running_loop().run_in_executor(
+                        self._meta_check_executor,
+                        self._probe_empty_file_freshness,
+                        local_path,
+                        remote_url,
+                        stat,
+                        stored,
+                        result,
+                    )
+                current, outcome, reason = result
                 self._record_check(remote_url, outcome, reason)
                 self.metrics.increment("cache_hits" if current else "cache_misses")
                 return current
