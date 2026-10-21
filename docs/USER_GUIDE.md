@@ -1905,6 +1905,16 @@ limit tracker behavior; they do not make the heuristic a definitive detector.
   downloads start. Synchronous retry messages identify the request method and
   sanitized URL; recovered requests report the response status and attempt count.
 
+  With HTTPX, a HEAD connection that closes before sending any HTTP response
+  gets one prompt retry when this happens on the first attempt. The retry still
+  obeys request pacing and the configured retry budget; connection reuse stays
+  enabled. The first closure is logged at INFO. Repeated closures use the normal
+  backoff and WARNING logging; an exhausted request is an ERROR. Other protocol
+  errors retain their existing retry policy. When these closures occur, the
+  summary lists **HEAD early disconnects** (failed attempts), **HEAD requests
+  recovered after disconnect** and **HEAD requests exhausted after disconnect**.
+  JSON metrics include lifetime counters and this run's counts separately.
+
   **ETag unavailable** counts HTTP 200 freshness responses with no ETag header
   when ETags are enabled, including responses whose size already proves a
   change. It excludes missing local files, skipped checks, failed HTTP

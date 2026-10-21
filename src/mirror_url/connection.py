@@ -31,6 +31,7 @@ from .exceptions import (
     SecurityError,
     URLScopeError,
 )
+from .head_recovery import HeadDisconnectRecovery
 from .metrics import log_connection_pools_closed
 from .rate_limiter import PerIPRateLimiter, RateLimiter
 from .run_report import RunReport
@@ -601,6 +602,7 @@ class ConnectionManager:
             # loop pops them out of kwargs. Used to correctly forward
             # Range / If-None-Match etc. across a redirect (see below).
             caller_headers = dict(kwargs.pop("headers", None) or {})
+            head_recovery = HeadDisconnectRecovery(self.metrics, normalized_url, method)
 
             for attempt in range(self.config.max_retries + 1):
                 response = None
@@ -710,6 +712,7 @@ class ConnectionManager:
                             if caller_headers:
                                 redirect_kwargs["headers"] = dict(caller_headers)
                             response.close()
+                            head_recovery.recovered(status_code, attempt + 1)
                             if thread_acquired and self.concurrency_manager:
                                 self.concurrency_manager.release_thread()
                                 thread_acquired = False
@@ -740,6 +743,7 @@ class ConnectionManager:
                         get_domain_health_tracker().record_incident(domain)
                         self.consecutive_failures += 1
                         if attempt == self.config.max_retries:
+                            head_recovery.exhausted(attempt + 1)
                             if self.circuit_breaker_manager:
                                 self.circuit_breaker_manager.record_failure(domain)
                             self.metrics.add_error(
@@ -782,6 +786,7 @@ class ConnectionManager:
                             get_domain_health_tracker().record_incident(domain)
                         self.consecutive_failures += 1
                         if attempt == self.config.max_retries:
+                            head_recovery.exhausted(attempt + 1)
                             if self.circuit_breaker_manager:
                                 self.circuit_breaker_manager.record_failure(domain)
                             self.metrics.add_error(
@@ -832,7 +837,10 @@ class ConnectionManager:
                     self.consecutive_failures = 0
                     if self.circuit_breaker_manager:
                         self.circuit_breaker_manager.record_success(domain)
-                    if attempt:
+                    recovered = isinstance(status_code, int) and head_recovery.recovered(
+                        status_code, attempt + 1
+                    )
+                    if attempt and not recovered:
                         logging.info(
                             "Request recovered: %s %s returned HTTP %d after %d attempts",
                             method,
@@ -854,23 +862,37 @@ class ConnectionManager:
                     httpx.ReadError,
                     httpx.RequestError,
                 ) as e:
+                    early_disconnect = head_recovery.observe(e)
                     self.consecutive_failures += 1
                     if attempt == self.config.max_retries:
                         if self.circuit_breaker_manager:
                             self.circuit_breaker_manager.record_failure(domain)
-                        logging.error(
-                            f"Request failed for {method} {sanitize_url_for_log(normalized_url)} "
-                            f"after {self.config.max_retries} retries ({type(e).__name__}): {e}"
-                        )
+                        if not head_recovery.exhausted(attempt + 1):
+                            logging.error(
+                                f"Request failed for {method} {sanitize_url_for_log(normalized_url)} "
+                                f"after {self.config.max_retries} retries ({type(e).__name__}): {e}"
+                            )
                         self.metrics.add_error(str(e), "request_error")
                         raise MirrorConnectionError(f"Request failed: {e}") from e
-                    wait_time = exponential_backoff(attempt, self.config.retry_delay)
-                    logging.warning(
-                        f"Request failed for {method} {sanitize_url_for_log(normalized_url)} "
-                        f"(attempt {attempt + 1}, {type(e).__name__}), "
-                        f"retrying in {wait_time:.1f}s: {e}"
+                    prompt_retry = early_disconnect and attempt == 0
+                    wait_time = (
+                        0.0
+                        if prompt_retry
+                        else exponential_backoff(attempt, self.config.retry_delay)
                     )
-                    time.sleep(wait_time)
+                    if early_disconnect:
+                        head_recovery.log_retry(attempt, wait_time)
+                    else:
+                        logging.warning(
+                            f"Request failed for {method} {sanitize_url_for_log(normalized_url)} "
+                            f"(attempt {attempt + 1}, {type(e).__name__}), "
+                            f"retrying in {wait_time:.1f}s: {e}"
+                        )
+                    if prompt_retry:
+                        # The ordinary backoff is skipped, not admission/rate policy.
+                        self.rate_limiter.wait(ip if ip != "unknown" else None)
+                    else:
+                        time.sleep(wait_time)
                 finally:
                     if response is not None and not returned:
                         response.close()

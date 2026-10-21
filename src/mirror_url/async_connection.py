@@ -27,6 +27,7 @@ from .constants import (
     PROFILE_SAMPLE_SIZE,
 )
 from .domain_health import get_domain_health_tracker
+from .head_recovery import HeadDisconnectRecovery
 from .models import ServerProfile
 from .rate_limiter import PerIPRateLimiter
 from .transport import SecureAsyncTransport
@@ -261,6 +262,7 @@ class AsyncConnectionManager:
         max_retries = self.config.max_retries
         retry_delay_base = self.config.retry_delay * 0.7
         start_time = time.time()
+        head_recovery = HeadDisconnectRecovery(self.metrics, url)
 
         # Semaphore is guaranteed by _ensure_client()/__aenter__ above.
         # FIX: the previous code here referenced self._semaphore_lock and
@@ -325,6 +327,8 @@ class AsyncConnectionManager:
                         retryable = resp.status_code == 429 or resp.status_code >= 500
                         await resp.aclose()
                         if not retryable or attempt == self.config.max_retries:
+                            if retryable:
+                                head_recovery.exhausted(attempt + 1)
                             return None
                         delay = exponential_backoff(attempt, self.config.retry_delay)
                         await asyncio.sleep(max(delay, retry_after or 0))
@@ -339,6 +343,7 @@ class AsyncConnectionManager:
                         self.circuit_breaker_manager.record_success(domain)
 
                     self.record_result(url, True, duration * 1000, duration)
+                    head_recovery.recovered(resp.status_code, attempt + 1)
 
                     return resp
 
@@ -350,6 +355,7 @@ class AsyncConnectionManager:
                 )
 
                 if attempt == max_retries:
+                    head_recovery.exhausted(attempt + 1)
                     if self.circuit_breaker_manager:
                         self.circuit_breaker_manager.record_failure(domain)
                     self.metrics.add_error(
@@ -363,19 +369,29 @@ class AsyncConnectionManager:
 
             # 4️⃣ NETWORK ERRORS
             except (httpx.ConnectError, httpx.ReadError, httpx.RemoteProtocolError) as e:
+                early_disconnect = head_recovery.observe(e)
                 duration = time.time() - start_time
                 logging.debug(
                     f"Async HEAD network error: {type(e).__name__} (attempt {attempt + 1}/{max_retries + 1})"
                 )
 
                 if attempt == max_retries:
+                    head_recovery.exhausted(attempt + 1)
                     if self.circuit_breaker_manager:
                         self.circuit_breaker_manager.record_failure(domain)
                     self.metrics.add_error(f"Async HEAD failed: {e}", "async_head_error")
                     self.record_result(url, False, duration * 1000, duration)
                     return None
 
-                await asyncio.sleep(exponential_backoff(attempt, retry_delay_base))
+                delay = (
+                    0.0
+                    if early_disconnect and attempt == 0
+                    else exponential_backoff(attempt, retry_delay_base)
+                )
+                if early_disconnect:
+                    head_recovery.log_retry(attempt, delay)
+                # The next iteration applies the existing rate limiter again.
+                await asyncio.sleep(delay)
                 continue
 
             # Handle clients/hooks that explicitly raise HTTPStatusError.
@@ -810,6 +826,7 @@ class AdaptiveAsyncManager:
             return None
 
         # ✅ FIX 2: Non-blocking rate limiting with async DNS resolution
+        retry_ip = None
         if self.rate_limiter and parsed_url.hostname:
             try:
                 loop = asyncio.get_running_loop()
@@ -825,12 +842,14 @@ class AdaptiveAsyncManager:
                     ip = await loop.run_in_executor(None, socket.gethostbyname, cache_key)
                     self._dns_cache[cache_key] = (ip, now)
                 # Use async_wait() instead of blocking wait()
+                retry_ip = ip
                 await self.rate_limiter.async_wait(ip)
             except Exception as e:
                 logging.debug(f"Async rate limiter error for {url}: {e}")
 
         sem = self._semaphore or asyncio.Semaphore(self._current_concurrency)
         start_time = time.time()
+        head_recovery = HeadDisconnectRecovery(self.metrics, url)
 
         async def _do_request_with_retries():
             async with sem:
@@ -855,6 +874,8 @@ class AdaptiveAsyncManager:
                             retryable = resp.status_code == 429 or resp.status_code >= 500
                             await resp.aclose()
                             if not retryable or attempt == self.config.max_retries:
+                                if retryable:
+                                    head_recovery.exhausted(attempt + 1)
                                 return None
                             delay = exponential_backoff(attempt, self.config.retry_delay)
                             await asyncio.sleep(max(delay, retry_after or 0))
@@ -867,6 +888,7 @@ class AdaptiveAsyncManager:
                         if self.circuit_breaker_manager:
                             self.circuit_breaker_manager.record_success(domain)
                         self.record_result(url, True, rtt_ms, time.time() - attempt_start)
+                        head_recovery.recovered(resp.status_code, attempt + 1)
 
                         return resp
 
@@ -874,6 +896,7 @@ class AdaptiveAsyncManager:
                         rtt_ms = (time.time() - attempt_start) * 1000
                         logging.debug(f"Async HEAD timeout for {url} (attempt {attempt + 1})")
                         if attempt == self.config.max_retries:
+                            head_recovery.exhausted(attempt + 1)
                             if self.circuit_breaker_manager:
                                 self.circuit_breaker_manager.record_failure(domain)
                             self.metrics.add_error(
@@ -886,9 +909,11 @@ class AdaptiveAsyncManager:
                         )
 
                     except (httpx.ConnectError, httpx.ReadError, httpx.RemoteProtocolError) as e:
+                        early_disconnect = head_recovery.observe(e)
                         rtt_ms = (time.time() - attempt_start) * 1000
                         logging.debug(f"Async HEAD error for {url}: {e} (attempt {attempt + 1})")
                         if attempt == self.config.max_retries:
+                            head_recovery.exhausted(attempt + 1)
                             if self.circuit_breaker_manager:
                                 self.circuit_breaker_manager.record_failure(domain)
                             self.metrics.add_error(
@@ -896,9 +921,17 @@ class AdaptiveAsyncManager:
                             )
                             self.record_result(url, False, rtt_ms, time.time() - start_time)
                             return None
-                        await asyncio.sleep(
-                            exponential_backoff(attempt, self.config.retry_delay * 0.7)
+                        prompt_retry = early_disconnect and attempt == 0
+                        delay = (
+                            0.0
+                            if prompt_retry
+                            else exponential_backoff(attempt, self.config.retry_delay * 0.7)
                         )
+                        if early_disconnect:
+                            head_recovery.log_retry(attempt, delay)
+                        if prompt_retry and self.rate_limiter and retry_ip is not None:
+                            await self.rate_limiter.async_wait(retry_ip)
+                        await asyncio.sleep(delay)
 
                     except httpx.HTTPStatusError as e:
                         status = e.response.status_code if e.response else 0
