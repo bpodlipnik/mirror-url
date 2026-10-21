@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.9.4] - 2026-10-21
 
 ### Fixed
 
@@ -14,6 +14,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Report first HEAD disconnects at INFO, repeated disconnects at WARNING and
   exhausted requests at ERROR. Include disconnect attempt, recovery and
   exhaustion counts in run summaries and JSON metrics.
+
+- Include the local TLS regression fixtures in source distributions so the
+  packaged recovery tests can run.
 
 ## [3.9.3] - 2026-10-21
 
