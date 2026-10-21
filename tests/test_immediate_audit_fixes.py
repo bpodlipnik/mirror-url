@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event
 from types import SimpleNamespace
@@ -54,7 +53,6 @@ def mirror(tmp_path):
     m.files_failed = AtomicCounter()
     m.files_processed = AtomicCounter()
     m.total_downloaded_size = AtomicSize()
-    m._speed_samples = deque(maxlen=20)
     m.async_task_manager = AsyncTaskManager()
     m._meta_check_executor = ThreadPoolExecutor(max_workers=2)
     m.partial_manager = PartialDownloadManager(m.target_dir)
@@ -242,13 +240,7 @@ def test_async_cold_dns_cache_completes_without_blocking_loop(monkeypatch):
 
 
 @pytest.mark.parametrize("fallback", [False, True])
-def test_async_visits_every_input_once(mirror, monkeypatch, fallback):
-    import mirror_url._core.compare as module
-
-    if fallback:
-        monkeypatch.setattr(module, "ASYNC_TEST_MIN_SPEED", 10**12)
-        monkeypatch.setattr(module, "ASYNC_TEST_MAX_SECONDS", 10000)
-        monkeypatch.setattr(module, "ASYNC_TEST_MIN_FILES", 10000)
+def test_async_visits_every_input_once(mirror, fallback):
     items = [(BASE + f"f{i}", mirror.target_dir / f"f{i}") for i in range(400)]
     fallback_items = []
     mirror._check_files_sync = lambda remaining, progress: (
@@ -256,6 +248,8 @@ def test_async_visits_every_input_once(mirror, monkeypatch, fallback):
     )
     progress = Mock()
     manager = AsyncManager()
+    if fallback:
+        manager.profile_server = AsyncMock(return_value=False)
     mirror.adaptive_async_manager = manager
     planned = asyncio.run(mirror._check_files_async(items, progress))
     assert planned == items
@@ -265,18 +259,6 @@ def test_async_visits_every_input_once(mirror, monkeypatch, fallback):
     assert sum(call.args[0] for call in progress.update.call_args_list) == (
         400 - len(fallback_items)
     )
-
-
-def test_async_speed_samples_support_deque(mirror, monkeypatch):
-    import mirror_url._core.compare as module
-
-    monkeypatch.setattr(module, "ASYNC_TEST_MIN_FILES", 100000)
-    monkeypatch.setattr(module, "ASYNC_TEST_MAX_SECONDS", 100000)
-    monkeypatch.setattr(module, "ASYNC_TEST_MIN_SPEED", 0)
-    items = [(BASE + f"f{i}", mirror.target_dir / f"f{i}") for i in range(560)]
-    planned, _ = check_async(mirror, items)
-    assert planned == items
-    assert len(mirror._speed_samples) == 5
 
 
 def test_directory_signature_never_hides_missing_async_file(mirror):

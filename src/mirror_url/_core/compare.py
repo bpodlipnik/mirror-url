@@ -21,14 +21,7 @@ import httpx
 
 from ..async_connection import AdaptiveAsyncManager, AsyncConnectionManager, AsyncTaskManager
 from ..constants import (
-    ASYNC_TEST_BATCH_SIZE,
-    ASYNC_TEST_MAX_SECONDS,
-    ASYNC_TEST_MAX_SECONDS_THROTTLED,
-    ASYNC_TEST_MIN_FILES,
-    ASYNC_TEST_MIN_FILES_THROTTLED,
-    ASYNC_TEST_MIN_SPEED,
-    ASYNC_TEST_MIN_SPEED_THROTTLED,
-    KNOWN_THROTTLED_DOMAINS,
+    ASYNC_METADATA_BATCH_SIZE,
     PROFILE_SAMPLE_SIZE,
     TIMESTAMP_TOLERANCE_SECONDS,
 )
@@ -427,22 +420,6 @@ class CompareMixin(MirrorHost):
                 return self._check_files_sync(file_items, progress)
             manager = self.async_connection_manager
 
-        test_start_time = time.time()
-        test_checked = 0
-        fallback_triggered = False
-        files_processed_in_test = 0
-
-        is_throttled = any(
-            domain in str(self.config.base_url).lower() for domain in KNOWN_THROTTLED_DOMAINS
-        )
-        test_max_seconds = (
-            ASYNC_TEST_MAX_SECONDS_THROTTLED if is_throttled else ASYNC_TEST_MAX_SECONDS
-        )
-        test_min_files = ASYNC_TEST_MIN_FILES_THROTTLED if is_throttled else ASYNC_TEST_MIN_FILES
-        min_speed_threshold = (
-            ASYNC_TEST_MIN_SPEED_THROTTLED * 2 if is_throttled else ASYNC_TEST_MIN_SPEED
-        )
-        fallback_speed_threshold = min_speed_threshold * 0.6
         # Full-file disk reads can legitimately exceed metadata-only deadlines.
         # Keep the HEAD timeout below, without abandoning a hash still running
         # in a worker and repeating it through the synchronous fallback.
@@ -533,13 +510,10 @@ class CompareMixin(MirrorHost):
                         self.metrics.metrics["adaptive_fallback_to_sync"] = True
                         return self._check_files_sync(file_items, progress)
 
-            # Process batches
-            for start_idx in range(0, len(file_checks), ASYNC_TEST_BATCH_SIZE):
-                if fallback_triggered:
-                    break
-
-                batch_start_time = time.time()
-                batch = file_checks[start_idx : start_idx + ASYNC_TEST_BATCH_SIZE]
+            # Low throughput alone does not establish that synchronous checks
+            # would be faster. Keep bounded async batches unless they fail.
+            for start_idx in range(0, len(file_checks), ASYNC_METADATA_BATCH_SIZE):
+                batch = file_checks[start_idx : start_idx + ASYNC_METADATA_BATCH_SIZE]
 
                 # Create tasks for this batch using AsyncTaskManager with timeout
                 tasks = []
@@ -560,6 +534,14 @@ class CompareMixin(MirrorHost):
                 except asyncio.TimeoutError:
                     logging.warning(f"Batch {start_idx} timed out after 120s, falling back to sync")
                     remaining = [(url, path) for path, url in file_checks[start_idx:]]
+                    logging.info(
+                        "Switching to synchronous mode for %d remaining files "
+                        "(%d already examined; %d queued for download)",
+                        len(remaining),
+                        start_idx,
+                        len(to_download),
+                    )
+                    self.metrics.metrics["adaptive_fallback_to_sync"] = True
                     return to_download + self._check_files_sync(remaining, progress)
 
                 # Resize the existing semaphore before admitting the next batch.
@@ -577,101 +559,11 @@ class CompareMixin(MirrorHost):
 
                 to_download.extend(batch_needs_download)
 
-                test_checked += len(batch)
-                files_processed_in_test += len(batch)
-
                 if progress is not None:
                     try:
                         progress.update(len(batch))
                     except Exception as e:
                         logging.debug(f"Progress update failed: {e}")
-
-                # Speed test
-                elapsed = time.time() - test_start_time
-                if elapsed > test_max_seconds or test_checked >= test_min_files:
-                    logging.debug(f"Speed test complete: {test_checked} files in {elapsed:.1f}s")
-                    break
-
-                # Use a rolling average for more accurate speed measurement
-                if test_checked >= 50:
-                    # Calculate rolling average over last 5 batches or all batches so far
-
-                    batch_duration = time.time() - batch_start_time
-                    batch_speed = len(batch) / batch_duration if batch_duration > 0 else 0
-                    self._speed_samples.append(batch_speed)
-
-                    # Keep last 5 samples for rolling average
-                    if len(self._speed_samples) > 5:
-                        self._speed_samples.popleft()
-
-                    # Use rolling average for more stable decision
-                    avg_speed = sum(self._speed_samples) / len(self._speed_samples)
-
-                    if avg_speed < fallback_speed_threshold:
-                        logging.warning(
-                            f"Async speed test too slow (avg {avg_speed:.1f} files/s over {len(self._speed_samples)} batches, "
-                            f"threshold {fallback_speed_threshold:.1f}) → falling back to synchronous checking"
-                        )
-                        fallback_triggered = True
-                        self.metrics.metrics["adaptive_fallback_to_sync"] = True
-                        break
-
-            # Handle fallback
-            if fallback_triggered:
-                remaining_checks = file_checks[files_processed_in_test:]
-                logging.info(
-                    "Switching to synchronous mode for %d remaining files "
-                    "(%d already examined; %d queued for download)",
-                    len(remaining_checks),
-                    files_processed_in_test,
-                    len(to_download),
-                )
-                # Convert remaining_checks from (Path, url) to (url, Path) format
-                remaining_items = [(url, path) for path, url in remaining_checks]
-                remaining_to_download = self._check_files_sync(remaining_items, progress)
-                return to_download + remaining_to_download
-
-            # Process remaining files if any
-            if files_processed_in_test < len(file_checks):
-                logging.info(
-                    f"Speed test passed, continuing async check for remaining {len(file_checks) - files_processed_in_test} files"
-                )
-                for start_idx in range(
-                    files_processed_in_test, len(file_checks), ASYNC_TEST_BATCH_SIZE
-                ):
-                    batch = file_checks[start_idx : start_idx + ASYNC_TEST_BATCH_SIZE]
-
-                    tasks = []
-                    for local, url in batch:
-                        task = await self.async_task_manager.create_task(
-                            asyncio.wait_for(
-                                check_one_with_timeout(local, url, manager), timeout=30.0
-                            )
-                        )
-                        tasks.append((task, local, url))
-
-                    try:
-                        results = await asyncio.wait_for(
-                            asyncio.gather(*[t for t, _, _ in tasks], return_exceptions=True),
-                            timeout=120.0,
-                        )
-                    except asyncio.TimeoutError:
-                        logging.warning(f"Batch {start_idx} timed out, falling back to sync")
-                        remaining = [(url, path) for path, url in file_checks[start_idx:]]
-                        return to_download + self._check_files_sync(remaining, progress)
-
-                    if use_adaptive and hasattr(manager, "apply_pending_concurrency_change"):
-                        await manager.apply_pending_concurrency_change()
-
-                    for (_task, local, url), result in zip(tasks, results, strict=False):
-                        if isinstance(result, BaseException) or not result:
-                            to_download.append((url, local))
-
-                    if progress is not None:
-                        try:
-                            progress.update(len(batch))
-                        except Exception as e:
-                            logging.debug(f"Progress update failed: {e}")
 
         return to_download
 

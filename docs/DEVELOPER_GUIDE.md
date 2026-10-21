@@ -539,9 +539,15 @@ transport redirect/retry attempts. Text uses per-sync deltas; JSON retains
 collector totals for these keys.
 
 Metadata logging distinguishes `_check_files_sync()`'s batch from the combined
-coordinator result after `_check_files_async()` returns. The speed warning uses
-the same effective threshold as the fallback comparison (60% of the configured
-speed-test target); reporting does not change that policy or repeat requests.
+coordinator result after `_check_files_async()` returns. Async metadata work uses
+bounded batches without a fixed throughput cutoff: low files/second does not
+establish that synchronous checks would be faster. Client/profiling failures and
+batch timeouts retain synchronous fallback; a batch timeout reports the remaining
+files and preserves previously queued downloads. Both async managers retry
+`httpx.RemoteProtocolError` alongside connection/read errors within their existing
+retry budgets. Local protocol violations, scope errors and unexpected programming
+errors still fail without retry. Failed individual HEAD checks retain synchronous
+freshness fallback.
 `_freshness_result()` increments `etag_unavailable` for HTTP 200 responses
 without an ETag when ETag processing is enabled, before early size/content
 decisions. A 304 may reuse a saved validator without echoing it. Missing local

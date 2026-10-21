@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:  # pragma: no cover - declarations have no runtime implementation
     import logging
-    from collections import deque
     from concurrent.futures import ThreadPoolExecutor
     from datetime import datetime
     from pathlib import Path
@@ -57,7 +56,6 @@ if TYPE_CHECKING:  # pragma: no cover - declarations have no runtime implementat
         job_start_time: datetime
         connection_ok: bool
         scan_incomplete: bool
-        _speed_samples: deque[float]
         metrics: MetricsCollector
         dest_path: Path
         log_path: Path

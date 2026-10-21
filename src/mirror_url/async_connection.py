@@ -362,7 +362,7 @@ class AsyncConnectionManager:
                 continue
 
             # 4️⃣ NETWORK ERRORS
-            except (httpx.ConnectError, httpx.ReadError) as e:
+            except (httpx.ConnectError, httpx.ReadError, httpx.RemoteProtocolError) as e:
                 duration = time.time() - start_time
                 logging.debug(
                     f"Async HEAD network error: {type(e).__name__} (attempt {attempt + 1}/{max_retries + 1})"
@@ -885,7 +885,7 @@ class AdaptiveAsyncManager:
                             exponential_backoff(attempt, self.config.retry_delay * 0.7)
                         )
 
-                    except (httpx.ConnectError, httpx.ReadError) as e:
+                    except (httpx.ConnectError, httpx.ReadError, httpx.RemoteProtocolError) as e:
                         rtt_ms = (time.time() - attempt_start) * 1000
                         logging.debug(f"Async HEAD error for {url}: {e} (attempt {attempt + 1})")
                         if attempt == self.config.max_retries:
