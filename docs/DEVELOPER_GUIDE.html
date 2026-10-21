@@ -898,17 +898,23 @@ Text uses per-sync deltas; JSON retains collector totals for these
 keys.</p>
 <p>Metadata logging distinguishes <code>_check_files_sync()</code>'s
 batch from the combined coordinator result after
-<code>_check_files_async()</code> returns. The speed warning uses the
-same effective threshold as the fallback comparison (60% of the
-configured speed-test target); reporting does not change that policy or
-repeat requests. <code>_freshness_result()</code> increments
-<code>etag_unavailable</code> for HTTP 200 responses without an ETag
-when ETag processing is enabled, before early size/content decisions. A
-304 may reuse a saved validator without echoing it. Missing local files,
-skipped checks, HTTP failures and <code>no_etag</code> do not
-contribute. Render the ETag section when unavailable responses are its
-only activity, retaining per-run deltas in text and lifetime counts in
-JSON. Synchronous retry logs include method and sanitized URL; a
+<code>_check_files_async()</code> returns. Async metadata work uses
+bounded batches without a fixed throughput cutoff: low files/second does
+not establish that synchronous checks would be faster. Client/profiling
+failures and batch timeouts retain synchronous fallback; a batch timeout
+reports the remaining files and preserves previously queued downloads.
+Both async managers retry <code>httpx.RemoteProtocolError</code>
+alongside connection/read errors within their existing retry budgets.
+Local protocol violations, scope errors and unexpected programming
+errors still fail without retry. Failed individual HEAD checks retain
+synchronous freshness fallback. <code>_freshness_result()</code>
+increments <code>etag_unavailable</code> for HTTP 200 responses without
+an ETag when ETag processing is enabled, before early size/content
+decisions. A 304 may reuse a saved validator without echoing it. Missing
+local files, skipped checks, HTTP failures and <code>no_etag</code> do
+not contribute. Render the ETag section when unavailable responses are
+its only activity, retaining per-run deltas in text and lifetime counts
+in JSON. Synchronous retry logs include method and sanitized URL; a
 recovered response records its HTTP status and attempt count without
 implying that a streamed body has completed.</p>
 <p>Normal sync finalization goes directly from the transfer phase to

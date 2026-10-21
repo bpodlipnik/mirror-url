@@ -36,6 +36,7 @@ def manager(request, tmp_path, monkeypatch):
         circuit_breaker_enabled=False,
     )
     monkeypatch.setattr("mirror_url.async_connection.asyncio.sleep", AsyncMock())
+    monkeypatch.setattr("mirror_url.async_connection.socket.gethostbyname", lambda _: "8.8.8.8")
     monkeypatch.setattr(
         "mirror_url.async_connection.get_domain_health_tracker",
         lambda: SimpleNamespace(is_throttled=lambda _: False, record_incident=Mock()),
@@ -59,8 +60,10 @@ async def test_warmup_without_initialized_client_returns_false(manager):
     manager.rate_limiter.wait.assert_not_called()
 
 
-@pytest.mark.parametrize("failure", ["timeout", "connect", "read", "503", "429"])
-async def test_transient_failure_retries_and_preserves_conditional_headers(manager, failure):
+@pytest.mark.parametrize("failure", ["timeout", "connect", "read", "protocol", "503", "429"])
+async def test_transient_failure_retries_and_preserves_conditional_headers(
+    manager, failure, caplog
+):
     requests = []
 
     def handle(request):
@@ -72,6 +75,7 @@ async def test_transient_failure_retries_and_preserves_conditional_headers(manag
                 "timeout": httpx.ReadTimeout,
                 "connect": httpx.ConnectError,
                 "read": httpx.ReadError,
+                "protocol": httpx.RemoteProtocolError,
             }[failure]
             raise error("transient network failure", request=request)
         return httpx.Response(304, headers={"ETag": '"v1"'})
@@ -83,6 +87,8 @@ async def test_transient_failure_retries_and_preserves_conditional_headers(manag
         assert len(requests) == 2
         assert all(request.headers["if-none-match"] == '"v1"' for request in requests)
         assert manager.metrics.metrics["async_metadata_checks"] == 1
+        assert "unexpected error" not in caplog.text
+        assert not manager.metrics.get_summary()["errors"]
         if failure in ("429", "503"):
             # Pacing may follow the retry backoff even with legacy security disabled.
             assert any(call.args[0] >= 2 for call in asyncio.sleep.await_args_list)
@@ -90,7 +96,9 @@ async def test_transient_failure_retries_and_preserves_conditional_headers(manag
         await client.aclose()
 
 
-@pytest.mark.parametrize("failure", [httpx.ReadTimeout, httpx.ConnectError, httpx.ReadError])
+@pytest.mark.parametrize(
+    "failure", [httpx.ReadTimeout, httpx.ConnectError, httpx.ReadError, httpx.RemoteProtocolError]
+)
 async def test_retry_exhaustion_returns_failure_and_records_error(manager, failure):
     requests = []
 
@@ -127,12 +135,13 @@ async def test_client_errors_are_not_retried_and_responses_are_closed(manager, s
         await client.aclose()
 
 
-async def test_unexpected_transport_error_fails_without_retry(manager):
+@pytest.mark.parametrize("failure", [ValueError, httpx.LocalProtocolError])
+async def test_unexpected_transport_error_fails_without_retry(manager, failure):
     calls = []
 
     def handle(request):
         calls.append(request)
-        raise ValueError("malformed transport response")
+        raise failure("malformed transport response")
 
     client = install_client(manager, handle)
     try:

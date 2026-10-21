@@ -11,6 +11,7 @@ import httpx
 import pytest
 
 from mirror_url import MirrorURL
+from mirror_url.async_connection import AsyncConnectionManager
 from mirror_url.connection import ConnectionManager
 from mirror_url.exceptions import MirrorConnectionError
 from mirror_url.metrics import MetricsCollector
@@ -97,10 +98,10 @@ def test_missing_etag_section_is_visible_alone_and_uses_per_run_deltas():
     assert "ETag unavailable:" not in metrics.report()
 
 
-@pytest.mark.parametrize("throttled,threshold", [(False, 15.0), (True, 12.0)])
-@pytest.mark.parametrize("below", [False, True])
-def test_async_fallback_reports_the_threshold_it_actually_uses(
-    mirror, monkeypatch, caplog, throttled, threshold, below
+@pytest.mark.parametrize("throttled", [False, True])
+@pytest.mark.parametrize("speed", [1.0, 11.1, 14.9])
+def test_slow_successful_metadata_checks_remain_async(
+    mirror, monkeypatch, caplog, throttled, speed
 ):
     import mirror_url._core.compare as module
 
@@ -111,7 +112,6 @@ def test_async_fallback_reports_the_threshold_it_actually_uses(
     now = [0.0]
     # Only the comparison clock is simulated; asyncio and logging retain their clocks.
     monkeypatch.setattr(module, "time", SimpleNamespace(time=lambda: now[0]))
-    speed = threshold - 0.2 if below else threshold + 0.2
 
     class TimedManager(AsyncManager):
         async def head(self, url, headers=None):
@@ -119,7 +119,7 @@ def test_async_fallback_reports_the_threshold_it_actually_uses(
             return await super().head(url, headers)
 
     items = []
-    for index in range(85):
+    for index in range(165):
         path = mirror.target_dir / str(index)
         path.write_bytes(b"ABC")
         items.append((BASE + str(index), path))
@@ -128,17 +128,10 @@ def test_async_fallback_reports_the_threshold_it_actually_uses(
     mirror.connection_manager.request.return_value = response(headers={"Content-Length": "3"})
     with caplog.at_level(logging.INFO):
         assert asyncio.run(mirror._check_files_async(items)) == []
-    if below:
-        assert f"threshold {threshold:.1f})" in caplog.text
-        assert f"avg {speed:.1f} files/s" in caplog.text
-        assert "5 remaining files (80 already examined; 0 queued for download)" in caplog.text
-        assert "Synchronous metadata batch complete: 0/5 files need download" in caplog.text
-        assert len(manager.calls) == 80
-        assert mirror.connection_manager.request.call_count == 5
-    else:
-        assert "falling back to synchronous checking" not in caplog.text
-        assert len(manager.calls) == 85
-        mirror.connection_manager.request.assert_not_called()
+    assert len(manager.calls) == 165
+    assert len({url for url, _ in manager.calls}) == 165
+    mirror.connection_manager.request.assert_not_called()
+    assert "falling back to sync" not in caplog.text
 
 
 @pytest.mark.integration
@@ -147,10 +140,31 @@ def test_mixed_async_and_sync_batches_report_one_combined_total(
 ):
     import mirror_url._core.compare as module
 
-    # Force the ordinary speed-based fallback after one batch, without a timing race.
-    monkeypatch.setattr(module, "ASYNC_TEST_MIN_SPEED", 10**12)
-    monkeypatch.setattr(module, "ASYNC_TEST_MAX_SECONDS", 10000)
-    monkeypatch.setattr(module, "ASYNC_TEST_MIN_FILES", 10000)
+    # Expire a live second-batch request through asyncio's cancellation path.
+    batches = 0
+    blocked = asyncio.Event()
+    original_head = AsyncConnectionManager.head
+
+    async def head(manager, url, headers=None):
+        if url.endswith("080.dat"):
+            blocked.set()
+            await asyncio.Event().wait()
+        return await original_head(manager, url, headers)
+
+    monkeypatch.setattr(AsyncConnectionManager, "head", head)
+
+    async def wait_for(awaitable, timeout):
+        nonlocal batches
+        if timeout == 120.0:
+            batches += 1
+            if batches == 2:
+                await blocked.wait()
+                timeout = 0
+        return await asyncio.wait_for(awaitable, timeout)
+
+    monkeypatch.setattr(
+        module, "asyncio", SimpleNamespace(**{**vars(asyncio), "wait_for": wait_for})
+    )
     names = [f"{index:03}.dat" for index in range(165)]
     remote.files = dict.fromkeys(names, b"current")
     remote.files.update(dict.fromkeys(names[:7], b"updated bytes"))

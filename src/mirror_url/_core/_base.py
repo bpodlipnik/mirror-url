@@ -17,7 +17,6 @@ import sys
 import tempfile
 import threading
 import time
-from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
@@ -228,7 +227,6 @@ class _MirrorBase(MirrorHost):
         # still-remote files as obsolete. Reset at the start of each
         # get_remote_files() call.
         self.scan_incomplete = False
-        self._speed_samples: deque = deque(maxlen=20)  # Keep last 20 samples
 
         # ============================================================================
         # 3. METRICS COLLECTOR

@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Retry remote protocol disconnects in both async metadata managers within the
+  configured retry budget, preserving conditional request headers.
+- Keep healthy async metadata scans running on slow servers instead of switching
+  to sync at a fixed throughput cutoff. Preserve failure and timeout fallbacks,
+  completed checks and queued downloads.
+
 ## [3.9.2] - 2026-10-20
 
 ### Fixed

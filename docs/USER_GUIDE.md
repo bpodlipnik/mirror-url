@@ -1894,12 +1894,16 @@ limit tracker behavior; they do not make the heuristic a definitive detector.
   message. A metadata failure is reported as uncertain freshness, not as proof
   of a remote change. DEBUG logs include returned freshness headers.
 
-  If async metadata checks fall back, the warning shows the effective speed
-  threshold. The switch message reports the remaining files and the files
-  already examined or queued for download. A synchronous batch count covers
+  Healthy async metadata checks continue even when the server is slow; there
+  is no fixed files-per-second cutoff. Both async managers retry transient
+  connection/read failures and server protocol disconnects within the configured
+  retry budget. Failed individual HEAD checks can use a synchronous freshness
+  check. Client/profiling failures and batch timeouts retain synchronous fallback.
+  After a batch timeout, the switch message reports the remaining files and the
+  files already examined or queued for download. A synchronous batch count covers
   that batch; **Metadata check complete** reports the combined total before
-  downloads start. Retry messages identify the request method and sanitized
-  URL; recovered requests report the response status and attempt count.
+  downloads start. Synchronous retry messages identify the request method and
+  sanitized URL; recovered requests report the response status and attempt count.
 
   **ETag unavailable** counts HTTP 200 freshness responses with no ETag header
   when ETags are enabled, including responses whose size already proves a
