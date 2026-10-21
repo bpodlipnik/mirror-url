@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Give a first-attempt HTTPX HEAD disconnect before any response one prompt,
+  rate-limited retry within the existing budget. Preserve connection reuse,
+  ordinary backoff for repeated failures and the treatment of other errors.
+- Report first HEAD disconnects at INFO, repeated disconnects at WARNING and
+  exhausted requests at ERROR. Include disconnect attempt, recovery and
+  exhaustion counts in run summaries and JSON metrics.
+
 ## [3.9.3] - 2026-10-21
 
 ### Fixed

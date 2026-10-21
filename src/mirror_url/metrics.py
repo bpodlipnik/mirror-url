@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any, Dict, Literal, Optional, Sequence
 
 from ._version import __version__
 from .constants import ADAPTIVE_START_CONCURRENCY
+from .head_recovery import HEAD_RECOVERY_METRICS
 from .run_report import TRANSFER_STAGES, RunReport
 from .utils import format_bytes, format_duration, sanitize_command_line, sanitize_url_for_log
 
@@ -133,6 +134,7 @@ class MetricsCollector:
             "auto_concurrency_start": 0,
         }
         self.lock = RLock()
+        self.metrics.update(dict.fromkeys((name for name, _ in HEAD_RECOVERY_METRICS), 0))
         self.start_time = time.time()
         self.parse_start_time = 0
 
@@ -299,6 +301,9 @@ class MetricsCollector:
             summary["run"] = self.run_report.snapshot(
                 summary["bytes_downloaded"], summary["files_skipped"]
             )
+            summary["run"].update(
+                {name: self.run_report.delta(summary, name) for name, _ in HEAD_RECOVERY_METRICS}
+            )
 
             # Calculate statistics safely
             if summary["request_times"]:
@@ -380,6 +385,7 @@ class MetricsCollector:
                 "fast_parses",
                 "lxml_parses",
                 "errors_recorded",
+                *(name for name, _ in HEAD_RECOVERY_METRICS),
             }
             summary = {
                 key: self.run_report.delta(summary, key) if key in activity else value
@@ -396,6 +402,12 @@ class MetricsCollector:
         if active_report:
             lines = _format_run_summary(
                 summary, summary["run"], prefix=prefix, known_urls=known_urls
+            )
+        recovery_counts = summary["run"] if active_report else summary
+        if recovery_counts.get("head_early_disconnects", 0):
+            lines.extend(
+                f"{prefix}  {label}: {recovery_counts.get(name, 0)}"
+                for name, label in HEAD_RECOVERY_METRICS
             )
         # Scan mode metrics
         if summary["directories_scanned_parallel"] > 0:
