@@ -34,6 +34,7 @@ def local_archive(monkeypatch):
         drops={},
         etag=True,
         directory_headers={},
+        head_without_length=set(),
         directory_delay_seconds=0.0,
         body_gate=None,
     )
@@ -109,7 +110,8 @@ def local_archive(monkeypatch):
             self.send_response(status)
             for name, value in headers.items():
                 self.send_header(name, value)
-            self.send_header("Content-Length", str(len(body)))
+            if self.command != "HEAD" or path not in state.head_without_length:
+                self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             if send_body and body and status != 304:
                 with lock:

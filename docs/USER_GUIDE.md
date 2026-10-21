@@ -8,7 +8,7 @@ integrity checks and incremental caching. It also supports direct file URLs
 and exact URL lists without directory discovery. URL-scope, private-network
 and filesystem protections guard discovery and transfers.
 
-- **Version:** 3.9.4
+- **Version:** 3.9.5
 - **Python:** 3.10 or newer; CI tests Python 3.10–3.14
 - **License:** MIT
 
@@ -107,21 +107,21 @@ From a checkout of the repository on a build machine:
 
 ```bash
 pip install build
-python -m build          # produces dist/mirror_url-3.9.4-py3-none-any.whl
+python -m build          # produces dist/mirror_url-3.9.5-py3-none-any.whl
 ```
 
 Copy the wheel to the target server and install it:
 
 ```bash
 python3 -m venv /opt/mirror-url
-/opt/mirror-url/bin/pip install /tmp/mirror_url-3.9.4-py3-none-any.whl
+/opt/mirror-url/bin/pip install /tmp/mirror_url-3.9.5-py3-none-any.whl
 /opt/mirror-url/bin/mirror-url --help
 ```
 
 To include the optional speed extras:
 
 ```bash
-/opt/mirror-url/bin/pip install "/tmp/mirror_url-3.9.4-py3-none-any.whl[fast]"
+/opt/mirror-url/bin/pip install "/tmp/mirror_url-3.9.5-py3-none-any.whl[fast]"
 ```
 
 Available extras: `fast` (stringzilla + lxml),
@@ -132,24 +132,24 @@ and aiohttp backends are installed with the base package.
 ### From a Git repository
 
 ```bash
-pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.9.4"
+pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.9.5"
 # private repo over SSH:
-pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.9.4"
+pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.9.5"
 ```
 
 ### As an isolated CLI with pipx
 
 ```bash
-pipx install /tmp/mirror_url-3.9.4-py3-none-any.whl
-# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.9.4"
+pipx install /tmp/mirror_url-3.9.5-py3-none-any.whl
+# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.9.5"
 ```
 
 ### With Docker
 
 ```dockerfile
 FROM python:3.12-slim
-COPY dist/mirror_url-3.9.4-py3-none-any.whl /tmp/
-RUN pip install --no-cache-dir "/tmp/mirror_url-3.9.4-py3-none-any.whl[fast]"
+COPY dist/mirror_url-3.9.5-py3-none-any.whl /tmp/
+RUN pip install --no-cache-dir "/tmp/mirror_url-3.9.5-py3-none-any.whl[fast]"
 ENTRYPOINT ["mirror-url"]
 ```
 
@@ -1675,6 +1675,15 @@ Directory-listing ETags and signatures do not establish that child file
 contents are unchanged. Without usable file ETags, checks fall back to size and
 the server's `Last-Modified` header when available; changes that preserve those
 values can be missed. No remote cryptographic digest comparison is performed.
+
+For an existing empty file, a missing HEAD `Content-Length` is treated as
+unknown, not as zero. If no trusted ETag already establishes freshness,
+MirrorURL uses a streamed metadata GET to confirm the remote size, inspecting
+at most one body byte. An unchanged empty file is counted as current without
+replacing it or changing its timestamps. Its verified ETag is cached when
+caching and ETags are enabled, allowing later HEAD-only checks. This metadata
+probe is not counted as a file download; if the file has grown, normal
+downloading still applies.
 
 Use `--verify-content` (or `verify_content: true` in YAML) to detect local
 changes even when file sizes and timestamps still match. This mode saves a SHA-256
