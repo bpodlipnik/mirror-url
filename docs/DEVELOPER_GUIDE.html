@@ -530,7 +530,14 @@ destination/state ownership, rejects live leases and validates every
 entry before deletion. It never age-deletes arbitrary directories.
 Current work can retire its own lease after IO ends during bounded
 shutdown. Root ownership, malformed records, links and unknown children
-fail closed; unmarked legacy artifacts require manual review.</li>
+fail closed; unmarked legacy artifacts require manual review. In DELETE
+mode, resource shutdown retires marker-only
+<code>.mirror-url-state</code> roots while holding the owner and CLI
+parent mutexes. Every operation count must contain only the cleanup
+lease, and no work lease may remain. Validate the complete state tree
+before unlinking markers and using nonrecursive <code>rmdir</code>;
+restore ownership if directory removal fails. Preserve partials, unknown
+entries and external assembly state.</li>
 <li><code>circuit_breaker.py</code> — <code>CircuitBreaker</code>,
 <code>AsyncCircuitBreaker</code>, <code>ChunkCircuitBreaker</code>,
 <code>CircuitBreakerManager</code> (per-domain). Keep each base and its
@@ -1024,7 +1031,11 @@ destinations before creating parents and again after selecting a
 collision name; symlinked archives and occupied timestamp names fail
 while preserving source/archive bytes. Directory inspection and removal
 exceptions contribute to cleanup failure metrics and fail the sync. MOVE
-failures preserve their source and do not become deletion.</li>
+failures preserve their source and do not become deletion. After
+resource shutdown, DELETE mode separately removes verified marker-only
+application state under exclusive idle ownership. The obsolete-file walk
+continues to treat reserved state as opaque while transfers may use
+it.</li>
 <li><strong>Response ownership:</strong> streamed sync requests keep
 their coordinator lease until the body/response is closed. Always close
 responses on success, error, cancellation, and retry paths.</li>

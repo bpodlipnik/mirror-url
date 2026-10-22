@@ -928,6 +928,10 @@ The `.mirror-url-state` name is reserved case-insensitively. A conflicting
 remote path fails the sync before downloading. An existing directory without
 MirrorURL's valid ownership marker is preserved and rejected when partial
 state is initialized; obsolete-file cleanup never enters this directory.
+With `--cleanup delete`, shutdown removes this directory when it contains only
+verified MirrorURL ownership markers and all writers have stopped. Incomplete
+downloads, unknown entries, invalid markers and unsafe links keep the state
+directory protected. Other cleanup modes and dry runs leave it in place.
 
 Legacy adjacent `*.mirror-partial` files are not resumed. Review or archive
 them before enabling obsolete-file cleanup, which may remove them if they are
@@ -1761,7 +1765,10 @@ cleanup does not treat your logs and cache as obsolete mirrored files.
 
 Cleanup only acts within the current scan selection. Files excluded by
 filters, directory exclusions, depth limits, or skipped symlink subtrees are
-preserved, as are local symlinks and `.mirror-url-state/`. A complete empty scan can
+preserved, as are local symlinks. The obsolete-file walker never enters
+`.mirror-url-state/`; delete mode removes verified empty state separately at
+shutdown, after all writers stop. State needed for interrupted downloads or
+containing unknown entries remains protected. A complete empty scan can
 clean the selected local files; an incomplete scan skips cleanup and fails the
 run. Directory inspection, removal and other cleanup operation failures also
 fail the run.

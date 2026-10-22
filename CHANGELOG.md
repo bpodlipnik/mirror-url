@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Remove verified empty `.mirror-url-state` directories at shutdown with
+  `--cleanup delete`, including runs where all files are already current.
+  Preserve unfinished downloads, active workers, unknown entries and unsafe
+  state; leave other cleanup modes and dry runs unchanged.
+
 ## [3.9.6] - 2026-10-22
 
 ### Fixed

@@ -969,6 +969,14 @@ class _MirrorBase(MirrorHost):
             except Exception as e:
                 logging.debug(f"Concurrency manager shutdown error: {e}")
 
+        scratch_manager: Optional[OwnedScratch] = getattr(self, "scratch_manager", None)
+        if (
+            scratch_manager is not None
+            and not self.is_dry_run
+            and self.config.cleanup_policy == CleanupPolicy.DELETE
+        ):
+            scratch_manager.cleanup_empty_state()
+
         # 12. Save final metrics if configured
         if hasattr(self, "config") and self.config.metrics_json and not self.config.dry_run:
             try:

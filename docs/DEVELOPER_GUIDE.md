@@ -227,6 +227,12 @@ pool warm-up checks each redirect before contacting its target.
   arbitrary directories. Current work can retire its own lease after IO ends
   during bounded shutdown. Root ownership, malformed records, links and unknown
   children fail closed; unmarked legacy artifacts require manual review.
+  In DELETE mode, resource shutdown retires marker-only `.mirror-url-state`
+  roots while holding the owner and CLI parent mutexes. Every operation count
+  must contain only the cleanup lease, and no work lease may remain. Validate
+  the complete state tree before unlinking markers and using nonrecursive
+  `rmdir`; restore ownership if directory removal fails. Preserve partials,
+  unknown entries and external assembly state.
 - `circuit_breaker.py` — `CircuitBreaker`, `AsyncCircuitBreaker`,
   `ChunkCircuitBreaker`, `CircuitBreakerManager` (per-domain). Keep each base and
   its subclasses in this one module.
@@ -656,6 +662,9 @@ These invariants are part of the current implementation:
   preserving source/archive bytes. Directory inspection and removal exceptions
   contribute to cleanup failure metrics and fail the sync. MOVE failures
   preserve their source and do not become deletion.
+  After resource shutdown, DELETE mode separately removes verified marker-only
+  application state under exclusive idle ownership. The obsolete-file walk
+  continues to treat reserved state as opaque while transfers may use it.
 - **Response ownership:** streamed sync requests keep their coordinator lease
   until the body/response is closed. Always close responses on success, error,
   cancellation, and retry paths.

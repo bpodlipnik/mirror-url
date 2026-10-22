@@ -10,6 +10,7 @@ import re
 import stat
 import threading
 import uuid
+from contextlib import ExitStack
 from pathlib import Path
 from typing import Dict, List, Optional, TextIO
 
@@ -203,3 +204,88 @@ class OwnedScratch:
         if removed:
             logging.info("Reclaimed %s abandoned parallel scratch workspaces", removed)
         return removed
+
+    def _empty_owned_root(self, root: Path, expected: Dict, entries: set[str]) -> bool:
+        """Recognize marker-only state without following directory or file links."""
+        if not stat.S_ISDIR(root.lstat().st_mode):
+            return False
+        marker = root / "owner.json"
+        return (
+            {path.name for path in root.iterdir()} == entries
+            and self._regular(marker)
+            and json.loads(marker.read_text(encoding="utf-8")) == expected
+        )
+
+    def _remove_empty_root(self, root: Path, expected: Dict) -> bool:
+        # Recheck after validating the complete tree. Never recursively delete
+        # anything, and retain a valid marker if rmdir fails or an entry arrives.
+        if not self._empty_owned_root(root, expected, {"owner.json"}):
+            return False
+        identity = root.lstat()
+        marker = root / "owner.json"
+        marker.unlink()
+        try:
+            root.rmdir()
+        except OSError:
+            if os.path.samestat(identity, root.lstat()):
+                try:
+                    self._write_marker(marker, expected)
+                except FileExistsError:
+                    pass  # Preserve a marker installed by another actor.
+            raise
+        return True
+
+    def cleanup_empty_state(self) -> bool:
+        """Retire verified empty state during exclusively idle owner shutdown.
+
+        The cleanup lease must be the only operation in this owner and its CLI
+        parent. A timed-out writer, resumable partial or unknown entry keeps the
+        state intact. External assembly directories are outside this operation.
+        """
+        guards = []
+        guard: Optional[DestinationLock] = self._destination_lock
+        while guard is not None:
+            guards.append(guard)
+            guard = guard._parent
+        with ExitStack() as locks:
+            # Match operation()'s parent-before-child order. Holding every mutex
+            # prevents a new sibling operation during the final idle check.
+            for guard in reversed(guards):
+                locks.enter_context(guard._mutex)
+            locks.enter_context(self._lock)
+            if (
+                not self._destination_lock._closing
+                or any(guard._active != 1 for guard in guards)
+                or self._active
+            ):
+                return False
+            state = self.stage_root.parent
+            if state != Path(self.target) / ".mirror-url-state":
+                return False
+            expected = {"format": 1, "target": self.target}
+            try:
+                if not stat.S_ISDIR(state.lstat().st_mode):
+                    return False
+                entries = {path.name for path in state.iterdir()}
+                if not entries <= {"owner.json", "parallel", "chunks"}:
+                    return False
+                if not self._empty_owned_root(state, expected, entries):
+                    return False
+                roots = [
+                    (state / name, dict(expected, kind=kind))
+                    for name, kind in (("parallel", "staging"), ("chunks", "chunks"))
+                    if name in entries
+                ]
+                if any(
+                    not self._empty_owned_root(root, marker, {"owner.json"})
+                    for root, marker in roots
+                ):
+                    return False
+                for root, marker in [*roots, (state, expected)]:
+                    if not self._remove_empty_root(root, marker):
+                        return False
+            except (OSError, ValueError) as error:
+                logging.warning("Could not remove empty MirrorURL state %s: %s", state, error)
+                return False
+        logging.info("Removed empty MirrorURL state: %s", state)
+        return True
