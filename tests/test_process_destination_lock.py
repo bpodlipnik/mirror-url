@@ -140,10 +140,12 @@ def test_independent_cli_processes_can_share_a_log_directory(
         caches = list(config.log_path.glob("*.json"))
         assert len(caches) == 2
         for cache in caches:
-            assert json.loads(cache.read_text())
+            assert json.loads(cache.read_text(encoding="utf-8"))
         logs = list(config.log_path.glob("*.log"))
         assert len(logs) == 2
-        assert all("Sync completed successfully" in path.read_text() for path in logs)
+        assert all(
+            "Sync completed successfully" in path.read_text(encoding="utf-8") for path in logs
+        )
     finally:
         stop(first)
 
@@ -233,7 +235,7 @@ def test_log_directory_fallback_keeps_file_ownership(
         assert mirror.sync()
         assert mirror.log_path.is_relative_to(tmp_path / "temp")
         assert mirror.cache_file.parent == mirror.log_path
-        assert json.loads(mirror.cache_file.read_text())
+        assert json.loads(mirror.cache_file.read_text(encoding="utf-8"))
         with pytest.raises(DestinationLockError):
             DestinationLock([mirror.cache_file])
         independent = DestinationLock([mirror.log_path / "independent.log"])
