@@ -1158,7 +1158,13 @@ complete.</p>
 case-insensitively. A conflicting remote path fails the sync before
 downloading. An existing directory without MirrorURL's valid ownership
 marker is preserved and rejected when partial state is initialized;
-obsolete-file cleanup never enters this directory.</p>
+obsolete-file cleanup never enters this directory. With
+<code>--cleanup delete</code>, shutdown removes this directory when it
+contains only verified MirrorURL ownership markers and all writers have
+stopped. Incomplete downloads, unknown entries, invalid markers and
+unsafe links keep the state directory protected, as do configured
+metrics outputs inside it. Other cleanup modes and dry runs leave it in
+place.</p>
 <p>Legacy adjacent <code>*.mirror-partial</code> files are not resumed.
 Review or archive them before enabling obsolete-file cleanup, which may
 remove them if they are absent from the selected remote listing.</p>
@@ -2016,16 +2022,18 @@ destination tree so cleanup does not treat your logs and cache as
 obsolete mirrored files.</p>
 <p>Cleanup only acts within the current scan selection. Files excluded
 by filters, directory exclusions, depth limits, or skipped symlink
-subtrees are preserved, as are local symlinks and
-<code>.mirror-url-state/</code>. A complete empty scan can clean the
-selected local files; an incomplete scan skips cleanup and fails the
-run. Directory inspection, removal and other cleanup operation failures
-also fail the run. If the MOVE archive cannot be created, cleanup stops;
-a failed move leaves the source in place and never falls back to
-deletion. MOVE also refuses symlinked archive paths and existing
-timestamp collision names. It preserves the source and previous archives
-and reports a failed cleanup operation; inspect the archive before
-retrying.</p>
+subtrees are preserved, as are local symlinks. The obsolete-file walker
+never enters <code>.mirror-url-state/</code>; delete mode removes
+verified empty state separately at shutdown, after all writers stop.
+State needed for interrupted downloads or containing unknown entries
+remains protected. A complete empty scan can clean the selected local
+files; an incomplete scan skips cleanup and fails the run. Directory
+inspection, removal and other cleanup operation failures also fail the
+run. If the MOVE archive cannot be created, cleanup stops; a failed move
+leaves the source in place and never falls back to deletion. MOVE also
+refuses symlinked archive paths and existing timestamp collision names.
+It preserves the source and previous archives and reports a failed
+cleanup operation; inspect the archive before retrying.</p>
 <div class="sourceCode" id="cb41"><pre
 class="sourceCode bash"><code class="sourceCode bash"><span id="cb41-1"><a href="#cb41-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Observe cleanup without downloads or changes to mirrored files</span></span>
 <span id="cb41-2"><a href="#cb41-2" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--config</span> mirror.yaml <span class="at">--cleanup</span> preview <span class="at">--dry-run</span></span>

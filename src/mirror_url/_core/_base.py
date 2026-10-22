@@ -978,6 +978,14 @@ class _MirrorBase(MirrorHost):
             except Exception as e:
                 logging.debug(f"Failed to export final metrics: {e}")
 
+        scratch_manager: Optional[OwnedScratch] = getattr(self, "scratch_manager", None)
+        if (
+            scratch_manager is not None
+            and not self.is_dry_run
+            and self.config.cleanup_policy == CleanupPolicy.DELETE
+        ):
+            scratch_manager.cleanup_empty_state(self.config.metrics_json)
+
         logging.debug("MirrorURL cleanup complete")
 
         # 11. Close log handlers
