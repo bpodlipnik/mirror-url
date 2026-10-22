@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from mirror_url import MirrorURL
+from mirror_url import MirrorURL, __version__
 from mirror_url.destination_lock import DestinationLock
 from mirror_url.download import PartialDownloadManager
 from mirror_url.enums import CleanupPolicy
@@ -79,6 +79,19 @@ def test_delete_dry_run_preserves_existing_state(remote, config):
     with MirrorURL(config) as mirror:
         assert mirror.sync()
     assert tree_bytes(state) == before
+
+
+@pytest.mark.integration
+def test_shutdown_metrics_cannot_recreate_unowned_state(remote, config):
+    config.cleanup_policy = CleanupPolicy.DELETE
+    config.metrics_json = config.dest_path / ".mirror-url-state" / "report.json"
+    with MirrorURL(config) as mirror:
+        state = mirror.target_dir / ".mirror-url-state"
+    assert json.loads((state / "owner.json").read_text()) == {
+        "format": 1,
+        "target": str(mirror.target_dir.resolve()),
+    }
+    assert json.loads(config.metrics_json.read_text())["version"] == __version__
 
 
 def tree_bytes(root):
