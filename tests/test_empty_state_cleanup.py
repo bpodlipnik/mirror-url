@@ -104,7 +104,8 @@ def tree_bytes(root):
 
 @pytest.fixture
 def owned(directory, tmp_path):
-    target = tmp_path / "mirror"
+    # Keep mirrored/test data separate from Windows' mandatorily locked files.
+    target = tmp_path / "data" / "mirror"
     manager = PartialDownloadManager(target)
     state = manager._state_directory()
     guard = DestinationLock([target])
@@ -119,6 +120,19 @@ def retire(scratch, guard):
     result = []
     guard.close(lambda: result.append(scratch.cleanup_empty_state()))
     return result == [True]
+
+
+def test_preservation_snapshot_does_not_read_lock_files(owned, directory, monkeypatch):
+    scratch, _, _ = owned
+    original = Path.read_bytes
+
+    def read_bytes(path):
+        if path.parent == directory:
+            raise PermissionError("Windows denies reads of exclusively locked files")
+        return original(path)
+
+    monkeypatch.setattr(Path, "read_bytes", read_bytes)
+    assert tree_bytes(Path(scratch.target).parent)
 
 
 def test_cleanup_requires_shutdown_and_its_only_remaining_lease(owned):
@@ -204,11 +218,12 @@ def test_nonstandard_state_location_is_preserved(directory, tmp_path):
         "oversized-marker",
     ],
 )
-def test_ambiguous_or_nonempty_state_is_preserved(owned, tmp_path, root_name, fault):
+def test_ambiguous_or_nonempty_state_is_preserved(owned, root_name, fault):
     scratch, guard, state = owned
+    data_root = Path(scratch.target).parent
     root = state / root_name
     marker = root / "owner.json"
-    outside = tmp_path / "external"
+    outside = data_root / "external"
     outside.mkdir()
     (outside / "science.dat").write_bytes(b"external science")
     if fault == "unknown-file":
@@ -220,7 +235,7 @@ def test_ambiguous_or_nonempty_state_is_preserved(owned, tmp_path, root_name, fa
         (root / "user-data").mkdir()
     elif fault in ("root-symlink", "root-file"):
         # Move the original state aside to also verify no preexisting bytes are lost.
-        root.rename(tmp_path / "original-state")
+        root.rename(data_root / "original-state")
         if fault == "root-symlink":
             root.symlink_to(outside, target_is_directory=True)
         else:
@@ -231,7 +246,7 @@ def test_ambiguous_or_nonempty_state_is_preserved(owned, tmp_path, root_name, fa
         marker.unlink()
         marker.symlink_to(outside / "science.dat")
     elif fault == "marker-hardlink":
-        os.link(marker, tmp_path / "marker-copy")
+        os.link(marker, data_root / "marker-copy")
     elif fault == "foreign-target":
         data = json.loads(marker.read_text())
         data["target"] = str(outside)
@@ -244,10 +259,10 @@ def test_ambiguous_or_nonempty_state_is_preserved(owned, tmp_path, root_name, fa
         marker.write_text("{")
     elif fault == "oversized-marker":
         marker.write_text(" " * (64 * 1024 + 1))
-    before = tree_bytes(tmp_path)
+    before = tree_bytes(data_root)
     assert not retire(scratch, guard)
     assert root.exists() or root.is_symlink()
-    assert tree_bytes(tmp_path) == before
+    assert tree_bytes(data_root) == before
 
 
 @pytest.mark.parametrize(
