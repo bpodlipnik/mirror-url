@@ -984,7 +984,7 @@ class _MirrorBase(MirrorHost):
             and not self.is_dry_run
             and self.config.cleanup_policy == CleanupPolicy.DELETE
         ):
-            scratch_manager.cleanup_empty_state()
+            scratch_manager.cleanup_empty_state(self.config.metrics_json)
 
         logging.debug("MirrorURL cleanup complete")
 

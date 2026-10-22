@@ -235,12 +235,13 @@ class OwnedScratch:
             raise
         return True
 
-    def cleanup_empty_state(self) -> bool:
+    def cleanup_empty_state(self, planned_output: Optional[Path] = None) -> bool:
         """Retire verified empty state during exclusively idle owner shutdown.
 
         The cleanup lease must be the only operation in this owner and its CLI
         parent. A timed-out writer, resumable partial or unknown entry keeps the
-        state intact. External assembly directories are outside this operation.
+        state intact. A configured output inside state also reserves it for
+        deferred CLI reporting. External assembly directories stay outside scope.
         """
         guards = []
         guard: Optional[DestinationLock] = self._destination_lock
@@ -264,6 +265,8 @@ class OwnedScratch:
                 return False
             expected = {"format": 1, "target": self.target}
             try:
+                if planned_output is not None and planned_output.resolve().is_relative_to(state):
+                    return False
                 if not stat.S_ISDIR(state.lstat().st_mode):
                     return False
                 entries = {path.name for path in state.iterdir()}
@@ -284,7 +287,7 @@ class OwnedScratch:
                 for root, marker in [*roots, (state, expected)]:
                     if not self._remove_empty_root(root, marker):
                         return False
-            except (OSError, ValueError) as error:
+            except (OSError, ValueError, RuntimeError) as error:
                 logging.warning("Could not remove empty MirrorURL state %s: %s", state, error)
                 return False
         logging.info("Removed empty MirrorURL state: %s", state)

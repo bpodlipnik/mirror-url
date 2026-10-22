@@ -931,7 +931,8 @@ state is initialized; obsolete-file cleanup never enters this directory.
 With `--cleanup delete`, shutdown removes this directory when it contains only
 verified MirrorURL ownership markers and all writers have stopped. Incomplete
 downloads, unknown entries, invalid markers and unsafe links keep the state
-directory protected. Other cleanup modes and dry runs leave it in place.
+directory protected, as do configured metrics outputs inside it. Other cleanup
+modes and dry runs leave it in place.
 
 Legacy adjacent `*.mirror-partial` files are not resumed. Review or archive
 them before enabling obsolete-file cleanup, which may remove them if they are

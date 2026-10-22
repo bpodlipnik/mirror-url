@@ -14,6 +14,7 @@ from mirror_url.scratch import OwnedScratch
 from test_destination_lock import directory as directory
 from test_http_mirror_workflows import config as config
 from test_http_mirror_workflows import remote as remote
+from test_process_destination_lock import launch, stop
 
 
 @pytest.mark.integration
@@ -82,16 +83,45 @@ def test_delete_dry_run_preserves_existing_state(remote, config):
 
 
 @pytest.mark.integration
-def test_shutdown_metrics_cannot_recreate_unowned_state(remote, config):
+@pytest.mark.parametrize("inside_state", [True, False])
+def test_shutdown_metrics_cannot_recreate_unowned_state(remote, config, inside_state):
     config.cleanup_policy = CleanupPolicy.DELETE
-    config.metrics_json = config.dest_path / ".mirror-url-state" / "report.json"
+    config.metrics_json = (
+        config.dest_path / ".mirror-url-state" / "report.json"
+        if inside_state
+        else config.log_path / "report.json"
+    )
     with MirrorURL(config) as mirror:
         state = mirror.target_dir / ".mirror-url-state"
-    assert json.loads((state / "owner.json").read_text()) == {
-        "format": 1,
-        "target": str(mirror.target_dir.resolve()),
-    }
+    if inside_state:
+        assert json.loads((state / "owner.json").read_text()) == {
+            "format": 1,
+            "target": str(mirror.target_dir.resolve()),
+        }
+    else:
+        assert not state.exists()
     assert json.loads(config.metrics_json.read_text())["version"] == __version__
+
+
+@pytest.mark.integration
+def test_cli_final_metrics_preserve_owned_state_across_repeated_jobs(remote, config, tmp_path):
+    remote.files = {"one.txt": b"current"}
+    config.cleanup_policy = CleanupPolicy.DELETE
+    config.metrics_json = config.dest_path / ".mirror-url-state" / "report.json"
+    data = json.loads(config.model_dump_json())
+    for index in range(2):
+        process, _ = launch(tmp_path, f"metrics-state-{index}", data, mode="cli-once")
+        try:
+            output = process.communicate(timeout=30)[0]
+            assert process.returncode == 0, output
+        finally:
+            stop(process)
+        assert json.loads((config.metrics_json.parent / "owner.json").read_text()) == {
+            "format": 1,
+            "target": str(config.dest_path.resolve()),
+        }
+        assert json.loads(config.metrics_json.read_text())["version"] == __version__
+        assert (config.dest_path / "one.txt").read_bytes() == b"current"
 
 
 def tree_bytes(root):

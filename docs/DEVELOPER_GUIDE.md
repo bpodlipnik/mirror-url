@@ -232,7 +232,8 @@ pool warm-up checks each redirect before contacting its target.
   must contain only the cleanup lease, and no work lease may remain. Validate
   the complete state tree before unlinking markers and using nonrecursive
   `rmdir`; restore ownership if directory removal fails. Preserve partials,
-  unknown entries and external assembly state.
+  unknown entries and external assembly state. A configured metrics output
+  inside state reserves it for CLI reporting after child resource shutdown.
 - `circuit_breaker.py` — `CircuitBreaker`, `AsyncCircuitBreaker`,
   `ChunkCircuitBreaker`, `CircuitBreakerManager` (per-domain). Keep each base and
   its subclasses in this one module.

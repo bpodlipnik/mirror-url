@@ -1162,8 +1162,9 @@ obsolete-file cleanup never enters this directory. With
 <code>--cleanup delete</code>, shutdown removes this directory when it
 contains only verified MirrorURL ownership markers and all writers have
 stopped. Incomplete downloads, unknown entries, invalid markers and
-unsafe links keep the state directory protected. Other cleanup modes and
-dry runs leave it in place.</p>
+unsafe links keep the state directory protected, as do configured
+metrics outputs inside it. Other cleanup modes and dry runs leave it in
+place.</p>
 <p>Legacy adjacent <code>*.mirror-partial</code> files are not resumed.
 Review or archive them before enabling obsolete-file cleanup, which may
 remove them if they are absent from the selected remote listing.</p>

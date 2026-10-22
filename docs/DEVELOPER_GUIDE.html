@@ -537,7 +537,8 @@ parent mutexes. Every operation count must contain only the cleanup
 lease, and no work lease may remain. Validate the complete state tree
 before unlinking markers and using nonrecursive <code>rmdir</code>;
 restore ownership if directory removal fails. Preserve partials, unknown
-entries and external assembly state.</li>
+entries and external assembly state. A configured metrics output inside
+state reserves it for CLI reporting after child resource shutdown.</li>
 <li><code>circuit_breaker.py</code> — <code>CircuitBreaker</code>,
 <code>AsyncCircuitBreaker</code>, <code>ChunkCircuitBreaker</code>,
 <code>CircuitBreakerManager</code> (per-domain). Keep each base and its
