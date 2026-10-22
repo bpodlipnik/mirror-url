@@ -898,13 +898,25 @@ async def test_single_reader_cancellation_drains_network_before_cleanup(
         guard.close()
 
 
-def test_destination_and_log_lock_conflicts_before_get(tmp_path, origin):
+def test_destination_lock_conflicts_before_get(tmp_path, origin):
     config = job(tmp_path, origin)
-    guard = DestinationLock([config.log_path])
+    guard = DestinationLock([config.dest_path])
     try:
         with pytest.raises(DestinationLockError):
             download_url_list(config)
         assert not origin.requests
+    finally:
+        guard.close()
+
+
+def test_download_api_does_not_reserve_its_unused_log_directory(tmp_path, origin):
+    config = job(tmp_path, origin)
+    guard = DestinationLock([config.log_path])
+    try:
+        summary = download_url_list(config)
+        assert summary["success"]
+        assert (config.dest_path / "a").read_bytes() == b"bytes"
+        assert not config.log_path.exists()
     finally:
         guard.close()
 

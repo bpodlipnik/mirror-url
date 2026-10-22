@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Allow independent jobs to share a log directory. Lock the actual log and
+  cache files before access instead of reserving the entire log directory.
+  Preserve ownership of overlapping destinations and genuinely shared state,
+  including shared CLI logs and cache files.
+
 ## [3.9.5] - 2026-10-21
 
 ### Fixed

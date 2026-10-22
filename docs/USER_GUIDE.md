@@ -959,8 +959,12 @@ or log files, configured chunk/disk cache directories, metrics files and MOVE
 archives reject a competing run with `DestinationLockError`; the CLI exits
 with status 1. Separate trees and state paths can run concurrently. Dry runs
 also acquire ownership because cache loading can repair existing cache state.
-CLI runs reserve their log directory and all selected suffixes before shared
-logging starts, and retain them until the whole run finishes. Destination keys
+CLI runs reserve all selected suffixes before logging starts, then acquire
+each actual log and cache file before accessing it. Independent jobs can share
+`--log-path` when their output files are distinct; the directory itself is not
+exclusively locked. A shared CLI log remains owned until the whole run finishes.
+Jobs using the same cache file still conflict even if their destinations differ.
+Destination keys
 are conservatively case-folded and Unicode-normalized, so equivalent names
 conflict even on a case-sensitive filesystem.
 

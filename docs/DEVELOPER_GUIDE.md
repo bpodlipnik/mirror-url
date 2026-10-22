@@ -210,10 +210,13 @@ pool warm-up checks each redirect before contacting its target.
   in `~/.mirror-url/locks-v1/`; never unlink them during a run. Portalocker 3.x
   provides native Windows/POSIX locks. This is cooperative local-filesystem
   protection with a common home directory, not multi-host coordination.
-  The CLI's `run_ownership` context reserves all selected roots and the log tree
-  before shared logging; `ContextVar` supplies an explicit parent to each
-  suffix instance. Child cleanup ends its lifecycle without closing the run's
-  handles. Child writer and cleanup leases also retain parent ownership.
+  The CLI's `run_ownership` context reserves all selected roots before logging.
+  Shared logging adds its actual file before directory creation or header writes;
+  suffix instances add their actual log and cache files before access. Log
+  directories remain shared ancestors so independent outputs can coexist.
+  `ContextVar` supplies an explicit parent to each suffix instance. Child cleanup
+  ends its lifecycle without closing the run's handles. Child writer and cleanup
+  leases also retain parent ownership.
 - `storage.py` — `FileSystemCache`, `DiskBackedSet` (tracking with disk spills,
   memory-only duplicate suppression and pruning; no persistent membership index).
 - `scratch.py` — flat private parallel workspaces with exact manifests and

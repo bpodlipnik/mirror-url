@@ -1190,10 +1190,14 @@ MOVE archives reject a competing run with
 <code>DestinationLockError</code>; the CLI exits with status 1. Separate
 trees and state paths can run concurrently. Dry runs also acquire
 ownership because cache loading can repair existing cache state. CLI
-runs reserve their log directory and all selected suffixes before shared
-logging starts, and retain them until the whole run finishes.
-Destination keys are conservatively case-folded and Unicode-normalized,
-so equivalent names conflict even on a case-sensitive filesystem.</p>
+runs reserve all selected suffixes before logging starts, then acquire
+each actual log and cache file before accessing it. Independent jobs can
+share <code>--log-path</code> when their output files are distinct; the
+directory itself is not exclusively locked. A shared CLI log remains
+owned until the whole run finishes. Jobs using the same cache file still
+conflict even if their destinations differ. Destination keys are
+conservatively case-folded and Unicode-normalized, so equivalent names
+conflict even on a case-sensitive filesystem.</p>
 <p>Lock files live in <code>~/.mirror-url/locks-v1/</code>, outside the
 destination. They remain after cleanup; <strong>do not delete them while
 any mirror is running</strong>. Process termination releases the OS
@@ -2168,16 +2172,17 @@ queued for download. A synchronous batch count covers that batch;
 before downloads start. Synchronous retry messages identify the request
 method and sanitized URL; recovered requests report the response status
 and attempt count.</p>
-<p>With HTTPX, a HEAD connection that closes before sending any HTTP response
-gets one prompt retry when this happens on the first attempt. The retry still
-obeys request pacing and the configured retry budget; connection reuse stays
-enabled. The first closure is logged at INFO. Repeated closures use the normal
-backoff and WARNING logging; an exhausted request is an ERROR. Other protocol
-errors retain their existing retry policy. When these closures occur, the
-summary lists <strong>HEAD early disconnects</strong> (failed attempts),
-<strong>HEAD requests recovered after disconnect</strong> and
-<strong>HEAD requests exhausted after disconnect</strong>. JSON metrics
-include lifetime counters and this run's counts separately.</p>
+<p>With HTTPX, a HEAD connection that closes before sending any HTTP
+response gets one prompt retry when this happens on the first attempt.
+The retry still obeys request pacing and the configured retry budget;
+connection reuse stays enabled. The first closure is logged at INFO.
+Repeated closures use the normal backoff and WARNING logging; an
+exhausted request is an ERROR. Other protocol errors retain their
+existing retry policy. When these closures occur, the summary lists
+<strong>HEAD early disconnects</strong> (failed attempts), <strong>HEAD
+requests recovered after disconnect</strong> and <strong>HEAD requests
+exhausted after disconnect</strong>. JSON metrics include lifetime
+counters and this run's counts separately.</p>
 <p><strong>ETag unavailable</strong> counts HTTP 200 freshness responses
 with no ETag header when ETags are enabled, including responses whose
 size already proves a change. It excludes missing local files, skipped
