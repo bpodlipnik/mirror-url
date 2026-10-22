@@ -322,40 +322,8 @@ class _MirrorBase(MirrorHost):
         self._computed_target_path: Optional[Path] = computed_target_path
 
         # ============================================================================
-        # 13. LOG DIRECTORY - Create (with fallback) BEFORE anything derives paths
-        #     from self.log_path, so a fallback here is visible to every consumer.
-        # ============================================================================
-        # Create log filename BEFORE using it
-        if self.config.dir_suffix:
-            safe_suffix = self.config.dir_suffix.replace("/", "_")
-            log_filename = f"mirror_url_{safe_suffix}_{time.strftime('%Y%m%d_%H%M%S')}.log"
-        else:
-            folder = self._get_last_path_component(str(self.config.base_url))
-            log_filename = f"mirror_url_{folder}_{time.strftime('%Y%m%d_%H%M%S')}.log"
-
-        # Create log directory only if needed and not in dry-run
-        if not config.dry_run:
-            log_filepath = self.log_path / log_filename
-            if self._destination_lock is not None:
-                self._destination_lock.add_paths([log_filepath])
-            try:
-                # Ensure log directory exists BEFORE using FileHandler
-                log_filepath.parent.mkdir(parents=True, exist_ok=True)
-            except Exception:
-                # Fallback to system temp if we can't create the log path
-                temp_log_dir = Path(tempfile.gettempdir()) / f"mirrorurl_logs_{os.getpid()}"
-                if self._destination_lock is not None:
-                    self._destination_lock.add_paths([temp_log_dir / log_filename])
-                temp_log_dir.mkdir(parents=True, exist_ok=True)
-                log_filepath = temp_log_dir / log_filename
-                logging.warning(
-                    f"Failed to create log directory {self.log_path}, using fallback: {temp_log_dir}"
-                )
-                self.log_path = temp_log_dir
-
-        # ============================================================================
-        # 14. CACHE FILE - Safe initialization (must come AFTER the log-directory
-        #     fallback above, since it derives its path from self.log_path)
+        # 13. CACHE FILE AND LOG DIRECTORY - Own the cache before creating its
+        #     parent. setup_logging owns the actual log file before opening it.
         # ============================================================================
         url_hash = hashlib.sha256(str(config.base_url).encode()).hexdigest()[:16]
         try:
@@ -370,6 +338,24 @@ class _MirrorBase(MirrorHost):
         except Exception as e:
             logging.warning(f"Failed to create cache file path: {e}")
             self.cache_file = None
+
+        if self.cache_file is not None:
+            if self._destination_lock is not None:
+                self._destination_lock.add_paths([self.cache_file])
+            if not config.dry_run:
+                try:
+                    self.log_path.mkdir(parents=True, exist_ok=True)
+                except Exception:
+                    temp_log_dir = Path(tempfile.gettempdir()) / f"mirrorurl_logs_{os.getpid()}"
+                    fallback_cache = temp_log_dir / self.cache_file.name
+                    if self._destination_lock is not None:
+                        self._destination_lock.add_paths([fallback_cache])
+                    temp_log_dir.mkdir(parents=True, exist_ok=True)
+                    logging.warning(
+                        f"Failed to create log directory {self.log_path}, using fallback: {temp_log_dir}"
+                    )
+                    self.log_path = temp_log_dir
+                    self.cache_file = fallback_cache
 
         # ============================================================================
         # 15. SETUP LOGGING (if not using shared log)

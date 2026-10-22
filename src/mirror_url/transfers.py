@@ -1063,8 +1063,9 @@ def download_url_list(
         urls = resolve_download_files(entries, config.base_url)
     if not urls:
         raise ValueError("URL list is empty")
-    resources = [target, PathSafety._resolve_destination_root(config.log_path)]
-    guard = DestinationLock(resources, parent=current_run_lock())
+    # This API writes its state inside the destination; its CLI caller owns
+    # the actual log file. An otherwise unused log directory is not a resource.
+    guard = DestinationLock([target], parent=current_run_lock())
     metrics = metrics or MetricsCollector()
     report = run_report if run_report is not None else metrics.run_report
     metrics.run_report = report

@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 from mirror_url import DestinationLockError, MirrorURL
+from mirror_url.destination_lock import DestinationLock
 from mirror_url.enums import CleanupPolicy
 from mirror_url.utils import _log_files
 from test_http_mirror_workflows import config as config
@@ -102,6 +103,146 @@ def test_two_processes_on_separate_trees_share_ancestors(tmp_path):
     finally:
         stop(first)
         stop(second)
+
+
+@pytest.mark.parametrize("shared_log,same_suffix", [(False, False), (True, False), (True, True)])
+def test_independent_cli_processes_can_share_a_log_directory(
+    remote, config, tmp_path, shared_log, same_suffix
+):
+    remote.files = {"a/one.txt": b"alpha", "b/two.txt": b"bravo"}
+    first_data = json.loads(config.model_dump_json())
+    second_data = dict(first_data)
+    first_args = ("--dir", "a") + (("--log-file", "first") if shared_log else ())
+    second_args = ("--dir", "b") + (("--log-file", "second") if shared_log else ())
+    first_target = config.dest_path / "a/one.txt"
+    second_target = config.dest_path / "b/two.txt"
+    if same_suffix:
+        remote.files = {"first/a/one.txt": b"alpha", "second/a/two.txt": b"bravo"}
+        first_data.update(base_url=remote.url + "first/", dest_path=str(tmp_path / "first"))
+        second_data.update(base_url=remote.url + "second/", dest_path=str(tmp_path / "second"))
+        second_args = ("--dir", "a", "--log-file", "second")
+        first_target = tmp_path / "first/a/one.txt"
+        second_target = tmp_path / "second/a/two.txt"
+    first, ready = launch(tmp_path, "first-cli", first_data, mode="cli-hold", extra=first_args)
+    try:
+        wait_ready(first, ready)
+        second, _ = launch(tmp_path, "second-cli", second_data, mode="cli-once", extra=second_args)
+        try:
+            output = second.communicate(timeout=15)[0]
+            assert second.returncode == 0, output
+            assert first.poll() is None
+            assert second_target.read_bytes() == b"bravo"
+        finally:
+            stop(second)
+        output = first.communicate("release\n", timeout=15)[0]
+        assert first.returncode == 0, output
+        assert first_target.read_bytes() == b"alpha"
+        caches = list(config.log_path.glob("*.json"))
+        assert len(caches) == 2
+        for cache in caches:
+            assert json.loads(cache.read_text(encoding="utf-8"))
+        logs = list(config.log_path.glob("*.log"))
+        assert len(logs) == 2
+        assert all(
+            "Sync completed successfully" in path.read_text(encoding="utf-8") for path in logs
+        )
+    finally:
+        stop(first)
+
+
+@pytest.mark.parametrize("shared_log", [False, True])
+def test_cli_log_file_collision_is_rejected_before_http_and_released_on_exit(
+    remote, config, tmp_path, shared_log
+):
+    remote.files = {"first/a/one.txt": b"alpha", "second/a/two.txt": b"bravo"}
+    first_data = json.loads(config.model_dump_json())
+    first_data.update(base_url=remote.url + "first/", dest_path=str(tmp_path / "first"))
+    second_data = dict(
+        first_data, base_url=remote.url + "second/", dest_path=str(tmp_path / "second")
+    )
+    args = ("--dir", "a") + (("--log-file", "same") if shared_log else ())
+    first, ready = launch(tmp_path, "first-cli", first_data, mode="cli-hold", extra=args)
+    try:
+        wait_ready(first, ready)
+        logs = list(config.log_path.glob("*.log"))
+        assert len(logs) == 1
+        before = logs[0].read_bytes()
+        request_count = len(remote.requests)
+        second, _ = launch(tmp_path, "second-cli", second_data, mode="cli-once", extra=args)
+        try:
+            output = second.communicate(timeout=15)[0]
+            assert second.returncode == 1, output
+            assert "Destination ownership error" in output
+            assert len(remote.requests) == request_count
+            assert logs[0].read_bytes() == before
+            assert not (tmp_path / "second").exists()
+        finally:
+            stop(second)
+        output = first.communicate("release\n", timeout=15)[0]
+        assert first.returncode == 0, output
+        retry, _ = launch(tmp_path, "retry-cli", second_data, mode="cli-once", extra=args)
+        try:
+            output = retry.communicate(timeout=15)[0]
+            assert retry.returncode == 0, output
+            assert (tmp_path / "second/a/two.txt").read_bytes() == b"bravo"
+        finally:
+            stop(retry)
+    finally:
+        stop(first)
+
+
+def test_cli_download_can_share_a_running_mirrors_log_directory(remote, config, tmp_path):
+    remote.files = {"a/one.txt": b"alpha", "b/two.txt": b"bravo"}
+    data = json.loads(config.model_dump_json())
+    first, ready = launch(tmp_path, "mirror-cli", data, mode="cli-hold", extra=("--dir", "a"))
+    try:
+        wait_ready(first, ready)
+        download_root = remote.url.replace("127.0.0.1", "files.example")
+        download = dict(
+            data,
+            mode="download",
+            base_url=download_root,
+            download_url=download_root + "b/two.txt",
+            dest_path=str(tmp_path / "downloaded"),
+        )
+        second, _ = launch(tmp_path, "download-cli", download, mode="cli-once")
+        try:
+            output = second.communicate(timeout=15)[0]
+            assert second.returncode == 0, output
+            assert first.poll() is None
+            assert (tmp_path / "downloaded/b/two.txt").read_bytes() == b"bravo"
+        finally:
+            stop(second)
+        output = first.communicate("release\n", timeout=15)[0]
+        assert first.returncode == 0, output
+    finally:
+        stop(first)
+
+
+@pytest.mark.parametrize("shared_log", [False, True])
+def test_log_directory_fallback_keeps_file_ownership(
+    remote, config, tmp_path, monkeypatch, shared_log
+):
+    remote.files = {"one.txt": b"expected"}
+    blocked_parent = tmp_path / "not-a-directory"
+    blocked_parent.write_bytes(b"preserved")
+    config.log_path = blocked_parent / "logs"
+    config.use_shared_log = shared_log
+    monkeypatch.setattr(
+        "mirror_url._core._base.tempfile.gettempdir", lambda: str(tmp_path / "temp")
+    )
+    with MirrorURL(config) as mirror:
+        assert mirror.sync()
+        assert mirror.log_path.is_relative_to(tmp_path / "temp")
+        assert mirror.cache_file.parent == mirror.log_path
+        assert json.loads(mirror.cache_file.read_text(encoding="utf-8"))
+        with pytest.raises(DestinationLockError):
+            DestinationLock([mirror.cache_file])
+        independent = DestinationLock([mirror.log_path / "independent.log"])
+        independent.close()
+        assert len(list(mirror.log_path.glob("*.log"))) == (0 if shared_log else 1)
+    DestinationLock([mirror.cache_file]).close()
+    assert blocked_parent.read_bytes() == b"preserved"
 
 
 def test_simultaneous_start_has_exactly_one_owner(tmp_path):

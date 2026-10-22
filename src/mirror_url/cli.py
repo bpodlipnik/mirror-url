@@ -61,7 +61,7 @@ from .constants import (
     TARGET_BATCH_TIME_SECONDS,
 )
 from .core import MirrorURL
-from .destination_lock import MirrorFileHandler, run_ownership
+from .destination_lock import MirrorFileHandler, current_run_lock, run_ownership
 from .directory_selection import compile_directory_patterns, resolve_directory_selection
 from .enums import CleanupPolicy, ScanMode
 from .exceptions import (
@@ -110,8 +110,11 @@ def setup_shared_logging(
             + summary
         )
     log_filename = f"{safe}_{timestamp}.log"
-    Path(args.log_path).mkdir(parents=True, exist_ok=True)
     log_path = Path(args.log_path) / log_filename
+    guard = current_run_lock()
+    if guard is not None:
+        guard.add_paths([log_path])
+    log_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Create file handler (always)
     file_handler = MirrorFileHandler(str(log_path), mode="a", encoding="utf-8")
@@ -420,6 +423,9 @@ def main() -> None:
     with ExitStack() as ownership:
         try:
             _main(ownership)
+        except DestinationLockError as error:
+            print(f"Destination ownership error: {error}", file=sys.stderr)
+            sys.exit(1)
         finally:
             _close_run_handlers([handler for handler in _log_files if handler not in previous])
 
@@ -1371,7 +1377,7 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
             for part in filter(None, download_config.dir_suffix.split("/")):
                 target /= PathSafety._safe_filename(part, max_len=download_config.max_filename_len)
             target = PathSafety._resolve_destination_root(target)
-            ownership.enter_context(run_ownership([target, download_config.log_path]))
+            ownership.enter_context(run_ownership([target]))
             args.log_file = args.log_file or "download"
             display_settings = _effective_args(args, explicit_dests, download_config)
             display_settings.dest_path = target
@@ -1412,10 +1418,11 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
             sys.exit(1)
         return
 
-    # Reserve selected roots and all shared output before even the logging
-    # header writes. Per-suffix MirrorURL instances borrow this run's ownership.
+    # Reserve selected roots and configured shared state before logging. Log
+    # and cache files join the same ownership before access, allowing unrelated
+    # jobs to share their parent directory. Suffix instances borrow this run.
     settings = effective if effective is not None else args
-    resources = [Path(args.log_path)]
+    resources: List[Path] = []
     try:
         for suffix in [""] if args.dir_regex else args.dir_suffix or [""]:
             target = Path(args.dest_path)
