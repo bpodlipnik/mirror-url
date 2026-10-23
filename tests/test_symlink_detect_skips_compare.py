@@ -27,6 +27,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+
 from mirror_url._core.report import ReportMixin
 from mirror_url.metrics import MetricsCollector
 from mirror_url.primitives import AtomicCounter, AtomicSize
@@ -44,7 +46,9 @@ class _StubMirror(ReportMixin):
     short-circuit) touch, plus a spy on the per-file compare step that
     must never run in detect mode."""
 
-    def __init__(self, handle_symlinks, symlink_mode, remote_files, symlinks_detected=0):
+    def __init__(
+        self, handle_symlinks, symlink_mode, remote_files, symlinks_detected=0, metrics=False
+    ):
         self.connection_manager = object()
         self.connection_ok = True
         self.config = SimpleNamespace(
@@ -55,6 +59,7 @@ class _StubMirror(ReportMixin):
             symlink_mode=symlink_mode,
             dir_suffix=None,
             progress_bar=False,
+            metrics=metrics,
         )
         self.metrics = MetricsCollector()
         self.metrics.metrics["symlinks_detected"] = symlinks_detected
@@ -101,33 +106,47 @@ def test_symlink_mode_detect_skips_per_file_compare():
     assert mirror.check_files_called is False
 
 
-def test_symlink_mode_skip_still_runs_the_compare_step():
+@pytest.mark.parametrize("metrics", [False, True])
+def test_symlink_mode_skip_still_runs_the_compare_step(metrics, caplog):
     """Only 'detect' gets the short-circuit -- 'skip'/'follow' still need
     the normal dry-run/real compare step to know what to download.
     sync() catches exceptions internally and returns False, so we check
     the spy flag directly rather than expecting the exception to
     propagate."""
+    caplog.set_level("INFO")
     mirror = _StubMirror(
         handle_symlinks=True,
         symlink_mode="skip",
         remote_files=["https://example.test/f0.dat"],
+        metrics=metrics,
     )
 
-    mirror.sync()
+    assert mirror.sync() is False
 
     assert mirror.check_files_called is True
+    messages = [record.getMessage() for record in caplog.records]
+    assert messages.count("SUMMARY:") == 1
+    assert messages.count("METRICS SUMMARY:") == int(metrics)
+    assert "_SpyCalled" in caplog.text and "AttributeError" not in caplog.text
 
 
-def test_handle_symlinks_off_still_runs_the_compare_step():
+@pytest.mark.parametrize("metrics", [False, True])
+def test_handle_symlinks_off_still_runs_the_compare_step(metrics, caplog):
     """detect's short-circuit requires handle_symlinks=True -- leaving
     symlink_mode at 'detect' with handle_symlinks off (its default state)
     must not accidentally trigger the short-circuit."""
+    caplog.set_level("INFO")
     mirror = _StubMirror(
         handle_symlinks=False,
         symlink_mode="detect",
         remote_files=["https://example.test/f0.dat"],
+        metrics=metrics,
     )
 
-    mirror.sync()
+    assert mirror.sync() is False
 
     assert mirror.check_files_called is True
+    messages = [record.getMessage() for record in caplog.records]
+    assert messages.count("SUMMARY:") == 1
+    assert messages.count("METRICS SUMMARY:") == int(metrics)
+    assert "_SpyCalled" in caplog.text and "AttributeError" not in caplog.text
