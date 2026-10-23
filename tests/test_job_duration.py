@@ -11,6 +11,7 @@ from mirror_url import cli
 from mirror_url._core._base import _MirrorBase
 from mirror_url.destination_lock import DestinationLock
 from mirror_url.run_report import RunReport
+from mirror_url.utils import format_duration
 from test_transfer_backends import backend as backend
 from test_transfer_backends import origin as origin
 
@@ -157,7 +158,9 @@ def test_real_cli_total_finishes_after_owned_shutdown(
     assert (destination / "a").read_bytes() == payload
     assert not list(destination.rglob("*.part")) and not list(destination.rglob("work_*"))
     if not shutdown_failure:
-        assert output.err.count("SUMMARY:") == 1
+        assert output.err.count("SUMMARY:") == 2
+        assert output.err.count("METRICS SUMMARY:") == 1
+        assert "Duration: 0h 0m 15s" in output.err
         assert "Total duration: 15.000s" in output.err
         assert "Downloads time: 5.000s" in output.err
         assert output.err.index("SUMMARY:") < output.err.index("Closed all 1 connection pools")
@@ -234,5 +237,7 @@ def test_final_json_and_logged_summary_use_the_frozen_job_clock(
     assert run["elapsed_seconds"] > run["phase_seconds"]["downloads"]
     log = "\n".join(path.read_text(encoding="utf-8") for path in logs.glob("*.log"))
     assert f"Total duration: {run['elapsed_seconds']:.3f}s" in log
-    assert log.count("SUMMARY:") == 1
+    assert log.count("SUMMARY:") == 2
+    assert log.count("METRICS SUMMARY:") == 1
+    assert f"Duration: {format_duration(run['elapsed_seconds'])}" in log
     assert (destination / "a").read_bytes() == payload

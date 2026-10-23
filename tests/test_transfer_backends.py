@@ -1435,7 +1435,8 @@ def test_cli_concurrent_logging_during_handler_setup_respects_console_preference
     assert ("SUMMARY:" in captured.err) is print_logs
     if print_logs:
         assert captured.out == ""
-        assert captured.err.count("SUMMARY:") == 1
+        assert captured.err.count("SUMMARY:") == 2
+        assert captured.err.count("METRICS SUMMARY:") == 1
     else:
         assert json.loads(captured.out)["files_downloaded"] == 1
     logs = list((tmp_path / "logs").glob("download_*.log"))

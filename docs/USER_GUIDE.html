@@ -1335,14 +1335,19 @@ files count only successful publications and their receipt entries.</p>
 as KiB/s, MiB/s and GiB/s. One MiB is 1,048,576 bytes; the displayed
 calculations and numeric bandwidth/chunk-size settings continue to use
 powers of 1024.</p>
-<p>The completion log uses the same <strong>SUMMARY</strong> layout as
-mirror mode. It shows requested files, successful missing/existing-file
-downloads, failures, downloaded bytes, measured download
-preparation/download/cleanup times, download throughput and total
-duration. Throughput uses the download phase; total duration includes
-job initialization, preparation, cleanup and transfer-resource shutdown,
-using the same boundaries as mirror mode. The field order and labels
-match mirror mode. Direct downloads mark discovery and metadata as not
+<p>The completion log uses the same two blocks as mirror mode.
+<strong>SUMMARY</strong> gives downloaded, skipped and failed totals,
+downloaded <strong>Size</strong>, <strong>Speed</strong> and a readable
+<strong>Duration</strong>. <strong>METRICS SUMMARY</strong> shows
+requested files, successful missing/existing-file downloads, failures,
+downloaded bytes, measured download preparation/download/cleanup times,
+download throughput and total duration. Throughput uses the download
+phase; total duration includes job initialization, preparation, cleanup
+and transfer-resource shutdown, using the same boundaries as mirror
+mode. The field order and labels match mirror mode. Compact
+<strong>Speed</strong> uses the same throughput, and
+<strong>Duration</strong> formats the same total duration as hours,
+minutes and seconds. Direct downloads mark discovery and metadata as not
 performed; their scan, freshness and obsolete-file counters remain zero.
 Files requested records the supplied URL count. Existing-file downloads
 are counted from local file presence; they do not imply the remote file
@@ -2151,11 +2156,19 @@ not make the heuristic a definitive detector.</p>
 <hr />
 <h2 id="monitoring-and-metrics">Monitoring and metrics</h2>
 <ul>
-<li><p><strong>Run summary.</strong> A normal mirror sync logs one
-<code>SUMMARY</code> block at INFO level, including its result and any
-download, scan or cleanup failure. File outcomes distinguish existing
-files checked and current, freshness checks skipped, missing files
-downloaded, changed files downloaded, and downloads made because
+<li><p><strong>Run summary.</strong> A normal mirror sync logs a compact
+<code>SUMMARY</code> at INFO level: <strong>Downloaded</strong>,
+<strong>Skipped</strong>, <strong>Failed</strong>,
+<strong>Size</strong>, <strong>Speed</strong> and
+<strong>Duration</strong>. These use the existing run counters and
+timer; there is no <strong>On disk</strong> calculation or destination
+scan. <strong>Size</strong> counts successfully published bytes,
+<strong>Speed</strong> uses download-phase throughput, and
+<strong>Duration</strong> formats the total job time as hours, minutes
+and seconds. The following <code>METRICS SUMMARY</code> gives the result
+and any download, scan or cleanup failure. File outcomes distinguish
+existing files checked and current, freshness checks skipped, missing
+files downloaded, changed files downloaded, and downloads made because
 freshness could not be established. Other skips include HTTP resources
 that became unavailable; they are not described as current. Download
 counts record successful publication, rather than queued or failed

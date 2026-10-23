@@ -125,7 +125,12 @@ def test_download_summary_has_no_separate_details_footer(tmp_path, caplog, verif
         }
     )
     logging.info(format_download_summary(config, summary, tmp_path, run))
-    assert "SUMMARY:" in caplog.text and "Result: SUCCESS" in caplog.text
+    assert caplog.records[-1].getMessage().splitlines().count("SUMMARY:") == 1
+    assert caplog.records[-1].getMessage().splitlines().count("METRICS SUMMARY:") == 1
+    assert "Result: SUCCESS" in caplog.text
+    assert "  Downloaded: 1\n  Skipped: 0\n  Failed: 0\n  Size: 8.89 GiB" in caplog.text
+    assert "  Speed: 113.76 MiB/s\n  Duration: 0h 1m 30s" in caplog.text
+    assert "On disk" not in caplog.text
     assert "Downloaded bytes: 8.89 GiB" in caplog.text
     assert "Download throughput: 113.76 MiB/s" in caplog.text and "90.831s" in caplog.text
     for extra in (
@@ -179,6 +184,8 @@ def test_failed_zero_duration_and_dry_run_summaries(tmp_path, caplog):
         )
     )
     assert "Result: FAILED" in caplog.text and "Download throughput: n/a" in caplog.text
+    assert "  Downloaded: 0\n  Skipped: 0\n  Failed: 1\n  Size: 0.00 B" in caplog.text
+    assert "  Speed: n/a\n  Duration: 0h 0m 0s" in caplog.text
     assert "Missing files downloaded: n/a" in caplog.text
     assert "Existing files downloaded: n/a" in caplog.text
     caplog.clear()
@@ -187,6 +194,8 @@ def test_failed_zero_duration_and_dry_run_summaries(tmp_path, caplog):
     )
     assert "Result: DRY RUN" in caplog.text and "Files that would be downloaded: 2" in caplog.text
     assert "Files downloaded:" not in caplog.text
+    assert "  Downloaded: 0\n  Skipped: 0\n  Failed: 0\n  Size: 0.00 B" in caplog.text
+    assert "  Speed: n/a\n  Duration: n/a" in caplog.text
 
 
 def test_download_summary_retains_mirror_field_order_and_labels(tmp_path):
@@ -285,6 +294,7 @@ def test_both_summaries_use_iec_labels_without_changing_bytes_or_throughput(
     )
     assert f"Downloaded bytes: {amount}" in text
     assert f"Download throughput: {rate}" in text
+    assert f"  Size: {amount}\n  Speed: {rate}\n  Duration: 0h 0m 8s" in text
     after = metrics.get_summary()
     assert after["bytes_downloaded"] == before["bytes_downloaded"] == size
     assert after["run"] == before["run"]

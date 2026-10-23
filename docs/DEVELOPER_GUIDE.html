@@ -1352,17 +1352,22 @@ pass through the filter.</p>
 logs, using the destination already validated by the CLI. Mirror and
 known-URL completion logs share <code>MetricsCollector.report()</code>,
 <code>_format_run_summary()</code> and the <code>RunReport</code>
-coordinator clock. Known-URL summaries retain mirror's field order and
-subsystem counters, marking discovery/metadata as not performed and
-reporting zero scan, cache, freshness and obsolete-file work. Known-URL
-preparation, downloads and cleanup are measured separately; cleanup
-includes receipt saving, progress timer shutdown and transfer guard
-cleanup. The outer CLI owner releases the run's kernel locks after
-completion output and log closure. Missing versus existing publication
-counts use the preflight local file identity; existing downloads are not
-classified as changed without a freshness check. The adapter prepares
-metrics and delegates formatting to
-<code>MetricsCollector.report()</code>; it appends no separate
+coordinator clock. A compact <code>SUMMARY:</code> precedes
+<code>METRICS SUMMARY:</code>. Both use one metrics snapshot: compact
+counts and size reuse the aggregate counters, speed uses
+<code>download_throughput</code>, and readable duration uses the frozen
+<code>elapsed_seconds</code>. Formatting performs no destination sizing
+or extra filesystem or network queries. Known-URL summaries retain
+mirror's field order and subsystem counters, marking discovery/metadata
+as not performed and reporting zero scan, cache, freshness and
+obsolete-file work. Known-URL preparation, downloads and cleanup are
+measured separately; cleanup includes receipt saving, progress timer
+shutdown and transfer guard cleanup. The outer CLI owner releases the
+run's kernel locks after completion output and log closure. Missing
+versus existing publication counts use the preflight local file
+identity; existing downloads are not classified as changed without a
+freshness check. The adapter prepares metrics and delegates formatting
+to <code>MetricsCollector.report()</code>; it appends no separate
 download-details footer. Shared completion helpers in
 <code>metrics.py</code> supply the sync outcome, processed scope and
 pool-closure messages for both CLI paths.

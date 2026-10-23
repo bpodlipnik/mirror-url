@@ -941,7 +941,11 @@ The CLI uses the shared startup header and
 `metrics.format_download_summary()` for readable completion logs, using the
 destination already validated by the CLI. Mirror and known-URL completion logs
 share `MetricsCollector.report()`, `_format_run_summary()` and the `RunReport`
-coordinator clock. Known-URL summaries retain mirror's field order and subsystem
+coordinator clock. A compact `SUMMARY:` precedes `METRICS SUMMARY:`. Both use one
+metrics snapshot: compact counts and size reuse the aggregate counters, speed
+uses `download_throughput`, and readable duration uses the frozen
+`elapsed_seconds`. Formatting performs no destination sizing or extra filesystem
+or network queries. Known-URL summaries retain mirror's field order and subsystem
 counters, marking discovery/metadata as not performed and reporting zero
 scan, cache, freshness and obsolete-file work. Known-URL
 preparation, downloads and cleanup are measured separately; cleanup includes

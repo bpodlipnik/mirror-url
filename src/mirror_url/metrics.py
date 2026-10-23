@@ -605,8 +605,23 @@ class MetricsCollector:
 def _format_run_summary(
     summary: dict, run: dict, *, prefix: str = "", known_urls: bool = False
 ) -> list[str]:
-    """Render the same completion layout for mirror and known-URL runs."""
-    lines = [f"{prefix}SUMMARY:", f"{prefix}  Result: {run['status'].upper()}"]
+    """Render compact totals and detailed metrics from the same run snapshot."""
+    elapsed = run["elapsed_seconds"]
+    throughput = run["download_throughput"]
+    speed = f"{format_bytes(throughput)}/s" if throughput is not None else "n/a"
+    duration = format_duration(elapsed) if elapsed is not None else "n/a"
+    lines = [
+        f"{prefix}SUMMARY:",
+        f"{prefix}  Downloaded: {summary['files_downloaded']}",
+        f"{prefix}  Skipped: {summary['files_skipped']}",
+        f"{prefix}  Failed: {summary['files_failed']}",
+        f"{prefix}  Size: {format_bytes(summary['bytes_downloaded'])}",
+        f"{prefix}  Speed: {speed}",
+        f"{prefix}  Duration: {duration}",
+        f"{prefix}{'-' * 50}",
+        f"{prefix}METRICS SUMMARY:",
+        f"{prefix}  Result: {run['status'].upper()}",
+    ]
     found = "not performed" if known_urls else run["remote_files_found"]
     lines.append(f"{prefix}  Remote files found: {found}")
     if known_urls:
@@ -671,8 +686,6 @@ def _format_run_summary(
         if known_urls and phase == "metadata":
             duration = "not performed"
         lines.append(f"{prefix}  {phase.capitalize()} time: {duration}")
-    throughput = run["download_throughput"]
-    speed = f"{format_bytes(throughput)}/s" if throughput is not None else "n/a"
     lines.append(f"{prefix}  Download throughput: {speed}")
     if "transfer_stage_seconds" in run:
         lines.append(f"{prefix}  Transfer stage times: worker sums; concurrent work overlaps")
@@ -680,7 +693,6 @@ def _format_run_summary(
             seconds = run["transfer_stage_seconds"].get(stage)
             value = f"{seconds:.3f}s" if seconds is not None else "not performed"
             lines.append(f"{prefix}  {label} (sum): {value}")
-    elapsed = run["elapsed_seconds"]
     lines.append(f"{prefix}  Total duration: {f'{elapsed:.3f}s' if elapsed is not None else 'n/a'}")
     lines.append(f"{prefix}  Directories scanned: {summary['directories_processed']}")
     return lines
