@@ -302,22 +302,30 @@ def test_all_transfer_paths_share_completion_and_hash_reporting(
                 assert mirror.sync()
                 assert "SHA-256 hashes recorded: 0" in mirror.metrics.report()
         logs = "".join(p.read_text(encoding="utf-8") for p in config.log_path.glob("*.log"))
+        messages = [
+            line.split(" [INFO] ", 1)[1] for line in logs.splitlines() if " [INFO] " in line
+        ]
     else:
         result = download_url_list(config)
         assert result["success"] and result["sha256_hashes_recorded"] == int(verify)
         summary = format_download_summary(config, result, config.dest_path)
         proof = receipt(result, config.dest_path / "a")
         logs = caplog.text
+        messages = [record.getMessage() for record in caplog.records]
     expected = hashlib.sha256(ranges.payload).hexdigest() if verify else None
     assert proof.get("sha256") == expected
     assert (config.dest_path / "a").read_bytes() == ranges.payload
-    assert logs.count("Downloaded:") == 1
+    downloaded = [message for message in messages if message.startswith("Downloaded: ")]
+    assert len(downloaded) == 1
+    assert downloaded[0].startswith(f"Downloaded: {config.dest_path / 'a'} (")
     assert (f"; SHA-256: {expected}" in logs) is verify
     assert (
         "SHA-256 receipt hashing: " + ("enabled" if verify else "disabled (use --verify-content)")
         in summary
     )
     assert f"SHA-256 hashes recorded: {int(verify)}" in summary
+    assert "  Downloaded: 1\n" in summary
+    assert "METRICS SUMMARY:" in summary
     assert_no_scratch(config.dest_path)
 
 
