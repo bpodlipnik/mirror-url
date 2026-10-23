@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- Separate compact `SUMMARY` totals from detailed `METRICS SUMMARY`. Normal mirror
+  and known-URL completion logs show only the compact section by default; add
+  `--metrics` or set `metrics: true` to include detailed metrics. Log each line
+  separately so every line receives a timestamp and log level. Reporting reuses
+  existing counters and timing without an `On disk` scan; JSON metrics export
+  remains independent of the text-output setting.
+
 ## [3.9.8] - 2026-10-23
 
 ### Changed

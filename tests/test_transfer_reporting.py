@@ -12,7 +12,12 @@ import pytest
 
 from mirror_url import MirrorConfig
 from mirror_url import progress as report
-from mirror_url.metrics import MetricsCollector, format_download_summary
+from mirror_url.metrics import (
+    MetricsCollector,
+    format_download_metrics,
+    format_download_summary,
+    log_download_report,
+)
 from mirror_url.run_report import RunReport
 from mirror_url.utils import format_bytes
 
@@ -98,6 +103,7 @@ def test_download_summary_has_no_separate_details_footer(tmp_path, caplog, verif
         dest_path=tmp_path,
         log_path=tmp_path,
         verify_content=verify,
+        metrics=True,
     )
     summary = {
         "success": True,
@@ -124,15 +130,18 @@ def test_download_summary_has_no_separate_details_footer(tmp_path, caplog, verif
             "elapsed_seconds": summary["elapsed_seconds"],
         }
     )
-    logging.info(format_download_summary(config, summary, tmp_path, run))
-    assert caplog.records[-1].getMessage().splitlines().count("SUMMARY:") == 1
-    assert caplog.records[-1].getMessage().splitlines().count("METRICS SUMMARY:") == 1
-    assert "Result: SUCCESS" in caplog.text
-    assert "  Downloaded: 1\n  Skipped: 0\n  Failed: 0\n  Size: 8.89 GiB" in caplog.text
-    assert "  Speed: 113.76 MiB/s\n  Duration: 0h 1m 30s" in caplog.text
-    assert "On disk" not in caplog.text
-    assert "Downloaded bytes: 8.89 GiB" in caplog.text
-    assert "Download throughput: 113.76 MiB/s" in caplog.text and "90.831s" in caplog.text
+    log_download_report(config, summary, tmp_path, run)
+    messages = [record.getMessage() for record in caplog.records]
+    text = "\n".join(messages)
+    assert messages.count("SUMMARY:") == 1
+    assert messages.count("METRICS SUMMARY:") == 1
+    assert all("\n" not in message for message in messages)
+    assert "Result: SUCCESS" in text
+    assert "  Downloaded: 1\n  Skipped: 0\n  Failed: 0\n  Size: 8.89 GiB" in text
+    assert "  Speed: 113.76 MiB/s\n  Duration: 0h 1m 30s" in text
+    assert "On disk" not in text
+    assert "Downloaded bytes: 8.89 GiB" in text
+    assert "Download throughput: 113.76 MiB/s" in text and "90.831s" in text
     for extra in (
         "Backend:",
         "Destination:",
@@ -141,26 +150,22 @@ def test_download_summary_has_no_separate_details_footer(tmp_path, caplog, verif
         "SHA-256 time",
         "Ownership receipts:",
     ):
-        assert extra not in caplog.text
-    assert (
-        caplog.records[-1]
-        .getMessage()
-        .endswith(
-            "  Cache signatures: 0\n  RGET-LIST used: False\n  Fast parses: 0\n  LXML parses: 0"
-        )
+        assert extra not in text
+    assert text.rstrip("\n- ").endswith(
+        "  Cache signatures: 0\n  RGET-LIST used: False\n  Fast parses: 0\n  LXML parses: 0"
     )
-    assert "Download preparation time: 1.000s" in caplog.text
-    assert "Downloads time: 80.000s" in caplog.text
-    assert "Cleanup time: 9.831s" in caplog.text
-    assert "Missing files downloaded: 1" in caplog.text
-    assert "Existing files downloaded: 0" in caplog.text
-    assert "Discovery elapsed time: not performed" in caplog.text
-    assert "Metadata time: not performed" in caplog.text
-    assert "Freshness checks skipped: 0" in caplog.text
-    assert "Directories scanned: 0" in caplog.text
-    assert "Directory listing GET calls: 0" in caplog.text
-    assert "DOWNLOAD SUMMARY:" not in caplog.text
-    assert "{'" not in caplog.text
+    assert "Download preparation time: 1.000s" in text
+    assert "Downloads time: 80.000s" in text
+    assert "Cleanup time: 9.831s" in text
+    assert "Missing files downloaded: 1" in text
+    assert "Existing files downloaded: 0" in text
+    assert "Discovery elapsed time: not performed" in text
+    assert "Metadata time: not performed" in text
+    assert "Freshness checks skipped: 0" in text
+    assert "Directories scanned: 0" in text
+    assert "Directory listing GET calls: 0" in text
+    assert "DOWNLOAD SUMMARY:" not in text
+    assert "{'" not in text
 
 
 def test_failed_zero_duration_and_dry_run_summaries(tmp_path, caplog):
@@ -169,7 +174,7 @@ def test_failed_zero_duration_and_dry_run_summaries(tmp_path, caplog):
         base_url="https://files.example/root", dest_path=tmp_path, log_path=tmp_path
     )
     logging.info(
-        format_download_summary(
+        format_download_metrics(
             config,
             {
                 "success": False,
@@ -184,18 +189,14 @@ def test_failed_zero_duration_and_dry_run_summaries(tmp_path, caplog):
         )
     )
     assert "Result: FAILED" in caplog.text and "Download throughput: n/a" in caplog.text
-    assert "  Downloaded: 0\n  Skipped: 0\n  Failed: 1\n  Size: 0.00 B" in caplog.text
-    assert "  Speed: n/a\n  Duration: 0h 0m 0s" in caplog.text
     assert "Missing files downloaded: n/a" in caplog.text
     assert "Existing files downloaded: n/a" in caplog.text
     caplog.clear()
     logging.info(
-        format_download_summary(config, {"success": True, "dry_run": True, "files": 2}, tmp_path)
+        format_download_metrics(config, {"success": True, "dry_run": True, "files": 2}, tmp_path)
     )
     assert "Result: DRY RUN" in caplog.text and "Files that would be downloaded: 2" in caplog.text
     assert "Files downloaded:" not in caplog.text
-    assert "  Downloaded: 0\n  Skipped: 0\n  Failed: 0\n  Size: 0.00 B" in caplog.text
-    assert "  Speed: n/a\n  Duration: n/a" in caplog.text
 
 
 def test_download_summary_retains_mirror_field_order_and_labels(tmp_path):
@@ -207,7 +208,7 @@ def test_download_summary_retains_mirror_field_order_and_labels(tmp_path):
     metrics.run_report.finish("success")
     run = metrics.run_report.snapshot()
     mirror = metrics.report()
-    download = format_download_summary(
+    download = format_download_metrics(
         config,
         {
             "success": True,
@@ -290,11 +291,18 @@ def test_both_summaries_use_iec_labels_without_changing_bytes_or_throughput(
     text = (
         metrics.report()
         if mode == "mirror"
-        else format_download_summary(config, before, tmp_path, before["run"], metrics=metrics)
+        else format_download_metrics(config, before, tmp_path, before["run"], metrics=metrics)
     )
     assert f"Downloaded bytes: {amount}" in text
     assert f"Download throughput: {rate}" in text
-    assert f"  Size: {amount}\n  Speed: {rate}\n  Duration: 0h 0m 8s" in text
+    compact = (
+        metrics.summary()
+        if mode == "mirror"
+        else format_download_summary(config, before, tmp_path, before["run"], metrics=metrics)
+    )
+    assert f"  Size: {amount}\n  Speed: {rate}\n  Duration: 0h 0m 8s" in compact
+    assert "METRICS SUMMARY:" not in compact
+    assert "\nSUMMARY:" not in text
     after = metrics.get_summary()
     assert after["bytes_downloaded"] == before["bytes_downloaded"] == size
     assert after["run"] == before["run"]
@@ -795,6 +803,34 @@ def test_summary_reuses_collector_without_overwriting_lifetime_counters(tmp_path
             "peak_parallel_chunks": 4,
         },
     }
-    text = format_download_summary(config, summary, tmp_path, metrics=metrics)
+    text = format_download_metrics(config, summary, tmp_path, metrics=metrics)
     assert "Chunk downloads: 8" in text and "Peak parallel chunks: 4" in text
     assert metrics.metrics == before
+
+
+@pytest.mark.parametrize("dry_run,success", [(False, True), (False, False), (True, True)])
+def test_known_url_compact_and_metrics_formatters_are_independent(tmp_path, dry_run, success):
+    config = MirrorConfig(base_url="https://example.com/", dest_path=tmp_path, log_path=tmp_path)
+    result = {
+        "success": success,
+        "dry_run": dry_run,
+        "files": 2,
+        "files_downloaded": 0 if dry_run else 1,
+        "files_failed": int(not success),
+        "bytes_downloaded": 0 if dry_run else 1024,
+        "elapsed_seconds": 90,
+    }
+    compact = format_download_summary(config, result, tmp_path)
+    detail = format_download_metrics(config, result, tmp_path)
+    assert compact.splitlines() == [
+        "SUMMARY:",
+        f"  Downloaded: {result['files_downloaded']}",
+        "  Skipped: 0",
+        f"  Failed: {int(not success)}",
+        f"  Size: {'0.00 B' if dry_run else '1.00 KiB'}",
+        "  Speed: n/a",
+        "  Duration: 0h 1m 30s",
+    ]
+    assert detail.splitlines()[0] == "METRICS SUMMARY:"
+    assert "SUMMARY:" not in detail.splitlines()[1:]
+    assert "On disk" not in compact and "METRICS SUMMARY:" not in compact

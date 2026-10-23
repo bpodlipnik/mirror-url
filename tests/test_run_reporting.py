@@ -22,7 +22,9 @@ from test_transfer_backends import origin as origin
 
 
 @pytest.mark.parametrize("prefix", ["", "[predictive] "])
-def test_compact_totals_include_all_outcomes_and_reuse_the_finished_snapshot(monkeypatch, prefix):
+def test_compact_totals_include_all_outcomes_and_reuse_the_finished_snapshot(
+    monkeypatch, prefix, caplog
+):
     now = [100.0]
     monkeypatch.setattr("mirror_url.run_report.time.perf_counter", lambda: now[0])
     metrics = MetricsCollector()
@@ -62,10 +64,13 @@ def test_compact_totals_include_all_outcomes_and_reuse_the_finished_snapshot(mon
         return result
 
     monkeypatch.setattr(metrics, "get_summary", snapshot)
-    text = metrics.report(prefix=prefix)
+    with caplog.at_level(logging.INFO):
+        metrics.log_report(prefix, include_metrics=True)
+    text = "\n".join(record.getMessage() for record in caplog.records)
+    assert all("\n" not in record.getMessage() for record in caplog.records)
     assert len(snapshots) == 1
     assert snapshots[0]["run"] == before["run"]
-    lines = text.splitlines()
+    lines = text.splitlines()[1:-1]
     assert lines[:10] == [
         f"{prefix}SUMMARY:",
         f"{prefix}  Downloaded: 5",
@@ -186,6 +191,7 @@ def test_repeat_run_reports_selected_current_and_unchecked_files_separately(
     remote.files = {"selected": b"original", "keep": b"original"}
     config.cache_html = False
     config.use_shared_log = True
+    config.metrics = True
     config.missing_files = True
     config.check_files = ["selected", "not-discovered"]
     config.sequential_downloads = mode == "sequential"
@@ -213,7 +219,8 @@ def test_repeat_run_reports_selected_current_and_unchecked_files_separately(
         assert "Selected paths not discovered: 1" in caplog.text
         assert caplog.text.count("SUMMARY:") == 2
         assert caplog.text.count("METRICS SUMMARY:") == 1
-        assert "  Downloaded: 0\n  Skipped: 2\n  Failed: 0\n  Size: 0.00 B" in caplog.text
+        messages = "\n".join(record.getMessage() for record in caplog.records)
+        assert "  Downloaded: 0\n  Skipped: 2\n  Failed: 0\n  Size: 0.00 B" in messages
         assert "  Speed: n/a\n" in caplog.text
         assert "Download throughput: n/a" in caplog.text
         assert "Total duration:" in caplog.text
@@ -469,6 +476,7 @@ def test_dry_run_after_publication_does_not_report_previous_downloads(remote, co
     remote.files = {"selected": b"original", "keep": b"original"}
     config.cache_html = False
     config.use_shared_log = True
+    config.metrics = True
     config.sequential_downloads = True
     config.missing_files = True
     config.check_files = ["selected"]
@@ -496,6 +504,7 @@ def test_failure_during_finalization_does_not_emit_a_success_summary(
 ):
     remote.files = {"file": b"original"}
     config.use_shared_log = True
+    config.metrics = True
     config.sequential_downloads = True
     with MirrorURL(config) as mirror:
 
@@ -510,3 +519,26 @@ def test_failure_during_finalization_does_not_emit_a_success_summary(
         assert "Result: SUCCESS" not in caplog.text
         assert caplog.text.count("SUMMARY:") == 2
         assert caplog.text.count("METRICS SUMMARY:") == 1
+
+
+@pytest.mark.parametrize("include_metrics", [False, True])
+def test_compact_default_does_not_format_metrics(monkeypatch, caplog, include_metrics):
+    metrics = MetricsCollector()
+    metrics.run_report.start(metrics.metrics, 0)
+    metrics.run_report.finish("success")
+    detailed = []
+
+    def report(*args, **kwargs):
+        detailed.append(True)
+        return "METRICS SUMMARY:\n  Result: SUCCESS"
+
+    monkeypatch.setattr(metrics, "report", report)
+    with caplog.at_level(logging.INFO):
+        metrics.log_report(include_metrics=include_metrics)
+    messages = [record.getMessage() for record in caplog.records]
+    assert messages.count("SUMMARY:") == 1
+    assert messages.count("METRICS SUMMARY:") == int(include_metrics)
+    assert len(detailed) == int(include_metrics)
+    assert "  Downloaded: 0" in messages and "  Speed: n/a" in messages
+    assert all("\n" not in message for message in messages)
+    assert "On disk" not in caplog.text

@@ -929,7 +929,16 @@ def test_cli_download_json_config_and_override(tmp_path, origin, backend, monkey
     yaml.write_text(json.dumps(values))
     monkeypatch.setattr(
         "sys.argv",
-        ["mirror-url", "--config", str(yaml), "--requests-per-second", "0", "--concurrency", "2"],
+        [
+            "mirror-url",
+            "--metrics",
+            "--config",
+            str(yaml),
+            "--requests-per-second",
+            "0",
+            "--concurrency",
+            "2",
+        ],
     )
     cli.main()
     output = json.loads(capsys.readouterr().out)
@@ -1172,6 +1181,7 @@ def test_cli_print_logs_reports_during_network_wait_then_readable_summary(
         "sys.argv",
         [
             "mirror-url",
+            "--metrics",
             "--mode",
             "download",
             origin.base + "a",
@@ -1237,7 +1247,15 @@ def test_cli_progress_remains_live_during_blocking_finalization(
     monkeypatch.setattr(cli.tempfile, "gettempdir", lambda: str(tmp_path / "logs"))
     monkeypatch.setattr(
         "sys.argv",
-        ["mirror-url", "--mode", "download", origin.base + "a", "--print-logs", "--verify-content"],
+        [
+            "mirror-url",
+            "--metrics",
+            "--mode",
+            "download",
+            origin.base + "a",
+            "--print-logs",
+            "--verify-content",
+        ],
     )
     cli.main()
     captured = capsys.readouterr()
@@ -1285,6 +1303,7 @@ def test_cli_progress_tracks_bytes_while_stream_is_pending(
         "sys.argv",
         [
             "mirror-url",
+            "--metrics",
             "--mode",
             "download",
             origin.base + "a",
@@ -1310,8 +1329,9 @@ def test_cli_progress_tracks_bytes_while_stream_is_pending(
     "flags",
     [[], ["--print-logs", "--quiet"], ["--print-logs"], ["--print-logs", "--progress", "--quiet"]],
 )
+@pytest.mark.parametrize("include_metrics", [False, True])
 def test_cli_failed_download_preserves_json_and_console_preferences(
-    tmp_path, origin, monkeypatch, capsys, flags
+    tmp_path, origin, monkeypatch, capsys, flags, include_metrics
 ):
     # The client rejects this response without consuming its body. End the
     # fixture connection here instead of reading another keepalive request
@@ -1323,14 +1343,25 @@ def test_cli_failed_download_preserves_json_and_console_preferences(
     )
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(cli.tempfile, "gettempdir", lambda: str(tmp_path / "logs"))
-    monkeypatch.setattr("sys.argv", ["mirror-url", "--mode", "download", origin.base + "a", *flags])
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "mirror-url",
+            *(["--metrics"] if include_metrics else []),
+            "--mode",
+            "download",
+            origin.base + "a",
+            *flags,
+        ],
+    )
     with pytest.raises(SystemExit) as error:
         cli.main()
     captured = capsys.readouterr()
     assert error.value.code == 1
     if flags == ["--print-logs"]:
         assert captured.out == ""
-        assert "Files failed: 1" in captured.err
+        assert "  Failed: 1" in captured.err
+        assert ("Files failed: 1" in captured.err) is include_metrics
         assert "Sync failed" in captured.err and "❌ Failed to process: ROOT" in captured.err
         assert "Sync completed successfully" not in captured.err
         assert "Closed all 1 connection pools" in captured.err
@@ -1338,7 +1369,8 @@ def test_cli_failed_download_preserves_json_and_console_preferences(
         result = json.loads(captured.out)
         assert not result["success"] and result["files_failed"] == 1
     assert ("SUMMARY:" in captured.err) is (flags == ["--print-logs"])
-    assert ("Result: FAILED" in captured.err) is (flags == ["--print-logs"])
+    assert ("Result: FAILED" in captured.err) is (include_metrics and flags == ["--print-logs"])
+    assert ("  Failed: 1" in captured.err) is (flags == ["--print-logs"])
     if not flags:
         assert not captured.err
     assert not (tmp_path / "a").exists()
@@ -1382,7 +1414,16 @@ def test_cli_known_url_byte_bar_and_json_stream(
     flags = [flag] + (["--print-logs"] if print_logs else [])
     monkeypatch.setattr(
         "sys.argv",
-        ["mirror-url", "--mode", "download", origin.base + "a", "--backend", backend, *flags],
+        [
+            "mirror-url",
+            "--metrics",
+            "--mode",
+            "download",
+            origin.base + "a",
+            "--backend",
+            backend,
+            *flags,
+        ],
     )
     cli.main()
     captured = capsys.readouterr()
@@ -1401,8 +1442,9 @@ def test_cli_known_url_byte_bar_and_json_stream(
 
 
 @pytest.mark.parametrize("print_logs", [False, True])
+@pytest.mark.parametrize("include_metrics", [False, True])
 def test_cli_concurrent_logging_during_handler_setup_respects_console_preferences(
-    tmp_path, origin, backend, monkeypatch, capsys, print_logs
+    tmp_path, origin, backend, monkeypatch, capsys, print_logs, include_metrics
 ):
     original = cli.MirrorFileHandler
 
@@ -1427,6 +1469,7 @@ def test_cli_concurrent_logging_during_handler_setup_respects_console_preference
             str(tmp_path / "destination"),
             "--log-path",
             str(tmp_path / "logs"),
+            *(["--metrics"] if include_metrics else []),
             *(["--print-logs"] if print_logs else []),
         ],
     )
@@ -1435,12 +1478,24 @@ def test_cli_concurrent_logging_during_handler_setup_respects_console_preference
     assert ("SUMMARY:" in captured.err) is print_logs
     if print_logs:
         assert captured.out == ""
-        assert captured.err.count("SUMMARY:") == 2
-        assert captured.err.count("METRICS SUMMARY:") == 1
+        assert captured.err.count("SUMMARY:") == 1 + int(include_metrics)
+        assert captured.err.count("METRICS SUMMARY:") == int(include_metrics)
     else:
         assert json.loads(captured.out)["files_downloaded"] == 1
     logs = list((tmp_path / "logs").glob("download_*.log"))
     assert len(logs) == 1 and "SUMMARY:" in logs[0].read_text(encoding="utf-8")
+
+    text = logs[0].read_text(encoding="utf-8")
+    assert text.count("METRICS SUMMARY:") == int(include_metrics)
+    lines = text.splitlines()
+    first = next(i for i, line in enumerate(lines) if line.endswith(" [INFO] SUMMARY:"))
+    compact = lines[first : first + 8]
+    assert all(line.startswith("[") and "] [INFO] " in line for line in compact)
+    assert all("On disk" not in line for line in compact)
+    if include_metrics:
+        first = next(i for i, line in enumerate(lines) if line.endswith(" [INFO] METRICS SUMMARY:"))
+        last = next(i for i in range(first + 1, len(lines)) if lines[i].endswith("-" * 50))
+        assert all(line.startswith("[") and "] [INFO] " in line for line in lines[first : last + 1])
 
 
 def test_cli_download_summary_uses_validated_destination(tmp_path, origin, monkeypatch, capsys):
@@ -1450,6 +1505,7 @@ def test_cli_download_summary_uses_validated_destination(tmp_path, origin, monke
         "sys.argv",
         [
             "mirror-url",
+            "--metrics",
             "--mode",
             "download",
             origin.base + "CON/a",
@@ -1728,6 +1784,7 @@ def test_cli_download_uses_mirror_completion_footer_after_real_backend_close(
         "sys.argv",
         [
             "mirror-url",
+            "--metrics",
             "--mode",
             "download",
             origin.base + "a",
@@ -1811,7 +1868,15 @@ def test_cli_dry_run_reports_no_pool_closures(tmp_path, origin, monkeypatch, cap
     monkeypatch.setattr(cli.tempfile, "gettempdir", lambda: str(tmp_path / "logs"))
     monkeypatch.setattr(
         "sys.argv",
-        ["mirror-url", "--mode", "download", origin.base + "a", "--print-logs", "--dry-run"],
+        [
+            "mirror-url",
+            "--metrics",
+            "--mode",
+            "download",
+            origin.base + "a",
+            "--print-logs",
+            "--dry-run",
+        ],
     )
     cli.main()
     captured = capsys.readouterr()

@@ -853,8 +853,12 @@ files</h3>
 <td>Show tqdm progress bars (included in a normal installation). Mirror and known-URL downloads show received bytes and the current transfer stage.</td>
 </tr>
 <tr>
+<td nowrap><samp>--metrics</samp></td>
+<td>Include detailed METRICS SUMMARY after the compact SUMMARY (default: off).</td>
+</tr>
+<tr>
 <td nowrap><samp>--stats</samp></td>
-<td>Accepted for compatibility; does not change the normal completed-sync metrics summary. Quick mode and other early exits use shorter summaries.</td>
+<td>Accepted for compatibility; no effect. Use <code>--metrics</code> for detailed completion metrics.</td>
 </tr>
 <tr>
 <td nowrap><samp>--metrics-json FILE</samp></td>
@@ -1335,23 +1339,26 @@ files count only successful publications and their receipt entries.</p>
 as KiB/s, MiB/s and GiB/s. One MiB is 1,048,576 bytes; the displayed
 calculations and numeric bandwidth/chunk-size settings continue to use
 powers of 1024.</p>
-<p>The completion log uses the same two blocks as mirror mode.
-<strong>SUMMARY</strong> gives downloaded, skipped and failed totals,
-downloaded <strong>Size</strong>, <strong>Speed</strong> and a readable
-<strong>Duration</strong>. <strong>METRICS SUMMARY</strong> shows
-requested files, successful missing/existing-file downloads, failures,
-downloaded bytes, measured download preparation/download/cleanup times,
-download throughput and total duration. Throughput uses the download
-phase; total duration includes job initialization, preparation, cleanup
-and transfer-resource shutdown, using the same boundaries as mirror
-mode. The field order and labels match mirror mode. Compact
+<p>The completion log uses the same reporting functions as mirror mode.
+<strong>SUMMARY</strong> is always logged at INFO level and gives
+downloaded, skipped and failed totals, downloaded <strong>Size</strong>,
+<strong>Speed</strong> and a readable <strong>Duration</strong>. Add
+<code>--metrics</code> (or <code>metrics: true</code> in configuration)
+to also log <strong>METRICS SUMMARY</strong>, which shows requested
+files, successful missing/existing-file downloads, failures, downloaded
+bytes, measured download preparation/download/cleanup times, download
+throughput and total duration. Throughput uses the download phase; total
+duration includes job initialization, preparation, cleanup and
+transfer-resource shutdown, using the same boundaries as mirror mode.
+The field order and labels match mirror mode. Compact
 <strong>Speed</strong> uses the same throughput, and
 <strong>Duration</strong> formats the same total duration as hours,
-minutes and seconds. Direct downloads mark discovery and metadata as not
-performed; their scan, freshness and obsolete-file counters remain zero.
-Files requested records the supplied URL count. Existing-file downloads
-are counted from local file presence; they do not imply the remote file
-changed.</p>
+minutes and seconds. Every line in both sections receives its own
+timestamp and log level. Direct downloads mark discovery and metadata as
+not performed; their scan, freshness and obsolete-file counters remain
+zero. Files requested records the supplied URL count. Existing-file
+downloads are counted from local file presence; they do not imply the
+remote file changed.</p>
 <p>Both modes also show <strong>Transfer stage times</strong>:
 <strong>Transfer metadata probes</strong>, <strong>Automatic selection
 work</strong>, <strong>Data transfer/write</strong>, <strong>Chunk
@@ -2165,10 +2172,14 @@ timer; there is no <strong>On disk</strong> calculation or destination
 scan. <strong>Size</strong> counts successfully published bytes,
 <strong>Speed</strong> uses download-phase throughput, and
 <strong>Duration</strong> formats the total job time as hours, minutes
-and seconds. The following <code>METRICS SUMMARY</code> gives the result
-and any download, scan or cleanup failure. File outcomes distinguish
-existing files checked and current, freshness checks skipped, missing
-files downloaded, changed files downloaded, and downloads made because
+and seconds. Each line is logged separately, with a timestamp and log
+level. Detailed metrics are off by default. Add
+<strong><code>--metrics</code></strong> (or
+<strong><code>metrics: true</code></strong> in configuration) for the
+separate <code>METRICS SUMMARY</code>, which gives the result and any
+download, scan or cleanup failure. File outcomes distinguish existing
+files checked and current, freshness checks skipped, missing files
+downloaded, changed files downloaded, and downloads made because
 freshness could not be established. Other skips include HTTP resources
 that became unavailable; they are not described as current. Download
 counts record successful publication, rather than queued or failed
@@ -2255,21 +2266,24 @@ do not verify child file contents. File freshness checks follow the
 configured policy regardless of directory signatures. Counts refer to
 logical calls; transport redirects and retries can make additional HTTP
 requests. <code>--stats</code> is accepted for backward compatibility
-and has no effect. Quick mode, connection failures and discovery-only
-surveys have shorter summaries.</p></li>
-<li><p><strong><code>--metrics-json FILE</code></strong> writes the full
-metrics summary to JSON (skipped in <code>--dry-run</code>). Its
-<code>metrics.run</code> object contains the per-sync outcomes, result,
-phase timings, <code>discovery_mode</code>,
-<code>discovery_workers</code>, <code>directories_examined</code>,
-<code>discovery_throughput</code> and <code>download_throughput</code>
-(throughputs are <code>null</code> when unavailable). Examined
-directories include depth-limit entries and failed listing attempts;
-throughput does not establish a successful scan. Existing top-level
-metric keys remain available; <code>download_speed</code> is the older
-average over the collector's lifetime, not the new download-phase
-throughput. <code>metrics.run.transfer_stage_seconds</code> holds this
-run's accumulated worker seconds; <code>transfer_stage_operations</code>
+and has no effect; use <code>--metrics</code> to enable detailed text
+output. Quick mode, connection failures and discovery-only surveys have
+shorter summaries.</p></li>
+<li><p><strong><code>--metrics-json FILE</code></strong> independently
+writes the full metrics summary to JSON; it does not enable detailed
+text output and does not require <code>--metrics</code> (skipped in
+<code>--dry-run</code>). Its <code>metrics.run</code> object contains
+the per-sync outcomes, result, phase timings,
+<code>discovery_mode</code>, <code>discovery_workers</code>,
+<code>directories_examined</code>, <code>discovery_throughput</code> and
+<code>download_throughput</code> (throughputs are <code>null</code> when
+unavailable). Examined directories include depth-limit entries and
+failed listing attempts; throughput does not establish a successful
+scan. Existing top-level metric keys remain available;
+<code>download_speed</code> is the older average over the collector's
+lifetime, not the new download-phase throughput.
+<code>metrics.run.transfer_stage_seconds</code> holds this run's
+accumulated worker seconds; <code>transfer_stage_operations</code>
 counts measured intervals (request and body intervals are separate, so
 these are not HTTP request counts). Download JSON results expose the
 same two fields. Existing <code>stage_seconds</code> fsync/hash fields

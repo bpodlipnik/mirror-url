@@ -73,8 +73,8 @@ from .exceptions import (
 )
 from .metrics import (
     MetricsCollector,
-    format_download_summary,
     log_connection_pools_closed,
+    log_download_report,
     log_processed_result,
     log_run_completion,
     log_run_start,
@@ -440,9 +440,7 @@ def _finish_mirror_job(mirror, success, error, suffix, index, total) -> None:
         prefix = mirror._get_prefix()
         success = success and error is None
         if report.status not in ("quick", "survey"):
-            logging.info("-" * 50)
-            logging.info(mirror.metrics.report(prefix, show_stats=mirror.config.stats))
-            logging.info("-" * 50)
+            mirror.metrics.log_report(prefix, include_metrics=mirror.config.metrics)
             log_run_completion(success, prefix=prefix, reasons=report.reasons)
         log_processed_result(success, suffix, index, total)
     log_connection_pools_closed(report.closed_connection_pools)
@@ -1018,7 +1016,12 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
     logging_grp.add_argument(
         "--stats",
         action="store_true",
-        help="Compatibility setting; no effect. The normal completed-sync path emits the full metrics summary; early exits use shorter summaries",
+        help="Compatibility setting; no effect. Use --metrics for detailed completion metrics",
+    )
+    logging_grp.add_argument(
+        "--metrics",
+        action="store_true",
+        help="Include detailed METRICS SUMMARY after the compact SUMMARY (default: off)",
     )
     logging_grp.add_argument(
         "--metrics-json",
@@ -1402,10 +1405,7 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
             if not summary.get("dry_run"):
                 summary["elapsed_seconds"] = run["elapsed_seconds"]
                 summary["duration_scope"] = run["duration_scope"]
-            logging.info(
-                format_download_summary(download_config, summary, target, run, metrics=metrics)
-            )
-            logging.info("-" * 50)
+            log_download_report(download_config, summary, target, run, metrics=metrics)
             log_run_completion(summary["success"])
             log_processed_result(summary["success"], download_config.dir_suffix, 1, 1)
             log_connection_pools_closed(report.closed_connection_pools)
@@ -1585,6 +1585,7 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
             benchmark=True,
             http2=args.http2,
             stats=args.stats,
+            metrics=args.metrics,
             max_depth=args.max_depth,
             max_filename_len=args.max_filename_len,
             safe_urls=getattr(args, "safe_urls", True),
@@ -1771,6 +1772,7 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
                     benchmark=args.benchmark,
                     http2=args.http2,
                     stats=args.stats,
+                    metrics=args.metrics,
                     max_depth=args.max_depth,
                     max_filename_len=args.max_filename_len,
                     safe_urls=getattr(args, "safe_urls", True),

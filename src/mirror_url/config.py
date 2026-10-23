@@ -264,6 +264,7 @@ class MirrorConfig(BaseModel):
     benchmark: bool = False
     http2: bool = True
     stats: bool = False
+    metrics: bool = False
     max_depth: int = Field(default=MAX_DIRECTORY_DEPTH, ge=1, le=100)
     max_filename_len: int = Field(default=MAX_FILENAME_LENGTH, ge=1, le=512)
     safe_urls: bool = True
@@ -897,6 +898,7 @@ def load_config_from_args(args: argparse.Namespace, silent: bool = False) -> Mir
         "benchmark": args.benchmark,
         "http2": args.http2,
         "stats": args.stats,
+        "metrics": getattr(args, "metrics", False),
         "max_depth": _resolve_max_depth(args),
         "max_filename_len": args.max_filename_len,
         "safe_urls": getattr(args, "safe_urls", True),

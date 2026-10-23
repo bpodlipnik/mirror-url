@@ -11,7 +11,7 @@ from threading import Barrier
 import pytest
 
 from mirror_url import MirrorConfig, MirrorURL, download_url_list
-from mirror_url.metrics import MetricsCollector, format_download_summary
+from mirror_url.metrics import MetricsCollector, format_download_metrics
 from mirror_url.run_report import TRANSFER_STAGES, RunReport
 from test_http_mirror_workflows import remote as remote
 from test_transfer_backends import backend as backend
@@ -130,11 +130,11 @@ def test_both_modes_backends_and_strategies_report_measured_stages(
         assert result["success"] is not failed
         run = metrics.run_report.snapshot(result["bytes_downloaded"])
         assert result["transfer_stage_seconds"] == run["transfer_stage_seconds"]
-        text = format_download_summary(config, result, config.dest_path, run, metrics=metrics)
+        text = format_download_metrics(config, result, config.dest_path, run, metrics=metrics)
         # The legacy result-only formatter retains the measured values too.
         assert (
             f"Data transfer/write (sum): {run['transfer_stage_seconds']['transfer']:.3f}s"
-            in format_download_summary(config, result, config.dest_path)
+            in format_download_metrics(config, result, config.dest_path)
         )
         receipts = json.loads(
             next(config.dest_path.glob(".mirror-url-state/url-list-*.json")).read_text(

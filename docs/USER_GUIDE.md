@@ -608,8 +608,12 @@ The most commonly used options:
 <td>Show tqdm progress bars (included in a normal installation). Mirror and known-URL downloads show received bytes and the current transfer stage.</td>
 </tr>
 <tr>
+<td nowrap><samp>--metrics</samp></td>
+<td>Include detailed METRICS SUMMARY after the compact SUMMARY (default: off).</td>
+</tr>
+<tr>
 <td nowrap><samp>--stats</samp></td>
-<td>Accepted for compatibility; does not change the normal completed-sync metrics summary. Quick mode and other early exits use shorter summaries.</td>
+<td>Accepted for compatibility; no effect. Use <code>--metrics</code> for detailed completion metrics.</td>
 </tr>
 <tr>
 <td nowrap><samp>--metrics-json FILE</samp></td>
@@ -1105,16 +1109,19 @@ Both modes label binary sizes as KiB, MiB and GiB, and transfer rates as KiB/s,
 MiB/s and GiB/s. One MiB is 1,048,576 bytes; the displayed calculations and
 numeric bandwidth/chunk-size settings continue to use powers of 1024.
 
-The completion log uses the same two blocks as mirror mode. **SUMMARY** gives
+The completion log uses the same reporting functions as mirror mode. **SUMMARY** is
+always logged at INFO level and gives
 downloaded, skipped and failed totals, downloaded **Size**, **Speed** and a
-readable **Duration**. **METRICS SUMMARY** shows
+readable **Duration**. Add `--metrics` (or `metrics: true` in configuration) to
+also log **METRICS SUMMARY**, which shows
 requested files, successful missing/existing-file downloads, failures,
 downloaded bytes, measured download preparation/download/cleanup times,
 download throughput and total duration. Throughput uses the download phase;
 total duration includes job initialization, preparation, cleanup and transfer-resource
 shutdown, using the same boundaries as mirror mode. The field order and labels
 match mirror mode. Compact **Speed** uses the same throughput, and **Duration**
-formats the same total duration as hours, minutes and seconds. Direct downloads
+formats the same total duration as hours, minutes and seconds. Every line in both
+sections receives its own timestamp and log level. Direct downloads
 mark discovery and metadata as not performed;
 their scan, freshness and obsolete-file counters remain zero. Files requested
 records the supplied URL count. Existing-file downloads are counted from local file presence;
@@ -1908,7 +1915,9 @@ limit tracker behavior; they do not make the heuristic a definitive detector.
   These use the existing run counters and timer; there is no **On disk**
   calculation or destination scan. **Size** counts successfully published bytes,
   **Speed** uses download-phase throughput, and **Duration** formats the total
-  job time as hours, minutes and seconds. The following `METRICS SUMMARY` gives
+  job time as hours, minutes and seconds. Each line is logged separately, with a
+  timestamp and log level. Detailed metrics are off by default. Add **`--metrics`**
+  (or **`metrics: true`** in configuration) for the separate `METRICS SUMMARY`, which gives
   the result and any download, scan or cleanup failure. File outcomes
   distinguish existing files checked and current, freshness checks skipped,
   missing files downloaded, changed files downloaded, and downloads made because
@@ -1993,9 +2002,10 @@ limit tracker behavior; they do not make the heuristic a definitive detector.
   checks follow the configured policy regardless of directory signatures.
   Counts refer to logical calls; transport redirects and
   retries can make additional HTTP requests. `--stats` is accepted for backward
-  compatibility and has no effect.
+  compatibility and has no effect; use `--metrics` to enable detailed text output.
   Quick mode, connection failures and discovery-only surveys have shorter summaries.
-- **`--metrics-json FILE`** writes the full metrics summary to JSON (skipped in
+- **`--metrics-json FILE`** independently writes the full metrics summary to JSON;
+  it does not enable detailed text output and does not require `--metrics` (skipped in
   `--dry-run`). Its `metrics.run` object contains the per-sync outcomes, result,
   phase timings, `discovery_mode`, `discovery_workers`, `directories_examined`,
   `discovery_throughput` and `download_throughput` (throughputs are `null` when
