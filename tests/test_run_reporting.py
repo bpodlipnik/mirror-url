@@ -21,6 +21,86 @@ from test_transfer_backends import job
 from test_transfer_backends import origin as origin
 
 
+@pytest.mark.parametrize("prefix", ["", "[predictive] "])
+def test_compact_totals_include_all_outcomes_and_reuse_the_finished_snapshot(monkeypatch, prefix):
+    now = [100.0]
+    monkeypatch.setattr("mirror_url.run_report.time.perf_counter", lambda: now[0])
+    metrics = MetricsCollector()
+    run = metrics.run_report
+    run.start(metrics.metrics, 0)
+    for url, outcome in (
+        ("missing-a", "missing"),
+        ("missing-b", "missing"),
+        ("changed", "changed"),
+        ("uncertain", "uncertain"),
+    ):
+        run.record_check(url, outcome)
+        run.record_publication(url)
+    run.record_publication("unclassified")
+    run.record_check("current", "current")
+    run.record_check("unchecked", "unchecked")
+    metrics.increment_batch(
+        {
+            "files_downloaded": 5,
+            "files_skipped": 3,
+            "files_failed": 1,
+            "bytes_downloaded": 5 * 1024**2,
+        }
+    )
+    with run.phase("downloads"):
+        now[0] += 5
+    now[0] += 3728.9
+    run.finish("failed", "one transfer failed")
+    before = metrics.get_summary()
+    now[0] += 100  # Formatting must use the finished run's time, not a fresh clock.
+    snapshots = []
+    get_summary = metrics.get_summary
+
+    def snapshot():
+        result = get_summary()
+        snapshots.append(result)
+        return result
+
+    monkeypatch.setattr(metrics, "get_summary", snapshot)
+    text = metrics.report(prefix=prefix)
+    assert len(snapshots) == 1
+    assert snapshots[0]["run"] == before["run"]
+    lines = text.splitlines()
+    assert lines[:10] == [
+        f"{prefix}SUMMARY:",
+        f"{prefix}  Downloaded: 5",
+        f"{prefix}  Skipped: 3",
+        f"{prefix}  Failed: 1",
+        f"{prefix}  Size: 5.00 MiB",
+        f"{prefix}  Speed: 1.00 MiB/s",
+        f"{prefix}  Duration: 1h 2m 13s",
+        f"{prefix}{'-' * 50}",
+        f"{prefix}METRICS SUMMARY:",
+        f"{prefix}  Result: FAILED",
+    ]
+    assert lines.count(f"{prefix}SUMMARY:") == lines.count(f"{prefix}METRICS SUMMARY:") == 1
+    assert all(line.startswith(prefix) for line in lines)
+    for field in (
+        "Missing files downloaded: 2",
+        "Changed files downloaded: 1",
+        "Uncertain-freshness downloads: 1",
+        "Other files downloaded: 1",
+        "Existing files checked and current: 1",
+        "Freshness checks skipped: 1",
+        "Other files skipped: 1",
+        "Files failed: 1",
+        "Downloaded bytes: 5.00 MiB",
+        "Download throughput: 1.00 MiB/s",
+        "Total duration: 3733.900s",
+    ):
+        assert f"{prefix}  {field}" in lines
+    assert "On disk" not in text
+    after = get_summary()
+    assert after["run"] == before["run"]
+    for name in ("files_downloaded", "files_skipped", "files_failed", "bytes_downloaded"):
+        assert after[name] == before[name]
+
+
 def test_fallback_counts_the_final_decision_once_and_only_published_downloads():
     report = RunReport()
     report.record_check("changed", "uncertain", True)
@@ -131,7 +211,10 @@ def test_repeat_run_reports_selected_current_and_unchecked_files_separately(
         assert current["download_throughput"] is None
         assert "HTTP 304 Not Modified" in caplog.text
         assert "Selected paths not discovered: 1" in caplog.text
-        assert caplog.text.count("SUMMARY:") == 1
+        assert caplog.text.count("SUMMARY:") == 2
+        assert caplog.text.count("METRICS SUMMARY:") == 1
+        assert "  Downloaded: 0\n  Skipped: 2\n  Failed: 0\n  Size: 0.00 B" in caplog.text
+        assert "  Speed: n/a\n" in caplog.text
         assert "Download throughput: n/a" in caplog.text
         assert "Total duration:" in caplog.text
         assert "Download speed:" not in caplog.text
@@ -403,7 +486,8 @@ def test_dry_run_after_publication_does_not_report_previous_downloads(remote, co
         assert summary["run"]["existing_files_current"] == 1
         assert summary["run"]["freshness_checks_skipped"] == 1
         assert "Downloaded bytes: 0.00 B" in caplog.text
-        assert caplog.text.count("SUMMARY:") == 1
+        assert caplog.text.count("SUMMARY:") == 2
+        assert caplog.text.count("METRICS SUMMARY:") == 1
 
 
 @pytest.mark.integration
@@ -424,4 +508,5 @@ def test_failure_during_finalization_does_not_emit_a_success_summary(
         assert mirror.metrics.get_summary()["run"]["status"] == "failed"
         assert "Result: FAILED" in caplog.text
         assert "Result: SUCCESS" not in caplog.text
-        assert caplog.text.count("SUMMARY:") == 1
+        assert caplog.text.count("SUMMARY:") == 2
+        assert caplog.text.count("METRICS SUMMARY:") == 1

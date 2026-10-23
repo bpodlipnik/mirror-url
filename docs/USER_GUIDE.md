@@ -1105,13 +1105,17 @@ Both modes label binary sizes as KiB, MiB and GiB, and transfer rates as KiB/s,
 MiB/s and GiB/s. One MiB is 1,048,576 bytes; the displayed calculations and
 numeric bandwidth/chunk-size settings continue to use powers of 1024.
 
-The completion log uses the same **SUMMARY** layout as mirror mode. It shows
+The completion log uses the same two blocks as mirror mode. **SUMMARY** gives
+downloaded, skipped and failed totals, downloaded **Size**, **Speed** and a
+readable **Duration**. **METRICS SUMMARY** shows
 requested files, successful missing/existing-file downloads, failures,
 downloaded bytes, measured download preparation/download/cleanup times,
 download throughput and total duration. Throughput uses the download phase;
 total duration includes job initialization, preparation, cleanup and transfer-resource
 shutdown, using the same boundaries as mirror mode. The field order and labels
-match mirror mode. Direct downloads mark discovery and metadata as not performed;
+match mirror mode. Compact **Speed** uses the same throughput, and **Duration**
+formats the same total duration as hours, minutes and seconds. Direct downloads
+mark discovery and metadata as not performed;
 their scan, freshness and obsolete-file counters remain zero. Files requested
 records the supplied URL count. Existing-file downloads are counted from local file presence;
 they do not imply the remote file changed.
@@ -1899,8 +1903,13 @@ limit tracker behavior; they do not make the heuristic a definitive detector.
 
 ## Monitoring and metrics
 
-- **Run summary.** A normal mirror sync logs one `SUMMARY` block at INFO level,
-  including its result and any download, scan or cleanup failure. File outcomes
+- **Run summary.** A normal mirror sync logs a compact `SUMMARY` at INFO level:
+  **Downloaded**, **Skipped**, **Failed**, **Size**, **Speed** and **Duration**.
+  These use the existing run counters and timer; there is no **On disk**
+  calculation or destination scan. **Size** counts successfully published bytes,
+  **Speed** uses download-phase throughput, and **Duration** formats the total
+  job time as hours, minutes and seconds. The following `METRICS SUMMARY` gives
+  the result and any download, scan or cleanup failure. File outcomes
   distinguish existing files checked and current, freshness checks skipped,
   missing files downloaded, changed files downloaded, and downloads made because
   freshness could not be established. Other skips include HTTP resources that

@@ -264,7 +264,8 @@ def test_real_sync_skips_unchanged_empty_file_and_still_downloads_remote_growth(
         assert run["metadata_checks_unresolved"] == 0
         assert mirror.files_processed.value() == 0
         assert "Current: empty.dat" in caplog.text
-        assert "Downloaded:" not in caplog.text
+        assert not any(record.getMessage().startswith("Downloaded: ") for record in caplog.records)
+        assert "  Downloaded: 0\n" in caplog.text
         assert (
             sum(method == "GET" and name == "empty.dat" for method, name, _ in remote.requests) == 1
         )
