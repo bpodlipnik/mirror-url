@@ -62,9 +62,10 @@ def test_shutdown_failure_cannot_retain_success_or_erase_transfer_failure(monkey
 @pytest.mark.integration
 @pytest.mark.parametrize("mode", ["mirror", "download"])
 @pytest.mark.parametrize("shared", [False, True])
+@pytest.mark.parametrize("include_metrics", [False, True])
 @pytest.mark.parametrize("shutdown_failure", [False, True])
 def test_real_cli_total_finishes_after_owned_shutdown(
-    tmp_path, origin, backend, mode, shared, shutdown_failure, monkeypatch, capsys
+    tmp_path, origin, backend, mode, shared, include_metrics, shutdown_failure, monkeypatch, capsys
 ):
     payload = b"exact fixture bytes"
     origin.routes["/root/"] = (200, {"Content-Type": "text/html"}, b'<a href="a">a</a>')
@@ -136,6 +137,8 @@ def test_real_cli_total_finishes_after_owned_shutdown(
         "--max-retries",
         "0",
     ]
+    if include_metrics:
+        args.append("--metrics")
     if mode == "download":
         args.append("a")
     if shared:
@@ -158,11 +161,11 @@ def test_real_cli_total_finishes_after_owned_shutdown(
     assert (destination / "a").read_bytes() == payload
     assert not list(destination.rglob("*.part")) and not list(destination.rglob("work_*"))
     if not shutdown_failure:
-        assert output.err.count("SUMMARY:") == 2
-        assert output.err.count("METRICS SUMMARY:") == 1
+        assert output.err.count("SUMMARY:") == 1 + int(include_metrics)
+        assert output.err.count("METRICS SUMMARY:") == int(include_metrics)
         assert "Duration: 0h 0m 15s" in output.err
-        assert "Total duration: 15.000s" in output.err
-        assert "Downloads time: 5.000s" in output.err
+        assert ("Total duration: 15.000s" in output.err) is include_metrics
+        assert ("Downloads time: 5.000s" in output.err) is include_metrics
         assert output.err.index("SUMMARY:") < output.err.index("Closed all 1 connection pools")
     else:
         assert "Result: SUCCESS" not in output.err
@@ -173,8 +176,9 @@ def test_real_cli_total_finishes_after_owned_shutdown(
 
 @pytest.mark.integration
 @pytest.mark.parametrize("mode", ["mirror", "download"])
+@pytest.mark.parametrize("include_metrics", [False, True])
 def test_final_json_and_logged_summary_use_the_frozen_job_clock(
-    tmp_path, origin, backend, mode, monkeypatch, capsys
+    tmp_path, origin, backend, mode, monkeypatch, capsys, include_metrics
 ):
     payload = b"exact JSON fixture bytes"
     origin.routes["/root/"] = (200, {"Content-Type": "text/html"}, b'<a href="a">a</a>')
@@ -210,6 +214,8 @@ def test_final_json_and_logged_summary_use_the_frozen_job_clock(
         "--max-retries",
         "0",
     ]
+    if include_metrics:
+        args.append("--metrics")
     if mode == "download":
         args.append("a")
     else:
@@ -236,8 +242,8 @@ def test_final_json_and_logged_summary_use_the_frozen_job_clock(
     assert result["elapsed_seconds"] == run["elapsed_seconds"]
     assert run["elapsed_seconds"] > run["phase_seconds"]["downloads"]
     log = "\n".join(path.read_text(encoding="utf-8") for path in logs.glob("*.log"))
-    assert f"Total duration: {run['elapsed_seconds']:.3f}s" in log
-    assert log.count("SUMMARY:") == 2
-    assert log.count("METRICS SUMMARY:") == 1
+    assert (f"Total duration: {run['elapsed_seconds']:.3f}s" in log) is include_metrics
+    assert log.count("SUMMARY:") == 1 + int(include_metrics)
+    assert log.count("METRICS SUMMARY:") == int(include_metrics)
     assert f"Duration: {format_duration(run['elapsed_seconds'])}" in log
     assert (destination / "a").read_bytes() == payload

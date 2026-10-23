@@ -311,6 +311,50 @@ class MetricsCollector:
 
             return summary
 
+    def summary(self, prefix: str = "", *, snapshot: Optional[dict] = None) -> str:
+        """Format compact totals without computing detailed metrics or walking disk."""
+        summary = self.get_summary() if snapshot is None else snapshot
+        run = summary["run"]
+        elapsed = run["elapsed_seconds"]
+        throughput = run["download_throughput"]
+        speed = f"{format_bytes(throughput)}/s" if throughput is not None else "n/a"
+        duration = format_duration(elapsed) if elapsed is not None else "n/a"
+        return "\n".join(
+            [
+                f"{prefix}SUMMARY:",
+                f"{prefix}  Downloaded: {summary['files_downloaded']}",
+                f"{prefix}  Skipped: {summary['files_skipped']}",
+                f"{prefix}  Failed: {summary['files_failed']}",
+                f"{prefix}  Size: {format_bytes(summary['bytes_downloaded'])}",
+                f"{prefix}  Speed: {speed}",
+                f"{prefix}  Duration: {duration}",
+            ]
+        )
+
+    def log_report(
+        self,
+        prefix: str = "",
+        *,
+        include_metrics: bool = False,
+        snapshot: Optional[dict] = None,
+        known_urls: bool = False,
+    ) -> None:
+        """Log compact totals and optional metrics, each line with its own timestamp."""
+        snapshot = self.get_summary() if snapshot is None else snapshot
+        logging.info("%s%s", prefix, "-" * 50)
+        for line in self.summary(prefix, snapshot=snapshot).splitlines():
+            logging.info("%s", line)
+        logging.info("%s%s", prefix, "-" * 50)
+        if include_metrics:
+            for line in self.report(
+                prefix,
+                snapshot=snapshot,
+                run=snapshot["run"] if known_urls else None,
+                known_urls=known_urls,
+            ).splitlines():
+                logging.info("%s", line)
+            logging.info("%s%s", prefix, "-" * 50)
+
     def report(
         self,
         prefix: str = "",
@@ -319,15 +363,15 @@ class MetricsCollector:
         run: Optional[dict] = None,
         known_urls: bool = False,
         values: Optional[dict] = None,
+        snapshot: Optional[dict] = None,
     ) -> str:
         """
         Generate detailed metrics report.
 
         Args:
             prefix: Prefix for log lines
-            show_stats: Unused. Accepted for backward compatibility (``--stats``
-                used to be documented as switching on a detailed summary, but the
-                full summary has always been produced regardless).
+            show_stats: Unused; accepted for backward compatibility. Text log
+                emission is controlled by ``--metrics`` / ``config.metrics``.
             run: Finished coordinator snapshot for a known-URL result.
             known_urls: Mark discovery and metadata as not performed while
                 retaining the common summary layout and zero subsystem work.
@@ -335,7 +379,7 @@ class MetricsCollector:
         Returns:
             Formatted metrics report
         """
-        summary = self.get_summary()
+        summary = dict(self.get_summary() if snapshot is None else snapshot)
         if values is not None:
             summary.update(values)
         active_report = run is not None or self.run_report.started is not None
@@ -400,7 +444,7 @@ class MetricsCollector:
             f"{prefix}  Directories processed: {summary['directories_processed']}",
         ]
         if active_report:
-            lines = _format_run_summary(
+            lines = _format_run_metrics(
                 summary, summary["run"], prefix=prefix, known_urls=known_urls
             )
         recovery_counts = summary["run"] if active_report else summary
@@ -602,23 +646,14 @@ class MetricsCollector:
             return False
 
 
-def _format_run_summary(
+def _format_run_metrics(
     summary: dict, run: dict, *, prefix: str = "", known_urls: bool = False
 ) -> list[str]:
-    """Render compact totals and detailed metrics from the same run snapshot."""
+    """Render detailed run metrics, independently of the compact summary."""
     elapsed = run["elapsed_seconds"]
     throughput = run["download_throughput"]
     speed = f"{format_bytes(throughput)}/s" if throughput is not None else "n/a"
-    duration = format_duration(elapsed) if elapsed is not None else "n/a"
     lines = [
-        f"{prefix}SUMMARY:",
-        f"{prefix}  Downloaded: {summary['files_downloaded']}",
-        f"{prefix}  Skipped: {summary['files_skipped']}",
-        f"{prefix}  Failed: {summary['files_failed']}",
-        f"{prefix}  Size: {format_bytes(summary['bytes_downloaded'])}",
-        f"{prefix}  Speed: {speed}",
-        f"{prefix}  Duration: {duration}",
-        f"{prefix}{'-' * 50}",
         f"{prefix}METRICS SUMMARY:",
         f"{prefix}  Result: {run['status'].upper()}",
     ]
@@ -698,15 +733,15 @@ def _format_run_summary(
     return lines
 
 
-def format_download_summary(
+def _download_report_snapshot(
     config: MirrorConfig,
     summary: dict,
     target: Path,
     run: Optional[dict] = None,
     *,
     metrics: Optional[MetricsCollector] = None,
-) -> str:
-    """Use the shared summary layout and measured known-URL coordinator phases."""
+) -> tuple[MetricsCollector, dict]:
+    """Adapt known-URL results to the common reporting snapshot once."""
     provided_run = run is not None
     if run is None:
         # Older callers have only the JSON result, without per-phase observations.
@@ -747,7 +782,48 @@ def format_download_summary(
         values["chunk_mode_requested"] = True
     if "peak_parallel_chunks" in chunks:
         run = dict(run, peak_parallel_chunks=chunks["peak_parallel_chunks"])
-    return metrics.report(run=run, known_urls=True, values=values)
+    snapshot = metrics.get_summary()
+    snapshot.update(values, run=run)
+    return metrics, snapshot
+
+
+def format_download_summary(
+    config: MirrorConfig,
+    summary: dict,
+    target: Path,
+    run: Optional[dict] = None,
+    *,
+    metrics: Optional[MetricsCollector] = None,
+) -> str:
+    """Format only the compact known-URL summary."""
+    metrics, snapshot = _download_report_snapshot(config, summary, target, run, metrics=metrics)
+    return metrics.summary(snapshot=snapshot)
+
+
+def format_download_metrics(
+    config: MirrorConfig,
+    summary: dict,
+    target: Path,
+    run: Optional[dict] = None,
+    *,
+    metrics: Optional[MetricsCollector] = None,
+) -> str:
+    """Format only the detailed known-URL metrics."""
+    metrics, snapshot = _download_report_snapshot(config, summary, target, run, metrics=metrics)
+    return metrics.report(snapshot=snapshot, run=snapshot["run"], known_urls=True)
+
+
+def log_download_report(
+    config: MirrorConfig,
+    summary: dict,
+    target: Path,
+    run: Optional[dict] = None,
+    *,
+    metrics: Optional[MetricsCollector] = None,
+) -> None:
+    """Log both modes with the same default, snapshot and per-line formatting."""
+    metrics, snapshot = _download_report_snapshot(config, summary, target, run, metrics=metrics)
+    metrics.log_report(include_metrics=config.metrics, snapshot=snapshot, known_urls=True)
 
 
 def log_run_start(
@@ -849,6 +925,8 @@ def log_connection_pools_closed(count: int) -> None:
 __all__ = [
     "MetricsCollector",
     "format_download_summary",
+    "format_download_metrics",
+    "log_download_report",
     "log_run_start",
     "log_file_download_plan",
     "log_whole_file_fallback",

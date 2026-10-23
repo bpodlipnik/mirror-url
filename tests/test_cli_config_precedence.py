@@ -623,3 +623,23 @@ def test_cli_selection_replaces_an_unreadable_config_list(run_main):
     assert run_main(
         ["--check-files", "a"], "check_files: ['@absent-selection.txt']\n"
     ).check_files == ["a"]
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        [],
+        ["--dir-suffix", "a", "b"],
+        ["--mode", "download"],
+        ["--mode", "download", "--dir-suffix", "a"],
+    ],
+)
+def test_detailed_metrics_are_opt_in_and_preserve_config_precedence(run_main, options):
+    assert run_main(options).metrics is False
+    assert run_main(options + ["--stats"]).metrics is False
+    assert run_main(options + ["--metrics"]).metrics is True
+    assert run_main(options, "metrics: true\n").metrics is True
+    assert run_main(options, "metrics: false\n").metrics is False
+    assert run_main(options + ["--metrics"], "metrics: false\n").metrics is True
+    config = run_main(options + ["--metrics-json", "metrics.json"])
+    assert config.metrics is False and config.metrics_json == Path("metrics.json")

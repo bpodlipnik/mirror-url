@@ -20,7 +20,7 @@ from mirror_url import MirrorConfig, MirrorURL, cli, download_url_list, transfer
 from mirror_url.destination_lock import DestinationLock
 from mirror_url.download import PartialDownloadManager
 from mirror_url.exceptions import ConfigError
-from mirror_url.metrics import format_download_summary
+from mirror_url.metrics import format_download_metrics
 from mirror_url.progress import DownloadProgress, get_download_progress
 from mirror_url.scratch import OwnedScratch
 from mirror_url.security import SecurityValidator
@@ -262,7 +262,7 @@ def test_ineligible_files_fall_back_to_whole_file(
     assert [method for method, _, _ in ranges.requests] == ["HEAD", "GET"]
     assert all("Range" not in headers for _, _, headers in ranges.requests)
     assert result["chunk_metrics"]["total_chunks"] == 0
-    summary = format_download_summary(config, result, config.dest_path)
+    summary = format_download_metrics(config, result, config.dest_path)
     assert "Total chunks: 0" in summary and "Peak parallel chunks: 0" in summary
     assert "Files finalized from chunks: 0" in summary
     reason = {
@@ -308,7 +308,7 @@ def test_all_transfer_paths_share_completion_and_hash_reporting(
     else:
         result = download_url_list(config)
         assert result["success"] and result["sha256_hashes_recorded"] == int(verify)
-        summary = format_download_summary(config, result, config.dest_path)
+        summary = format_download_metrics(config, result, config.dest_path)
         proof = receipt(result, config.dest_path / "a")
         logs = caplog.text
         messages = [record.getMessage() for record in caplog.records]
@@ -324,7 +324,6 @@ def test_all_transfer_paths_share_completion_and_hash_reporting(
         in summary
     )
     assert f"SHA-256 hashes recorded: {int(verify)}" in summary
-    assert "  Downloaded: 1\n" in summary
     assert "METRICS SUMMARY:" in summary
     assert_no_scratch(config.dest_path)
 
@@ -757,6 +756,7 @@ def test_cli_chunk_flags_use_shared_summary_and_truthful_banner(
             ranges.base + "a",
             "--print-logs",
         ]
+    arguments.append("--metrics")
     monkeypatch.setattr("sys.argv", arguments)
     cli.main()
     output = capsys.readouterr()
@@ -853,7 +853,7 @@ def test_both_modes_report_eight_selected_and_four_admitted_chunks(
     assert result["chunk_metrics"]["chunk_assemblies"] == 1
     assert result["chunk_metrics"]["peak_parallel_chunks"] == 4
     assert managers[0].get_stats()["active_chunks"] == 0
-    summary = result.get("summary") or format_download_summary(config, result, config.dest_path)
+    summary = result.get("summary") or format_download_metrics(config, result, config.dest_path)
     for text in (
         "Chunk downloads: 8",
         "Files finalized from chunks: 1",

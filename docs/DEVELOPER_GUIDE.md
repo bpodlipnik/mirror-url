@@ -938,11 +938,15 @@ disabled bars and receipt-saving without an active bar retain console updates;
 warnings and completion summaries always pass through the filter.
 
 The CLI uses the shared startup header and
-`metrics.format_download_summary()` for readable completion logs, using the
-destination already validated by the CLI. Mirror and known-URL completion logs
-share `MetricsCollector.report()`, `_format_run_summary()` and the `RunReport`
-coordinator clock. A compact `SUMMARY:` precedes `METRICS SUMMARY:`. Both use one
-metrics snapshot: compact counts and size reuse the aggregate counters, speed
+`metrics.log_download_report()` for readable completion logs, using the
+destination already validated by the CLI. `MetricsCollector.summary()` formats
+compact `SUMMARY:` totals; `MetricsCollector.report()` separately formats detailed
+`METRICS SUMMARY:` using `_format_run_metrics()`. `log_report()` always emits the
+compact section and calls the detailed formatter only when `config.metrics` is
+true (`--metrics`, default false). Every line is a separate INFO record, including
+the separators, so file logs timestamp every line. Both sections share one
+metrics snapshot and the `RunReport` coordinator clock: compact counts and size
+reuse the aggregate counters, speed
 uses `download_throughput`, and readable duration uses the frozen
 `elapsed_seconds`. Formatting performs no destination sizing or extra filesystem
 or network queries. Known-URL summaries retain mirror's field order and subsystem

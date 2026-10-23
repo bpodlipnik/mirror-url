@@ -291,7 +291,7 @@ class ReportMixin(MirrorHost):
 
                 run.finish("failed dry run" if self.scan_incomplete else "dry run")
                 if not run.job_active:
-                    logging.info(self.metrics.report(prefix))
+                    self.metrics.log_report(prefix, include_metrics=self.config.metrics)
                 return not getattr(self, "scan_incomplete", False)
 
             if len(remote_files) > 0:
@@ -807,9 +807,7 @@ class ReportMixin(MirrorHost):
                 reasons.append(f"{cleanup_failures} cleanup failures")
             run.finish("failed" if reasons else "success", "; ".join(reasons))
             if not run.job_active:
-                logging.info("-" * 50)
-                logging.info(self.metrics.report(prefix, show_stats=self.config.stats))
-                logging.info("-" * 50)
+                self.metrics.log_report(prefix, include_metrics=self.config.metrics)
 
                 if self.config.metrics_json and not self.config.dry_run:
                     self.metrics.export_json(self.config.metrics_json, self.config)
@@ -823,7 +821,7 @@ class ReportMixin(MirrorHost):
             self.metrics.add_error(str(e), "fatal")
             run.finish("failed", type(e).__name__)
             if not run.job_active:
-                logging.info(self.metrics.report(prefix))
+                self.metrics.log_report(prefix, include_metrics=self.config.metrics)
             return False
         finally:
             if progress is not None:
