@@ -948,8 +948,15 @@ the separators, so file logs timestamp every line. Both sections share one
 metrics snapshot and the `RunReport` coordinator clock: compact counts and size
 reuse the aggregate counters, speed
 uses `download_throughput`, and readable duration uses the frozen
-`elapsed_seconds`. Formatting performs no destination sizing or extra filesystem
-or network queries. Known-URL summaries retain mirror's field order and subsystem
+`elapsed_seconds`. The mirror CLI returns that same finished snapshot from
+`_finish_mirror_job()` and accumulates its filtered remote-file count, successful
+downloads, planned downloads, skipped files and failed files once per directory.
+`FINAL SUMMARY` displays those file totals independently of the directory-job
+outcome lists. Dry runs display `WOULD DOWNLOAD`; normal runs display `DOWNLOADED`.
+Partial failed jobs retain their observed file outcomes; listing, quick and
+symlink-survey jobs do not claim transfer totals. Formatting performs no
+destination sizing or extra filesystem or network queries. Known-URL summaries
+retain mirror's field order and subsystem
 counters, marking discovery/metadata as not performed and reporting zero
 scan, cache, freshness and obsolete-file work. Known-URL
 preparation, downloads and cleanup are measured separately; cleanup includes

@@ -1361,18 +1361,27 @@ so file logs timestamp every line. Both sections share one metrics
 snapshot and the <code>RunReport</code> coordinator clock: compact
 counts and size reuse the aggregate counters, speed uses
 <code>download_throughput</code>, and readable duration uses the frozen
-<code>elapsed_seconds</code>. Formatting performs no destination sizing
-or extra filesystem or network queries. Known-URL summaries retain
-mirror's field order and subsystem counters, marking discovery/metadata
-as not performed and reporting zero scan, cache, freshness and
-obsolete-file work. Known-URL preparation, downloads and cleanup are
-measured separately; cleanup includes receipt saving, progress timer
-shutdown and transfer guard cleanup. The outer CLI owner releases the
-run's kernel locks after completion output and log closure. Missing
-versus existing publication counts use the preflight local file
-identity; existing downloads are not classified as changed without a
-freshness check. The adapter prepares metrics and delegates formatting
-to <code>MetricsCollector.report()</code>; it appends no separate
+<code>elapsed_seconds</code>. The mirror CLI returns that same finished
+snapshot from <code>_finish_mirror_job()</code> and accumulates its
+filtered remote-file count, successful downloads, planned downloads,
+skipped files and failed files once per directory.
+<code>FINAL SUMMARY</code> displays those file totals independently of
+the directory-job outcome lists. Dry runs display
+<code>WOULD DOWNLOAD</code>; normal runs display
+<code>DOWNLOADED</code>. Partial failed jobs retain their observed file
+outcomes; listing, quick and symlink-survey jobs do not claim transfer
+totals. Formatting performs no destination sizing or extra filesystem or
+network queries. Known-URL summaries retain mirror's field order and
+subsystem counters, marking discovery/metadata as not performed and
+reporting zero scan, cache, freshness and obsolete-file work. Known-URL
+preparation, downloads and cleanup are measured separately; cleanup
+includes receipt saving, progress timer shutdown and transfer guard
+cleanup. The outer CLI owner releases the run's kernel locks after
+completion output and log closure. Missing versus existing publication
+counts use the preflight local file identity; existing downloads are not
+classified as changed without a freshness check. The adapter prepares
+metrics and delegates formatting to
+<code>MetricsCollector.report()</code>; it appends no separate
 download-details footer. Shared completion helpers in
 <code>metrics.py</code> supply the sync outcome, processed scope and
 pool-closure messages for both CLI paths.

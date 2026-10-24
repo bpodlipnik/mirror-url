@@ -2184,6 +2184,18 @@ freshness could not be established. Other skips include HTTP resources
 that became unavailable; they are not described as current. Download
 counts record successful publication, rather than queued or failed
 transfers.</p>
+<p>For multiple selected directories, or a shared log, <strong>FINAL
+SUMMARY</strong> also totals <strong>TOTAL FILES FOUND</strong>,
+<strong>DOWNLOADED</strong>, <strong>SKIPPED</strong> and <strong>FILES
+FAILED</strong> across the directory jobs. A dry run uses <strong>WOULD
+DOWNLOAD</strong> for the planned file count; it does not claim those
+files were transferred. File totals use the selected, filtered remote
+listings and the existing per-job counters, including partial work from
+failed jobs. Successful, failed and skipped <strong>directory</strong>
+jobs are labeled separately, so <code>SKIPPED: 726</code> files can
+appear alongside <code>SKIPPED DIRECTORIES: (none)</code>. These totals
+do not require <code>--metrics</code> or perform another local or remote
+scan.</p>
 <p>With <code>--check-files</code>, the summary reports how many
 configured paths were discovered within scope and how many selected
 existing files were checked. A selected missing file downloads normally.
