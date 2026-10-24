@@ -17,6 +17,7 @@ import re
 import sys
 import tempfile
 import time
+from collections import Counter
 from contextlib import ExitStack
 from datetime import datetime
 from pathlib import Path
@@ -430,20 +431,24 @@ def main() -> None:
             _close_run_handlers([handler for handler in _log_files if handler not in previous])
 
 
-def _finish_mirror_job(mirror, success, error, suffix, index, total) -> None:
+def _finish_mirror_job(mirror, success, error, suffix, index, total) -> dict:
     """Render after resource shutdown while CLI still owns reporting outputs."""
     report = mirror.metrics.run_report
     report.finish_job(error)
     if mirror.config.metrics_json and not mirror.config.dry_run:
         mirror.metrics.export_json(mirror.config.metrics_json, mirror.config)
+    snapshot = mirror.metrics.get_summary()
     if success is not None:
         prefix = mirror._get_prefix()
         success = success and error is None
         if report.status not in ("quick", "survey"):
-            mirror.metrics.log_report(prefix, include_metrics=mirror.config.metrics)
+            mirror.metrics.log_report(
+                prefix, include_metrics=mirror.config.metrics, snapshot=snapshot
+            )
             log_run_completion(success, prefix=prefix, reasons=report.reasons)
         log_processed_result(success, suffix, index, total)
     log_connection_pools_closed(report.closed_connection_pools)
+    return snapshot
 
 
 def _close_run_handlers(handlers) -> None:
@@ -1706,6 +1711,7 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
     processed = []
     failed = []
     skipped = []
+    file_totals: Counter[str] = Counter()
 
     for i, suf in enumerate(suffixes, 1):
         job_started = first_job_started if i == 1 else time.perf_counter()
@@ -1911,7 +1917,17 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
                 raise
             finally:
                 if job_report is not None:
-                    _finish_mirror_job(mirror, sync_success, job_error, suf, i, total)
+                    snapshot = _finish_mirror_job(mirror, sync_success, job_error, suf, i, total)
+                    if job_report.status not in ("quick", "survey"):
+                        file_totals.update(
+                            {
+                                "found": snapshot["run"]["remote_files_found"],
+                                "downloaded": snapshot["files_downloaded"],
+                                "would_download": snapshot["run"]["downloads_planned"],
+                                "skipped": snapshot["files_skipped"],
+                                "failed": snapshot["files_failed"],
+                            }
+                        )
             if sync_success is not None:
                 (processed if sync_success else failed).append(suf or "ROOT")
 
@@ -1937,35 +1953,44 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
 
     # Final summary
     if use_shared or total > 1:
-        logging.info("\n" + "=" * 50)
+        logging.info("=" * 50)
         logging.info("FINAL SUMMARY")
+        if file_totals:
+            logging.info("TOTAL FILES FOUND: %s", file_totals["found"])
+            if settings.dry_run:
+                logging.info("WOULD DOWNLOAD: %s", file_totals["would_download"])
+            else:
+                logging.info("DOWNLOADED: %s", file_totals["downloaded"])
+            logging.info("SKIPPED: %s", file_totals["skipped"])
+            logging.info("FILES FAILED: %s", file_totals["failed"])
+            logging.info("")
         logging.info(f"Total suffixes processed: {total}")
         logging.info("")
 
         if processed:
-            logging.info(f"✅ SUCCESSFUL ({len(processed)}):")
+            logging.info(f"✅ SUCCESSFUL DIRECTORIES ({len(processed)}):")
             for suffix in processed:
                 logging.info(f"   • {suffix}")
         else:
-            logging.info("✅ SUCCESSFUL: (none)")
+            logging.info("✅ SUCCESSFUL DIRECTORIES: (none)")
 
         logging.info("")
 
         if failed:
-            logging.error(f"❌ FAILED ({len(failed)}):")
+            logging.error(f"❌ FAILED DIRECTORIES ({len(failed)}):")
             for suffix in failed:
                 logging.error(f"   • {suffix}")
         else:
-            logging.info("❌ FAILED: (none)")
+            logging.info("❌ FAILED DIRECTORIES: (none)")
 
         logging.info("")
 
         if skipped:
-            logging.warning(f"⏭️ SKIPPED ({len(skipped)}):")
+            logging.warning(f"⏭️ SKIPPED DIRECTORIES ({len(skipped)}):")
             for suffix in skipped:
                 logging.warning(f"   • {suffix}")
         else:
-            logging.info("⏭️ SKIPPED: (none)")
+            logging.info("⏭️ SKIPPED DIRECTORIES: (none)")
 
         logging.info("=" * 50)
 

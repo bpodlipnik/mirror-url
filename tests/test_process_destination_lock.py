@@ -404,7 +404,7 @@ def test_cli_keeps_group_ownership_after_first_suffix_cleanup(
         assert (config.dest_path / "a/one.txt").read_bytes() == b"alpha"
         assert (config.dest_path / "b/two.txt").read_bytes() == b"bravo"
         log = "\n".join(path.read_text(encoding="utf-8") for path in config.log_path.glob("*.log"))
-        assert "SUCCESSFUL (2)" in log and "FAILED: (none)" in log
+        assert "SUCCESSFUL DIRECTORIES (2)" in log and "FAILED DIRECTORIES: (none)" in log
     finally:
         stop(process)
 

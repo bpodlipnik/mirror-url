@@ -1925,6 +1925,16 @@ limit tracker behavior; they do not make the heuristic a definitive detector.
   became unavailable; they are not described as current. Download counts record
   successful publication, rather than queued or failed transfers.
 
+  For multiple selected directories, or a shared log, **FINAL SUMMARY** also
+  totals **TOTAL FILES FOUND**, **DOWNLOADED**, **SKIPPED** and **FILES FAILED**
+  across the directory jobs. A dry run uses **WOULD DOWNLOAD** for the planned
+  file count; it does not claim those files were transferred. File totals use
+  the selected, filtered remote listings and the existing per-job counters,
+  including partial work from failed jobs. Successful, failed and skipped
+  **directory** jobs are labeled separately, so `SKIPPED: 726` files can appear
+  alongside `SKIPPED DIRECTORIES: (none)`. These totals do not require `--metrics`
+  or perform another local or remote scan.
+
   With `--check-files`, the summary reports how many configured paths were
   discovered within scope and how many selected existing files were checked.
   A selected missing file downloads normally. Unmatched selectors can be absent
