@@ -1397,8 +1397,10 @@ and documentation synchronized when upgrading the formatter.
    `twine check dist/*`, and `git diff --check`. All checks must pass.
    Include the full branch-coverage run, both coverage gates and the safety
    mutation check shown above, and require release PR CI to pass before tagging.
-   Commit the source metadata, changelog, and guides; push the release branch
-   and merge its reviewed pull request.
+   Commit the source metadata, changelog, and guides with the subject
+   `Release vX.Y.Z`. Use the same title for the release pull request, even
+   though publication follows its merge. Push the release branch and merge
+   its reviewed pull request.
 4. **Tag the merged release on `main` and push the tag:**
    ```bash
    git switch main

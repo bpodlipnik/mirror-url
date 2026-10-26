@@ -1852,8 +1852,10 @@ a Changelog (<code>### Added/Changed/Fixed</code>).</li>
 <code>git diff --check</code>. All checks must pass. Include the full
 branch-coverage run, both coverage gates and the safety mutation check
 shown above, and require release PR CI to pass before tagging. Commit
-the source metadata, changelog, and guides; push the release branch and
-merge its reviewed pull request.</li>
+the source metadata, changelog, and guides with the subject
+<code>Release vX.Y.Z</code>. Use the same title for the release pull
+request, even though publication follows its merge. Push the release
+branch and merge its reviewed pull request.</li>
 <li><strong>Tag the merged release on <code>main</code> and push the
 tag:</strong>
 <div class="sourceCode" id="cb8"><pre
