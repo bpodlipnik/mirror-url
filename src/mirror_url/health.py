@@ -42,6 +42,7 @@ from .utils import sanitize_url_for_log
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, avoids an import cycle
     from ._core._typing import MirrorHost
+    from .metrics import MetricsCollector
 
 
 # Default failure threshold for the quick is_healthy() probe. Configurable
@@ -407,6 +408,31 @@ class HealthChecker:
         return (
             self.mirror.connection_ok
             and _counter_value(self.mirror.files_failed) < self.failure_threshold
+        )
+
+
+class DownloadHealthChecker:
+    """Expose transfer health and metrics without constructing mirror managers."""
+
+    def __init__(self, metrics: MetricsCollector):
+        self.metrics = metrics
+
+    @property
+    def health_checker(self) -> DownloadHealthChecker:
+        return self
+
+    def get_status(self) -> HealthStatus:
+        summary = self.metrics.get_summary()
+        return HealthStatus(
+            status="healthy"
+            if summary["files_failed"] < DEFAULT_HEALTHY_FAILURE_THRESHOLD
+            else "degraded",
+            timestamp=datetime.now().isoformat(),
+            metrics=summary,
+            connection={},
+            cache={},
+            errors=summary.get("errors", [])[-10:],
+            system={"platform": sys.platform},
         )
 
 

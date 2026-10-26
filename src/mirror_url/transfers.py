@@ -34,7 +34,8 @@ from .destination_lock import DestinationLock, current_run_lock
 from .download import ParallelDownloadManager, PartialDownloadManager
 from .download_integrity import content_length, file_sha256, strong_etag
 from .exceptions import ConfigError, SecurityError, URLScopeError
-from .filename_mapping import FilenameMap, _stat_identity
+from .filename_mapping import FilenameMap, _stat_identity, selected_directory_targets
+from .health import DownloadHealthChecker, HealthCheckServer
 from .metrics import (
     MetricsCollector,
     log_file_download_plan,
@@ -968,6 +969,14 @@ class AsyncTransfers:
                     result = TransferResult(url, local, False, error=str(error))
                     logging.error("Download failed for %s: %s", sanitize_url_for_log(url), error)
                 results.append(result)
+                if self.config.mode == "download":
+                    self.metrics.increment_batch(
+                        {
+                            "files_downloaded": int(result.success),
+                            "files_failed": int(not result.success),
+                            "bytes_downloaded": result.size if result.success else 0,
+                        }
+                    )
                 self.progress.finish(local, result.success)
 
         tasks = []
@@ -1042,14 +1051,17 @@ def download_url_list(
     if not isinstance(config.download_files, list):
         raise ConfigError("download_files requires a list of file paths or URLs")
     require_backend(config.backend)
-    target = config.dest_path
-    for part in filter(None, config.dir_suffix.split("/")):
-        target /= PathSafety._safe_filename(part, max_len=config.max_filename_len)
-    target = PathSafety._resolve_destination_root(target)
-    scope = config.base_url.rstrip("/") + "/"
+    target = selected_directory_targets(
+        config.dest_path, [config.dir_suffix], max_filename_len=config.max_filename_len
+    )[0]
+    parsed = urlsplit(config.base_url)
+    base = parsed._replace(path=parsed.path.rstrip("/") + "/", query="", fragment="")
+    scope = base.geturl()
     if config.dir_suffix:
-        scope = urljoin(scope, config.dir_suffix.strip("/") + "/")
-    validate_url(scope, config.base_url.rstrip("/") + "/")
+        scope = base._replace(
+            path=base.path + quote(config.dir_suffix.strip("/"), safe="/") + "/"
+        ).geturl()
+    validate_url(scope, base.geturl())
     if config.download_url is not None:
         urls = [config.download_url]
     else:
@@ -1065,19 +1077,31 @@ def download_url_list(
         raise ValueError("URL list is empty")
     # This API writes its state inside the destination; its CLI caller owns
     # the actual log file. An otherwise unused log directory is not a resource.
-    guard = DestinationLock([target], parent=current_run_lock())
+    resources = [target]
+    metrics_output = None
+    if config.metrics_json is not None:
+        metrics_output = PathSafety._resolve_destination_root(config.metrics_json)
+        if metrics_output.is_dir() or metrics_output in target.parents or metrics_output == target:
+            raise ConfigError("Metrics output must name a file, not a destination directory")
+        resources.append(metrics_output)
+    guard = DestinationLock(resources, parent=current_run_lock())
     metrics = metrics or MetricsCollector()
     report = run_report if run_report is not None else metrics.run_report
     metrics.run_report = report
     report.start(metrics.metrics, 0, verify_content=config.verify_content)
     report.begin_phase("download preparation")
     outcome: Optional[dict] = None
+    health_server = None
+    metrics_ready = False
     try:
         with (
             guard.operation(),
             DownloadProgress(config.print_logs and not config.quiet, config) as progress,
         ):
             items = plan_targets(urls, scope, target, config)
+            if metrics_output is not None:
+                metrics.protect_output(metrics_output, target, (local for _, local in items))
+                metrics_ready = True
             progress.plan(len(items))
             report.remote_files = len(items)
             if config.dry_run:
@@ -1088,6 +1112,11 @@ def download_url_list(
                     "backend": config.backend,
                 }
                 return outcome
+            if config.metrics_json is not None:
+                health_server = HealthCheckServer(
+                    DownloadHealthChecker(metrics), port=config.health_check_port
+                )
+                health_server.start()
             target.mkdir(parents=True, exist_ok=True)
             partial = PartialDownloadManager(target)
             state = partial._state_directory()
@@ -1127,7 +1156,11 @@ def download_url_list(
                         raise ValueError(
                             "Existing file has no matching ownership receipt; use --overwrite explicitly"
                         )
-                    if old.get("sha256") is not None and file_sha256(local) != old["sha256"]:
+                    if (
+                        config.verify_content
+                        and old.get("sha256") is not None
+                        and file_sha256(local) != old["sha256"]
+                    ):
                         raise ValueError("Existing file no longer matches its SHA-256 receipt")
             scratch = OwnedScratch(target, state, None, guard)
             engine = AsyncTransfers(config, target, scope, scratch, progress, metrics=metrics)
@@ -1180,16 +1213,40 @@ def download_url_list(
         report.begin_phase("cleanup")
         released = False
         try:
-            guard.close()
-            released = True
+            if health_server is not None:
+                health_server.stop()
+        except BaseException:
+            outcome = None
+            raise
         finally:
-            status = "failed"
-            if released and outcome is not None and outcome["success"]:
-                status = "dry run" if outcome.get("dry_run") else "success"
-            report.finish(status)
-            if outcome is not None and not outcome.get("dry_run"):
-                run = report.snapshot()
-                outcome["elapsed_seconds"] = run["elapsed_seconds"]
-                outcome["duration_scope"] = run["duration_scope"]
-                outcome["transfer_stage_seconds"] = run["transfer_stage_seconds"]
-                outcome["transfer_stage_operations"] = run["transfer_stage_operations"]
+
+            def export_metrics() -> None:
+                if (
+                    metrics_ready
+                    and metrics_output is not None
+                    and not config.dry_run
+                    and not report.job_active
+                ):
+                    report.finish(
+                        "success" if outcome is not None and outcome["success"] else "failed"
+                    )
+                    metrics.export_json(metrics_output, config)
+
+            try:
+                guard.close(export_metrics)
+                released = True
+            finally:
+                status = "failed"
+                if released and outcome is not None and outcome["success"]:
+                    status = "dry run" if outcome.get("dry_run") else "success"
+                report.finish(status)
+                if not released:
+                    # An API export may have frozen the timer before ownership
+                    # release. A subsequent release failure still fails the run.
+                    report.status = "failed"
+                if outcome is not None and not outcome.get("dry_run"):
+                    run = report.snapshot()
+                    outcome["elapsed_seconds"] = run["elapsed_seconds"]
+                    outcome["duration_scope"] = run["duration_scope"]
+                    outcome["transfer_stage_seconds"] = run["transfer_stage_seconds"]
+                    outcome["transfer_stage_operations"] = run["transfer_stage_operations"]

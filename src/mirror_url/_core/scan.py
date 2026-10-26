@@ -371,6 +371,8 @@ class ScanMixin(MirrorHost):
         destinations = {}
         filenames = FilenameMap(self.target_dir)
         lossy_mapping = False
+        metrics_output = getattr(self.config, "metrics_json", None)
+        metrics_paths = []
         for remote_url in remote_files:
             local = self._get_local_path_from_url(remote_url)
             if (
@@ -382,9 +384,13 @@ class ScanMixin(MirrorHost):
             if key in destinations and destinations[key] != remote_url:
                 raise ValueError("Distinct remote URLs map to the same local filename")
             destinations[key] = remote_url
+            if metrics_output is not None:
+                metrics_paths.append(local)
             relative = _relative_url_path(remote_url, self.target_parsed.geturl())
             if relative != local.relative_to(self.target_dir.resolve()).as_posix():
                 lossy_mapping = True
+        if metrics_output is not None:
+            self.metrics.protect_output(metrics_output, self.target_dir, metrics_paths)
         if lossy_mapping:
             raise ValueError("Remote filename would be changed by local path sanitization")
 
@@ -769,6 +775,10 @@ class ScanMixin(MirrorHost):
 
         root = urlsplit(root_url)
         root_url = root._replace(path=root.path.rstrip("/") + "/", fragment="").geturl()
+        if self._is_dir_excluded(root_url):
+            self.cleanup_protected_prefixes = {root_url}
+            logging.info("Skipping excluded selected directory: %s", sanitize_url_for_log(root_url))
+            return
 
         logging.debug(f"BFS discovery root: {sanitize_url_for_log(root_url)}")
 

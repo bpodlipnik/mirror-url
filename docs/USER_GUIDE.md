@@ -8,7 +8,7 @@ integrity checks and incremental caching. It also supports direct file URLs
 and exact URL lists without directory discovery. URL-scope, private-network
 and filesystem protections guard discovery and transfers.
 
-- **Version:** 3.9.10
+- **Version:** 3.9.11
 - **Python:** 3.10 or newer; CI tests Python 3.10–3.14
 - **License:** MIT
 
@@ -107,21 +107,21 @@ From a checkout of the repository on a build machine:
 
 ```bash
 pip install build
-python -m build          # produces dist/mirror_url-3.9.10-py3-none-any.whl
+python -m build          # produces dist/mirror_url-3.9.11-py3-none-any.whl
 ```
 
 Copy the wheel to the target server and install it:
 
 ```bash
 python3 -m venv /opt/mirror-url
-/opt/mirror-url/bin/pip install /tmp/mirror_url-3.9.10-py3-none-any.whl
+/opt/mirror-url/bin/pip install /tmp/mirror_url-3.9.11-py3-none-any.whl
 /opt/mirror-url/bin/mirror-url --help
 ```
 
 To include the optional speed extras:
 
 ```bash
-/opt/mirror-url/bin/pip install "/tmp/mirror_url-3.9.10-py3-none-any.whl[fast]"
+/opt/mirror-url/bin/pip install "/tmp/mirror_url-3.9.11-py3-none-any.whl[fast]"
 ```
 
 Available extras: `fast` (stringzilla + lxml),
@@ -132,24 +132,24 @@ and aiohttp backends are installed with the base package.
 ### From a Git repository
 
 ```bash
-pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.9.10"
+pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.9.11"
 # private repo over SSH:
-pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.9.10"
+pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.9.11"
 ```
 
 ### As an isolated CLI with pipx
 
 ```bash
-pipx install /tmp/mirror_url-3.9.10-py3-none-any.whl
-# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.9.10"
+pipx install /tmp/mirror_url-3.9.11-py3-none-any.whl
+# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.9.11"
 ```
 
 ### With Docker
 
 ```dockerfile
 FROM python:3.12-slim
-COPY dist/mirror_url-3.9.10-py3-none-any.whl /tmp/
-RUN pip install --no-cache-dir "/tmp/mirror_url-3.9.10-py3-none-any.whl[fast]"
+COPY dist/mirror_url-3.9.11-py3-none-any.whl /tmp/
+RUN pip install --no-cache-dir "/tmp/mirror_url-3.9.11-py3-none-any.whl[fast]"
 ENTRYPOINT ["mirror-url"]
 ```
 
@@ -1326,12 +1326,16 @@ transfers preserve existing partials and do not resume them.
   at any depth (`--exclude-dir '*/lasco'` also catches `<root>/setup/lasco/`)
   — use both `lasco` and `*/lasco` if you want the root-level directory and
   nested directories with that name. Patterns stay relative to `--url` when
-  `--dir` is used.
+  `--dir` is used. Selecting an excluded path or any descendant of an excluded
+  path skips that entire selection and preserves its local contents.
 - **`--dir PATH [PATH ...]`** selects literal subpaths relative to `--url`
   and mirrors each in turn. For example, `--dir level_05/261015 level_05/261016`
   preserves those paths beneath `--dest-path`. The old `--dir-suffix` spelling
   remains accepted as a compatibility alias; YAML/JSON and Python API callers
-  keep using the existing `dir_suffix` field.
+  keep using the existing `dir_suffix` field. All literal selections are
+  validated together before processing: names requiring sanitization or
+  truncation, reserved state names, Unicode aliases, and case aliases on
+  case-insensitive destinations are rejected instead of merged.
 - **`--dir-regex PATTERN [PATTERN ...]`** discovers matching remote directories
   before any mirror jobs start. Patterns match the **complete decoded path
   relative to `--url`**, case-sensitively, without leading/trailing `/`.
@@ -1665,7 +1669,8 @@ length limit is too small, increase `--max-filename-len` or narrow the selection
 Case-insensitive `--filter` matching cannot select just one of the two example
 filenames by capitalization.
 
-For a multi-suffix CLI invocation, failure of one suffix does not roll back
+Unsafe or colliding selected directory roots fail the initial preflight before
+any suffix is processed. Once those roots pass, failure of one suffix does not roll back
 earlier successful suffixes. Other suffixes may still run, and the overall CLI
 exits `1` when a suffix fails. The Python `sync()` call returns `False`; inspect
 the log for `Distinct remote URLs map to the same local filename`,
@@ -1777,13 +1782,15 @@ cleanup does not treat your logs and cache as obsolete mirrored files.
 
 Cleanup only acts within the current scan selection. Files excluded by
 filters, directory exclusions, depth limits, or skipped symlink subtrees are
-preserved, as are local symlinks. The obsolete-file walker never enters
+preserved, as are local symlinks and the configured metrics output (including
+its local aliases and parent directories). The obsolete-file walker never enters
 `.mirror-url-state/`; delete mode removes verified empty state separately at
 shutdown, after all writers stop. State needed for interrupted downloads or
 containing unknown entries remains protected. A complete empty scan can
 clean the selected local files; an incomplete scan skips cleanup and fails the
 run. Directory inspection, removal and other cleanup operation failures also
-fail the run.
+fail the run, including a dry run. An incomplete local tree inspection stops
+obsolete-file cleanup before any deletions or moves.
 If the MOVE archive cannot be created, cleanup stops; a failed move leaves
 the source in place and never falls back to deletion.
 MOVE also refuses symlinked archive paths and existing timestamp collision
@@ -2016,7 +2023,16 @@ limit tracker behavior; they do not make the heuristic a definitive detector.
   Quick mode, connection failures and discovery-only surveys have shorter summaries.
 - **`--metrics-json FILE`** independently writes the full metrics summary to JSON;
   it does not enable detailed text output and does not require `--metrics` (skipped in
-  `--dry-run`). Its `metrics.run` object contains the per-sync outcomes, result,
+  `--dry-run`). Both mirror and known-URL download mode support it. The output
+  path must not overlap any selected payload file or directory in either mode.
+  Reports are written atomically, so an interrupted or failed write preserves
+  the previous complete report. Existing output files are replaced only when
+  they have MirrorURL's report structure; unrelated files, symlinks and hardlinks
+  are preserved with a warning. Reports are limited to 16 MiB. Export failures
+  log a warning; the Python `export_json()` helper returns `False`.
+  On POSIX, new reports are readable only by their owner; replacement preserves
+  an existing report's mode bits.
+  Its `metrics.run` object contains the per-job outcomes, result,
   phase timings, `discovery_mode`, `discovery_workers`, `directories_examined`,
   `discovery_throughput` and `download_throughput` (throughputs are `null` when
   unavailable). Examined directories include depth-limit entries and failed
@@ -2030,7 +2046,7 @@ limit tracker behavior; they do not make the heuristic a definitive detector.
   fields remain available for compatibility.
 - **`--progress-bar` / `--progress`** shows live tqdm bars (included in the normal installation). Both mirror and known-URL downloads show one bar per active file, updated as bytes arrive, with the current transfer stage. Mirror metadata checks use a separate files-examined bar that clears before transfers start. Completed bars close before the summary. Resumed bytes advance the file position without counting as new traffic; parallel ranges share one file bar. Directory discovery reports examined-directory counts and elapsed time while fetching listings; its total tree size is unknown, so it does not show a percentage or ETA. The final discovery rate includes listing request time.
 - **Health/metrics HTTP endpoints.** Setting `--metrics-json FILE` also starts
-  a local HTTP server for a non-dry-run instance, until it is cleaned up.
+  a local HTTP server in either mode for a non-dry-run instance, until it is cleaned up.
   `--health-check-port` alone does not enable it. The server binds to `localhost`
   (default port 8080); both endpoints are rate-limited and serve:
   - `GET /health` → JSON health status. Returns HTTP

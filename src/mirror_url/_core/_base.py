@@ -36,16 +36,17 @@ from ..download import ParallelDownloadManager, PartialDownloadManager
 from ..download_integrity import content_length
 from ..enums import CleanupPolicy
 from ..exceptions import URLScopeError
+from ..filename_mapping import selected_directory_targets
 from ..health import HealthChecker, HealthCheckServer
 from ..metrics import MetricsCollector, log_run_start
 from ..monitoring import DiskSpaceManager, MemoryMonitor, PerformanceMonitor
 from ..primitives import AtomicCounter, AtomicSize
-from ..progress import DownloadProgress, MultiLevelProgress, ProgressConsoleHandler
+from ..progress import DownloadProgress, ProgressConsoleHandler
 from ..queue import DownloadQueue
 from ..rate_limiter import BandwidthLimiter, PerIPRateLimiter
 from ..scanner import DirectoryScanner
 from ..scratch import OwnedScratch
-from ..security import PathSafety, SymlinkTracker
+from ..security import SymlinkTracker
 from ..storage import DiskBackedSet, FileSystemCache
 from ..tuner import AutoConcurrencyTuner
 from ..utils import _log_files, sanitize_url_for_log, trim_url
@@ -169,13 +170,9 @@ class _MirrorBase(MirrorHost):
             require_backend(config.backend)
         # Check the requested path before starting managers or resolving away
         # a symlink in dest_path or the selected suffix.
-        requested_target = config.dest_path
-        suffix = config.dir_suffix
-        for part in (p for p in suffix.split("/") if p):
-            requested_target = requested_target / PathSafety._safe_filename(
-                part, max_len=config.max_filename_len
-            )
-        computed_target_path = PathSafety._resolve_destination_root(requested_target)
+        computed_target_path = selected_directory_targets(
+            config.dest_path, [config.dir_suffix], max_filename_len=config.max_filename_len
+        )[0]
         self._closed = False
         self._destination_lock: Optional[DestinationLock] = None
         resources = [computed_target_path]
@@ -417,7 +414,6 @@ class _MirrorBase(MirrorHost):
         self.partial_manager: Optional[PartialDownloadManager] = None
         self.scratch_manager: Optional[OwnedScratch] = None
         self.health_checker = HealthChecker(self)
-        self.multi_progress = MultiLevelProgress()
         self._download_progress: Optional[DownloadProgress] = None
         self.per_ip_limiter = PerIPRateLimiter(
             requests_per_second=config.requests_per_second, delay=config.request_delay
@@ -973,8 +969,8 @@ class _MirrorBase(MirrorHost):
         if hasattr(self, "config") and self.config.metrics_json and not self.config.dry_run:
             try:
                 if hasattr(self, "metrics") and not self.metrics.run_report.job_active:
-                    self.metrics.export_json(self.config.metrics_json, self.config)
-                    logging.info(f"Final metrics exported to {self.config.metrics_json}")
+                    if self.metrics.export_json(self.config.metrics_json, self.config):
+                        logging.info(f"Final metrics exported to {self.config.metrics_json}")
             except Exception as e:
                 logging.debug(f"Failed to export final metrics: {e}")
 

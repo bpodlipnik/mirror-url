@@ -371,7 +371,7 @@ def test_dry_run_and_suffix_keep_exact_scope_without_network(tmp_path, origin):
 
 def test_suffix_cannot_escape_base_scope(tmp_path, origin):
     config = job(tmp_path, origin, paths=("a",), dir_suffix="../outside")
-    with pytest.raises(URLScopeError, match="outside"):
+    with pytest.raises(ConfigError, match="Unsafe directory selection.*outside"):
         download_url_list(config)
     assert not origin.requests and not config.dest_path.exists()
 
@@ -1499,7 +1499,7 @@ def test_cli_concurrent_logging_during_handler_setup_respects_console_preference
 
 
 def test_cli_download_summary_uses_validated_destination(tmp_path, origin, monkeypatch, capsys):
-    origin.routes["/root/CON/a"] = (200, {}, b"destination bytes")
+    origin.routes["/root/_CON/a"] = (200, {}, b"destination bytes")
     destination, logs = tmp_path / "destination", tmp_path / "logs"
     monkeypatch.setattr(
         "sys.argv",
@@ -1508,11 +1508,11 @@ def test_cli_download_summary_uses_validated_destination(tmp_path, origin, monke
             "--metrics",
             "--mode",
             "download",
-            origin.base + "CON/a",
+            origin.base + "_CON/a",
             "--url",
             origin.base,
             "--dir-suffix",
-            "CON",
+            "_CON",
             "--dest-path",
             str(destination),
             "--log-path",
@@ -1886,18 +1886,25 @@ def test_cli_dry_run_reports_no_pool_closures(tmp_path, origin, monkeypatch, cap
     assert not (tmp_path / ".mirror-url-state").exists()
 
 
+@pytest.mark.parametrize("export_metrics", [False, True])
 def test_known_url_report_does_not_claim_success_when_ownership_close_fails(
-    tmp_path, origin, monkeypatch
+    tmp_path, origin, monkeypatch, export_metrics
 ):
     original = DestinationLock.close
 
-    def failing_close(lock):
-        original(lock)
+    def failing_close(lock, cleanup=None):
+        original(lock, cleanup)
         raise OSError("ownership close failed")
 
     monkeypatch.setattr(DestinationLock, "close", failing_close)
     report = RunReport()
-    config = job(tmp_path, origin, paths=("a",))
+    config = job(
+        tmp_path,
+        origin,
+        paths=("a",),
+        metrics_json=tmp_path / "metrics.json" if export_metrics else None,
+    )
+    monkeypatch.setattr("mirror_url.health.HealthCheckServer.start", lambda _: None)
     with pytest.raises(OSError, match="ownership close failed"):
         download_url_list(config, run_report=report)
     assert report.status == "failed" and report.finished is not None

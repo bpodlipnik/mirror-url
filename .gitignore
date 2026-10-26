@@ -32,6 +32,7 @@ htmlcov/
 *.log
 .mirror_cache/
 .rget_cache/
+mirror-url-benchmark-*/
 
 # Captured command output / scratch files
 *.out

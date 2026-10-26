@@ -276,7 +276,7 @@ It also supports direct file URLs and exact URL lists without directory
 discovery. URL-scope, private-network and filesystem protections guard
 discovery and transfers.</p>
 <ul>
-<li><strong>Version:</strong> 3.9.10</li>
+<li><strong>Version:</strong> 3.9.11</li>
 <li><strong>Python:</strong> 3.10 or newer; CI tests Python
 3.10–3.14</li>
 <li><strong>License:</strong> MIT</li>
@@ -383,15 +383,15 @@ class="sourceCode bash"><code class="sourceCode bash"><span id="cb1-1"><a href="
 <p>From a checkout of the repository on a build machine:</p>
 <div class="sourceCode" id="cb2"><pre
 class="sourceCode bash"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> install build</span>
-<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> <span class="at">-m</span> build          <span class="co"># produces dist/mirror_url-3.9.10-py3-none-any.whl</span></span></code></pre></div>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> <span class="at">-m</span> build          <span class="co"># produces dist/mirror_url-3.9.11-py3-none-any.whl</span></span></code></pre></div>
 <p>Copy the wheel to the target server and install it:</p>
 <div class="sourceCode" id="cb3"><pre
 class="sourceCode bash"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="ex">python3</span> <span class="at">-m</span> venv /opt/mirror-url</span>
-<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="ex">/opt/mirror-url/bin/pip</span> install /tmp/mirror_url-3.9.10-py3-none-any.whl</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="ex">/opt/mirror-url/bin/pip</span> install /tmp/mirror_url-3.9.11-py3-none-any.whl</span>
 <span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="ex">/opt/mirror-url/bin/mirror-url</span> <span class="at">--help</span></span></code></pre></div>
 <p>To include the optional speed extras:</p>
 <div class="sourceCode" id="cb4"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="ex">/opt/mirror-url/bin/pip</span> install <span class="st">&quot;/tmp/mirror_url-3.9.10-py3-none-any.whl[fast]&quot;</span></span></code></pre></div>
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="ex">/opt/mirror-url/bin/pip</span> install <span class="st">&quot;/tmp/mirror_url-3.9.11-py3-none-any.whl[fast]&quot;</span></span></code></pre></div>
 <p>Available extras: <code>fast</code> (stringzilla + lxml),
 <code>monitor</code> (psutil), <code>all</code> (everything),
 <code>dev</code> (test/lint toolchain). The <code>progress</code> and
@@ -399,18 +399,18 @@ class="sourceCode bash"><code class="sourceCode bash"><span id="cb4-1"><a href="
 both HTTPX and aiohttp backends are installed with the base package.</p>
 <h3 id="from-a-git-repository">From a Git repository</h3>
 <div class="sourceCode" id="cb5"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> install <span class="st">&quot;git+https://github.com/bpodlipnik/mirror-url.git@v3.9.10&quot;</span></span>
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> install <span class="st">&quot;git+https://github.com/bpodlipnik/mirror-url.git@v3.9.11&quot;</span></span>
 <span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="co"># private repo over SSH:</span></span>
-<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> install <span class="st">&quot;git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.9.10&quot;</span></span></code></pre></div>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> install <span class="st">&quot;git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.9.11&quot;</span></span></code></pre></div>
 <h3 id="as-an-isolated-cli-with-pipx">As an isolated CLI with pipx</h3>
 <div class="sourceCode" id="cb6"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pipx</span> install /tmp/mirror_url-3.9.10-py3-none-any.whl</span>
-<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="co"># or:  pipx install &quot;git+https://github.com/bpodlipnik/mirror-url.git@v3.9.10&quot;</span></span></code></pre></div>
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pipx</span> install /tmp/mirror_url-3.9.11-py3-none-any.whl</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="co"># or:  pipx install &quot;git+https://github.com/bpodlipnik/mirror-url.git@v3.9.11&quot;</span></span></code></pre></div>
 <h3 id="with-docker">With Docker</h3>
 <div class="sourceCode" id="cb7"><pre
 class="sourceCode dockerfile"><code class="sourceCode dockerfile"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="kw">FROM</span> python:3.12-slim</span>
-<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="kw">COPY</span> dist/mirror_url-3.9.10-py3-none-any.whl /tmp/</span>
-<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a><span class="kw">RUN</span> <span class="ex">pip</span> install <span class="at">--no-cache-dir</span> <span class="st">&quot;/tmp/mirror_url-3.9.10-py3-none-any.whl[fast]&quot;</span></span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="kw">COPY</span> dist/mirror_url-3.9.11-py3-none-any.whl /tmp/</span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a><span class="kw">RUN</span> <span class="ex">pip</span> install <span class="at">--no-cache-dir</span> <span class="st">&quot;/tmp/mirror_url-3.9.11-py3-none-any.whl[fast]&quot;</span></span>
 <span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a><span class="kw">ENTRYPOINT</span> [<span class="st">&quot;mirror-url&quot;</span>]</span></code></pre></div>
 <h3 id="verify-the-install">Verify the install</h3>
 <div class="sourceCode" id="cb8"><pre
@@ -1568,14 +1568,19 @@ escape hatch for matching at any depth
 <code>&lt;root&gt;/setup/lasco/</code>) — use both <code>lasco</code>
 and <code>*/lasco</code> if you want the root-level directory and nested
 directories with that name. Patterns stay relative to <code>--url</code>
-when <code>--dir</code> is used.</p></li>
+when <code>--dir</code> is used. Selecting an excluded path or any
+descendant of an excluded path skips that entire selection and preserves
+its local contents.</p></li>
 <li><p><strong><code>--dir PATH [PATH ...]</code></strong> selects
 literal subpaths relative to <code>--url</code> and mirrors each in
 turn. For example, <code>--dir level_05/261015 level_05/261016</code>
 preserves those paths beneath <code>--dest-path</code>. The old
 <code>--dir-suffix</code> spelling remains accepted as a compatibility
 alias; YAML/JSON and Python API callers keep using the existing
-<code>dir_suffix</code> field.</p></li>
+<code>dir_suffix</code> field. All literal selections are validated
+together before processing: names requiring sanitization or truncation,
+reserved state names, Unicode aliases, and case aliases on
+case-insensitive destinations are rejected instead of merged.</p></li>
 <li><p><strong><code>--dir-regex PATTERN [PATTERN ...]</code></strong>
 discovers matching remote directories before any mirror jobs start.
 Patterns match the <strong>complete decoded path relative to
@@ -1912,10 +1917,12 @@ configured filename length limit is too small, increase
 <code>--max-filename-len</code> or narrow the selection.
 Case-insensitive <code>--filter</code> matching cannot select just one
 of the two example filenames by capitalization.</p>
-<p>For a multi-suffix CLI invocation, failure of one suffix does not
-roll back earlier successful suffixes. Other suffixes may still run, and
-the overall CLI exits <code>1</code> when a suffix fails. The Python
-<code>sync()</code> call returns <code>False</code>; inspect the log for
+<p>Unsafe or colliding selected directory roots fail the initial
+preflight before any suffix is processed. Once those roots pass, failure
+of one suffix does not roll back earlier successful suffixes. Other
+suffixes may still run, and the overall CLI exits <code>1</code> when a
+suffix fails. The Python <code>sync()</code> call returns
+<code>False</code>; inspect the log for
 <code>Distinct remote URLs map to the same local filename</code>,
 <code>Remote filename would be changed by local path sanitization</code>,
 or <code>Remote file has an unsafe or reserved local path</code>.</p>
@@ -2034,18 +2041,21 @@ destination tree so cleanup does not treat your logs and cache as
 obsolete mirrored files.</p>
 <p>Cleanup only acts within the current scan selection. Files excluded
 by filters, directory exclusions, depth limits, or skipped symlink
-subtrees are preserved, as are local symlinks. The obsolete-file walker
-never enters <code>.mirror-url-state/</code>; delete mode removes
-verified empty state separately at shutdown, after all writers stop.
-State needed for interrupted downloads or containing unknown entries
-remains protected. A complete empty scan can clean the selected local
-files; an incomplete scan skips cleanup and fails the run. Directory
-inspection, removal and other cleanup operation failures also fail the
-run. If the MOVE archive cannot be created, cleanup stops; a failed move
-leaves the source in place and never falls back to deletion. MOVE also
-refuses symlinked archive paths and existing timestamp collision names.
-It preserves the source and previous archives and reports a failed
-cleanup operation; inspect the archive before retrying.</p>
+subtrees are preserved, as are local symlinks and the configured metrics
+output (including its local aliases and parent directories). The
+obsolete-file walker never enters <code>.mirror-url-state/</code>;
+delete mode removes verified empty state separately at shutdown, after
+all writers stop. State needed for interrupted downloads or containing
+unknown entries remains protected. A complete empty scan can clean the
+selected local files; an incomplete scan skips cleanup and fails the
+run. Directory inspection, removal and other cleanup operation failures
+also fail the run, including a dry run. An incomplete local tree
+inspection stops obsolete-file cleanup before any deletions or moves. If
+the MOVE archive cannot be created, cleanup stops; a failed move leaves
+the source in place and never falls back to deletion. MOVE also refuses
+symlinked archive paths and existing timestamp collision names. It
+preserves the source and previous archives and reports a failed cleanup
+operation; inspect the archive before retrying.</p>
 <div class="sourceCode" id="cb41"><pre
 class="sourceCode bash"><code class="sourceCode bash"><span id="cb41-1"><a href="#cb41-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Observe cleanup without downloads or changes to mirrored files</span></span>
 <span id="cb41-2"><a href="#cb41-2" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--config</span> mirror.yaml <span class="at">--cleanup</span> preview <span class="at">--dry-run</span></span>
@@ -2284,18 +2294,27 @@ shorter summaries.</p></li>
 <li><p><strong><code>--metrics-json FILE</code></strong> independently
 writes the full metrics summary to JSON; it does not enable detailed
 text output and does not require <code>--metrics</code> (skipped in
-<code>--dry-run</code>). Its <code>metrics.run</code> object contains
-the per-sync outcomes, result, phase timings,
-<code>discovery_mode</code>, <code>discovery_workers</code>,
-<code>directories_examined</code>, <code>discovery_throughput</code> and
-<code>download_throughput</code> (throughputs are <code>null</code> when
-unavailable). Examined directories include depth-limit entries and
-failed listing attempts; throughput does not establish a successful
-scan. Existing top-level metric keys remain available;
-<code>download_speed</code> is the older average over the collector's
-lifetime, not the new download-phase throughput.
-<code>metrics.run.transfer_stage_seconds</code> holds this run's
-accumulated worker seconds; <code>transfer_stage_operations</code>
+<code>--dry-run</code>). Both mirror and known-URL download mode support
+it. The output path must not overlap any selected payload file or
+directory in either mode. Reports are written atomically, so an
+interrupted or failed write preserves the previous complete report.
+Existing output files are replaced only when they have MirrorURL's
+report structure; unrelated files, symlinks and hardlinks are preserved
+with a warning. Reports are limited to 16 MiB. Export failures log a
+warning; the Python <code>export_json()</code> helper returns
+<code>False</code>. On POSIX, new reports are readable only by their
+owner; replacement preserves an existing report's mode bits. Its
+<code>metrics.run</code> object contains the per-job outcomes, result,
+phase timings, <code>discovery_mode</code>,
+<code>discovery_workers</code>, <code>directories_examined</code>,
+<code>discovery_throughput</code> and <code>download_throughput</code>
+(throughputs are <code>null</code> when unavailable). Examined
+directories include depth-limit entries and failed listing attempts;
+throughput does not establish a successful scan. Existing top-level
+metric keys remain available; <code>download_speed</code> is the older
+average over the collector's lifetime, not the new download-phase
+throughput. <code>metrics.run.transfer_stage_seconds</code> holds this
+run's accumulated worker seconds; <code>transfer_stage_operations</code>
 counts measured intervals (request and body intervals are separate, so
 these are not HTTP request counts). Download JSON results expose the
 same two fields. Existing <code>stage_seconds</code> fsync/hash fields
@@ -2312,8 +2331,8 @@ examined-directory counts and elapsed time while fetching listings; its
 total tree size is unknown, so it does not show a percentage or ETA. The
 final discovery rate includes listing request time.</p></li>
 <li><p><strong>Health/metrics HTTP endpoints.</strong> Setting
-<code>--metrics-json FILE</code> also starts a local HTTP server for a
-non-dry-run instance, until it is cleaned up.
+<code>--metrics-json FILE</code> also starts a local HTTP server in
+either mode for a non-dry-run instance, until it is cleaned up.
 <code>--health-check-port</code> alone does not enable it. The server
 binds to <code>localhost</code> (default port 8080); both endpoints are
 rate-limited and serve:</p>

@@ -8,11 +8,43 @@ import sys
 import tempfile
 import unicodedata
 from pathlib import Path
-from typing import Dict, Optional, Set, Tuple
+from typing import Dict, Iterable, List, Optional, Set, Tuple
 
+from .exceptions import ConfigError
 from .security import PathSafety
 
 COLLISION = "Distinct remote URLs map to the same local filename"
+
+
+def selected_directory_targets(
+    root: Path, suffixes: Iterable[str], *, max_filename_len: int
+) -> List[Path]:
+    """Validate all selected roots without changing any remote component names."""
+    root = PathSafety._resolve_destination_root(root)
+    names = FilenameMap(root)
+    targets = []
+    for suffix in suffixes:
+        suffix = suffix.strip("/")
+        target = root
+        for part in suffix.split("/") if suffix else ():
+            if (
+                not part
+                or part == "."
+                or ".." in part
+                or part.casefold() == ".mirror-url-state"
+                or PathSafety._safe_filename(part, max_len=max_filename_len) != part
+            ):
+                raise ConfigError(f"Unsafe directory selection path: {suffix!r}")
+            target /= part
+        PathSafety._resolve_destination_root(target)
+        try:
+            names.key(target, directory=True)
+        except ValueError as error:
+            raise ConfigError(
+                f"Selected remote directories collide or cannot be mapped: {error}"
+            ) from error
+        targets.append(target)
+    return targets
 
 
 def _stat_identity(info: os.stat_result) -> Tuple[int, ...]:

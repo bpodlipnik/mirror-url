@@ -10,8 +10,7 @@ from .config import MirrorConfig
 from .core import MirrorURL
 from .enums import CleanupPolicy
 from .exceptions import ConfigError
-from .filename_mapping import FilenameMap
-from .security import PathSafety
+from .filename_mapping import selected_directory_targets
 from .utils import _relative_url_path
 
 
@@ -88,24 +87,9 @@ def resolve_directory_selection(
                     roots.setdefault(relative, config.max_depth - depth)
         if mirror.scan_incomplete:
             raise ConfigError("Directory selection failed: directory listing is incomplete")
-        names = FilenameMap(config.dest_path)
-        for path in roots:
-            local = config.dest_path
-            for part in path.split("/") if path else ():
-                if (
-                    ".." in part
-                    or part.casefold() == ".mirror-url-state"
-                    or PathSafety._safe_filename(part, max_len=config.max_filename_len) != part
-                ):
-                    raise ConfigError(f"Unsafe directory selection path: {path!r}")
-                local /= part
-            PathSafety._resolve_destination_root(local)
-            try:
-                names.key(local, directory=True)
-            except ValueError as error:
-                raise ConfigError(
-                    f"Selected remote directories collide or cannot be mapped: {error}"
-                ) from error
+        selected_directory_targets(
+            config.dest_path, roots, max_filename_len=config.max_filename_len
+        )
     if not matches:
         raise ConfigError("No directories matched --dir-regex; nothing was processed")
     # Ancestor membership uses path components, not a textual prefix (a != ab).

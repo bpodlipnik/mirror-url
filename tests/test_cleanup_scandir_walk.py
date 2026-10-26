@@ -37,6 +37,7 @@ import pytest
 from mirror_url._core.cleanup import CleanupMixin
 from mirror_url._core.scan import ScanMixin
 from mirror_url.enums import CleanupPolicy
+from mirror_url.metrics import MetricsCollector
 
 
 class _StubMirror(CleanupMixin, ScanMixin):
@@ -51,7 +52,7 @@ class _StubMirror(CleanupMixin, ScanMixin):
         self.suffix_index = 0
         self.total_suffixes = 1
         self.scan_incomplete = False
-        self.metrics = SimpleNamespace(metrics={})
+        self.metrics = MetricsCollector()
         self.cache_manager = SimpleNamespace(
             cleanup_file_metadata=lambda path: None,
             cleanup_stale_metadata=lambda expected: 0,

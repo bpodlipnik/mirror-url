@@ -72,6 +72,7 @@ from .exceptions import (
     PathTraversalError,
     URLScopeError,
 )
+from .filename_mapping import selected_directory_targets
 from .metrics import (
     MetricsCollector,
     log_connection_pools_closed,
@@ -1381,11 +1382,15 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
             download_config.print_logs = args.print_logs
             download_config.quiet = args.quiet
             require_backend(download_config.backend)
-            target = download_config.dest_path
-            for part in filter(None, download_config.dir_suffix.split("/")):
-                target /= PathSafety._safe_filename(part, max_len=download_config.max_filename_len)
-            target = PathSafety._resolve_destination_root(target)
-            ownership.enter_context(run_ownership([target]))
+            target = selected_directory_targets(
+                download_config.dest_path,
+                [download_config.dir_suffix],
+                max_filename_len=download_config.max_filename_len,
+            )[0]
+            download_resources = [target]
+            if download_config.metrics_json is not None:
+                download_resources.append(download_config.metrics_json)
+            ownership.enter_context(run_ownership(download_resources))
             args.log_file = args.log_file or "download"
             display_settings = _effective_args(args, explicit_dests, download_config)
             display_settings.dest_path = target
@@ -1406,6 +1411,8 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
                 report.finish_job(error)
                 raise
             report.finish_job()
+            if download_config.metrics_json is not None and not download_config.dry_run:
+                metrics.export_json(download_config.metrics_json, download_config)
             run = report.snapshot(summary.get("bytes_downloaded", 0))
             if not summary.get("dry_run"):
                 summary["elapsed_seconds"] = run["elapsed_seconds"]
@@ -1429,11 +1436,11 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
     settings = effective if effective is not None else args
     resources: List[Path] = []
     try:
-        for suffix in [""] if args.dir_regex else args.dir_suffix or [""]:
-            target = Path(args.dest_path)
-            for part in (part for part in suffix.split("/") if part):
-                target /= PathSafety._safe_filename(part, max_len=settings.max_filename_len)
-            target = PathSafety._resolve_destination_root(target)
+        for target in selected_directory_targets(
+            Path(args.dest_path),
+            [""] if args.dir_regex else args.dir_suffix or [""],
+            max_filename_len=settings.max_filename_len,
+        ):
             resources.append(target)
             if settings.cleanup_policy == CleanupPolicy.MOVE:
                 resources.append(target.parent / (target.name + "_obsolete"))
@@ -1442,7 +1449,7 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
             if value is not None:
                 resources.append(Path(value))
         ownership.enter_context(run_ownership(resources))
-    except (DestinationLockError, PathTraversalError) as error:
+    except (DestinationLockError, PathTraversalError, ConfigError) as error:
         print(f"Destination ownership error: {error}", file=sys.stderr)
         sys.exit(1)
 

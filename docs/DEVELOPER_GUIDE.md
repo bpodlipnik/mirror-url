@@ -11,7 +11,7 @@ If you only want to *use* MirrorURL (install, CLI, config, Python API), read
 repeats the essentials so you can work from it alone.
 
 - **Package:** `mirror_url` (src-layout under `src/`)
-- **Version:** 3.9.10
+- **Version:** 3.9.11
 - **Python:** 3.10 or newer; CI tests Python 3.10–3.14
 - **Runtime deps:** `httpx[http2]` (including `h2`), `aiohttp`, `pydantic` v2, `PyYAML`, `portalocker` 3.x or 4.x (with `pywin32` on Windows), `tqdm` (optional: `stringzilla`,
   `lxml`, `psutil`)
@@ -92,7 +92,7 @@ changes — most review feedback traces back to one of these.
 
 ```
 mirror-url/
-├── src/mirror_url/          # the package (48 Python files including private helpers)
+├── src/mirror_url/          # the package (51 Python files including private helpers)
 │   ├── __init__.py          # public API re-exports
 │   ├── __main__.py          # `python -m mirror_url`
 │   ├── _version.py          # __version__, __author__  (one of two version sources)
@@ -248,8 +248,8 @@ pool warm-up checks each redirect before contacting its target.
 
 **Layer 4 — managers & observability.**
 
-- `metrics.py` — `MetricsCollector` (thread-safe counters/aggregates; emits the
-  metrics JSON).
+- `metrics.py` — `MetricsCollector` (thread-safe counters/aggregates, shared
+  report/payload collision checks and atomic metrics JSON export).
 - `run_report.py` — `RunReport` (per-sync final file decisions, publication
   counts, selection coverage and monotonic phase timing).
 - `progress.py` — `ProgressTracker`, `MultiLevelProgress`.
@@ -267,12 +267,13 @@ pool warm-up checks each redirect before contacting its target.
 - `download.py` — `ParallelDownloadManager` (chunked/streaming/parallel download
   engine, including `auto_select_method`) and `PartialDownloadManager` (resume).
 - `scanner.py` — `DirectoryScanner`.
-- `health.py` — `HealthCheckHandler`, `HealthCheckServer`, `HealthChecker`
-  (optional HTTP health endpoint).
+- `health.py` — `HealthCheckHandler`, `HealthCheckServer`, `HealthChecker`,
+  and `DownloadHealthChecker` (optional HTTP health endpoint in both modes).
 - `config.py` — `MirrorConfig` (the validated model), `ConfigSchema` (an alias
   of that model), `validate_config_file`, `expand_env_vars`, and the public
   argparse-namespace helper `load_config_from_args`. `cli.main()` does its own
-  file/explicit-CLI merge; it does not call that helper.
+  file/explicit-CLI merge, and uses the helper for download mode and directory
+  selection without a configuration file.
 - `tuner.py` — `AutoConcurrencyTuner`.
 - `download_integrity.py` — strong ETag parsing, exact `Content-Range`/length
   validation, and atomic whole-file resume-metadata load/save/clear helpers.
@@ -655,14 +656,16 @@ These invariants are part of the current implementation:
   never establish child-file freshness, and no remote cryptographic digest
   comparison is performed.
 - **Cleanup:** walk the local tree once, preserve excluded/depth-limited and
-  skipped-symlink paths, local symlinks, and reserved state. Incomplete scans
+  skipped-symlink paths, local symlinks, configured metrics outputs and their
+  aliases/parent directories, and reserved state. Incomplete scans
   suppress obsolete-file actions. A complete empty scan may clean the selected
   local files. Unsafe expected paths fail the run and suppress cleanup. MOVE
   checks archive destinations before creating parents and again after selecting
   a collision name; symlinked archives and occupied timestamp names fail while
   preserving source/archive bytes. Directory inspection and removal exceptions
   contribute to cleanup failure metrics and fail the sync. MOVE failures
-  preserve their source and do not become deletion.
+  preserve their source and do not become deletion. Per-sync cleanup counters
+  reset before every job, so an earlier failure does not fail a later safe run.
   After resource shutdown, DELETE mode separately removes verified marker-only
   application state under exclusive idle ownership. The obsolete-file walk
   continues to treat reserved state as opaque while transfers may use it.
@@ -970,6 +973,16 @@ it appends no separate download-details footer. Shared completion helpers in
 for both CLI paths. `RunReport.closed_connection_pools` records successful
 known-URL backend closures outside the JSON snapshot and resets for each run;
 dry runs and preflight failures create no pools.
+Both modes check metrics output aliases against the selected file plan before
+transfers. A collision also blocks subsequent shutdown/CLI exports through that
+collector. `export_json()` serializes before opening any output, validates an
+existing regular, singly linked, owned report, and writes a sibling temporary
+file. It flushes and fsyncs that file, checks staging/output identities, and
+publishes with `os.replace`. Unrecognized or linked existing files and changed
+staging entries are preserved. Existing and newly serialized reports are capped
+at 16 MiB. New POSIX reports use mode `0600`; replacements retain existing mode
+bits. Export failure returns `False` with a warning; it does not independently
+change the transfer result. Configured report files remain protected by cleanup.
 The JSON result schema remains unchanged; its elapsed clock includes final
 timer and transfer guard cleanup. With `--print-logs` and without `--quiet`,
 the CLI sends human logs to stderr and leaves stdout empty. Otherwise it emits
@@ -990,7 +1003,8 @@ config file┘   (expand environment variables, then validate merged values)
 ```
 
 `validate_config_file()` validates a standalone complete YAML/JSON file.
-`load_config_from_args()` remains a separate public helper. The CLI allows
+`load_config_from_args()` is also used by CLI paths without a configuration file.
+The CLI allows
 required URL/path values to come from explicit arguments before validating
 its final merged model. Benchmark mode uses the same merge precedence.
 `load_config_from_args()` maps an already populated argparse namespace; it does
@@ -1020,7 +1034,8 @@ file mode.
 
 **SSRF-hardened transport (`transport.py`).** `SecureTransport` /
 `SecureAsyncTransport` wrap httpx and reject requests whose resolved address is
-loopback or private. This is a security boundary: do not weaken it for
+non-global, multicast or reserved, including shared address space (`100.64/10`)
+and non-public IPv4-mapped IPv6 addresses. This is a security boundary: do not weaken it for
 convenience. Both accept a `test_mode` flag that relaxes the guard; this is how
 integration tests hit a local server (see [Testing](#testing)). Note the flag is
 not wired from `MirrorConfig` and should remain test-only. Existing HTTP tests
@@ -1157,7 +1172,7 @@ Add unit tests at its own layer with no higher-layer setup.
 - **Lint rule set:** ruff with `E, F, W, I, B, C4`. A few bugbear rules
   (`B007`) and `E501`/`B008` are ignored — see `pyproject.toml`.
   `B019` and `B904` are enforced; URL parsing is cached at module scope.
-- **Formatting:** Ruff 0.17.0 (`ruff format`, line length 100), matching CI and pre-commit.
+- **Formatting:** Ruff 0.17.1 (`ruff format`, line length 100), matching CI and pre-commit.
 - **Type-checking:** `mypy` is required in CI and must report zero errors. The
   settings remain lenient (`no_implicit_optional = false`, untyped definitions
   allowed, untyped bodies unchecked). This is not a strict-typing guarantee;
@@ -1230,6 +1245,16 @@ library users include `get_remote_timestamp`, `retry_with_backoff`,
 `compute_file_hash`, `AdaptiveBatchProcessor.record_batch`, and
 `FileSystemCache.get_stat`.
 
+`ParallelDownloadManager.auto_mode` remains available for mode introspection;
+production method selection uses the configuration and enabled/streaming flags.
+`UnifiedConcurrencyManager.queue_size` likewise retains its compatibility value
+without limiting pending submissions. The unused `MirrorURL.multi_progress`
+allocation and obsolete `CONTENT_HASH_THRESHOLD` constant have been removed.
+The report formatters retain their public `target` parameter for compatibility;
+the unused private snapshot-helper parameter was removed. The startup header
+logs the validated destination. `MetricsCollector.report(show_stats=...)` also
+retains its documented compatibility argument; `config.metrics` controls logging.
+
 Match receivers precisely: `DirectoryScanner.batch_processor` has parser-stat
 readers; that does not establish a reader for an attribute with the same name
 on a `MirrorURL` instance. Verify actual per-IP semaphores and cache locks before
@@ -1289,7 +1314,7 @@ and can use a separately mounted case-sensitive APFS test image through
 different contents and separate receipts through all modes and repeat syncs;
 insensitive filesystem tests require failure before any selected file payload.
 Additional tests preserve preexisting aliases and replaced/shared probe entries.
-The mutation check temporarily weakens twenty-one guards:
+The mutation check temporarily weakens thirty guards, including:
 mixed DNS rejection, archive collision rejection, incomplete-scan cleanup,
 same-origin scope, address pinning, lossy filename preflight and content receipt
 verification, the long-hash deadline policy, destination locking and retention
@@ -1511,5 +1536,5 @@ Preserve these constraints when extending or refactoring the current code.
 
 ---
 
-*This guide describes the architecture as of version 3.9.10. When you change the
+*This guide describes the architecture as of version 3.9.11. When you change the
 structure, update this document in the same PR.*

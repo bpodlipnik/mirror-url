@@ -577,8 +577,8 @@ class DownloadProgress:
                         leave=False,
                         position=file.position,
                     )
-            self.active[path] = file
-            self._update_bar(file, reset=True)
+                self.active[path] = file
+                self._update_bar(file, reset=True)
         self._announce_display()
 
     def chunk_plan(self, path: Path, count: int) -> None:
