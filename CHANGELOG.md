@@ -6,6 +6,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Parse benchmark errors and warnings from actual log records, preserving
+  successful runs whose filenames contain `Traceback`, `[ERROR]`, `[CRITICAL]`
+  or `[WARNING]`. Continue rejecting real error records and traceback headers.
+- Require the full CI workflow to succeed on the tagged commit before release
+  builds, GitHub Release creation or PyPI publication. Reuse the existing CI
+  matrix and pin checkouts to the triggering commit.
+
 ## [3.9.11] - 2026-10-26
 
 ### Fixed
