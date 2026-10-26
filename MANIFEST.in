@@ -1,5 +1,5 @@
 include CHANGELOG.md CONTRIBUTING.md index.html
 recursive-include tests *.py
-recursive-include scripts *.py *.sh *.lua
+recursive-include scripts *.py *.sh *.lua *.md
 recursive-include docs *.md *.html
 recursive-include tests/fixtures/head-recovery-tls *.pem

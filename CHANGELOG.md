@@ -31,6 +31,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   as literal URL paths and skip existing-receipt hashing when content
   verification is disabled.
 - Enable detailed metrics in the mode benchmark and parse timestamped log lines.
+  Include the benchmark guide in source distributions.
   Align developer documentation and pre-commit with the pinned Ruff toolchain,
   current module count and safety checks. Remove unused internal progress state
   and an obsolete hash-size constant.
