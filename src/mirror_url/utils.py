@@ -384,7 +384,9 @@ def is_reserved_windows_filename(filename: str) -> bool:
         >>> is_reserved_windows_filename('file.txt')
         False
     """
-    stem = Path(filename).stem.upper()
+    # Windows treats everything after the first dot as an extension, including
+    # multiple extensions (NUL.backup.txt), and ignores spaces before that dot.
+    stem = filename.split(".", 1)[0].rstrip(" ").upper()
     return stem in WINDOWS_RESERVED_NAMES
 
 

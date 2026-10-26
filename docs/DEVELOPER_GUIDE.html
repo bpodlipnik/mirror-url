@@ -282,7 +282,7 @@ repeats the essentials so you can work from it alone.</p>
 <ul>
 <li><strong>Package:</strong> <code>mirror_url</code> (src-layout under
 <code>src/</code>)</li>
-<li><strong>Version:</strong> 3.9.10</li>
+<li><strong>Version:</strong> 3.9.11</li>
 <li><strong>Python:</strong> 3.10 or newer; CI tests Python
 3.10–3.14</li>
 <li><strong>Runtime deps:</strong> <code>httpx[http2]</code> (including
@@ -376,7 +376,7 @@ green after every change.</li>
 <hr />
 <h2 id="repository-layout">Repository layout</h2>
 <pre><code>mirror-url/
-├── src/mirror_url/          # the package (48 Python files including private helpers)
+├── src/mirror_url/          # the package (51 Python files including private helpers)
 │   ├── __init__.py          # public API re-exports
 │   ├── __main__.py          # `python -m mirror_url`
 │   ├── _version.py          # __version__, __author__  (one of two version sources)
@@ -558,7 +558,8 @@ tasks.</li>
 <p><strong>Layer 4 — managers &amp; observability.</strong></p>
 <ul>
 <li><code>metrics.py</code> — <code>MetricsCollector</code> (thread-safe
-counters/aggregates; emits the metrics JSON).</li>
+counters/aggregates, shared report/payload collision checks and atomic
+metrics JSON export).</li>
 <li><code>run_report.py</code> — <code>RunReport</code> (per-sync final
 file decisions, publication counts, selection coverage and monotonic
 phase timing).</li>
@@ -587,14 +588,16 @@ backup).</li>
 (resume).</li>
 <li><code>scanner.py</code> — <code>DirectoryScanner</code>.</li>
 <li><code>health.py</code> — <code>HealthCheckHandler</code>,
-<code>HealthCheckServer</code>, <code>HealthChecker</code> (optional
-HTTP health endpoint).</li>
+<code>HealthCheckServer</code>, <code>HealthChecker</code>, and
+<code>DownloadHealthChecker</code> (optional HTTP health endpoint in
+both modes).</li>
 <li><code>config.py</code> — <code>MirrorConfig</code> (the validated
 model), <code>ConfigSchema</code> (an alias of that model),
 <code>validate_config_file</code>, <code>expand_env_vars</code>, and the
 public argparse-namespace helper <code>load_config_from_args</code>.
-<code>cli.main()</code> does its own file/explicit-CLI merge; it does
-not call that helper.</li>
+<code>cli.main()</code> does its own file/explicit-CLI merge, and uses
+the helper for download mode and directory selection without a
+configuration file.</li>
 <li><code>tuner.py</code> — <code>AutoConcurrencyTuner</code>.</li>
 <li><code>download_integrity.py</code> — strong ETag parsing, exact
 <code>Content-Range</code>/length validation, and atomic whole-file
@@ -1024,7 +1027,8 @@ strong ETag. A 200 response restarts a resumed file; 416 causes a fresh
 request. Directory validators never establish child-file freshness, and
 no remote cryptographic digest comparison is performed.</li>
 <li><strong>Cleanup:</strong> walk the local tree once, preserve
-excluded/depth-limited and skipped-symlink paths, local symlinks, and
+excluded/depth-limited and skipped-symlink paths, local symlinks,
+configured metrics outputs and their aliases/parent directories, and
 reserved state. Incomplete scans suppress obsolete-file actions. A
 complete empty scan may clean the selected local files. Unsafe expected
 paths fail the run and suppress cleanup. MOVE checks archive
@@ -1032,11 +1036,12 @@ destinations before creating parents and again after selecting a
 collision name; symlinked archives and occupied timestamp names fail
 while preserving source/archive bytes. Directory inspection and removal
 exceptions contribute to cleanup failure metrics and fail the sync. MOVE
-failures preserve their source and do not become deletion. After
-resource shutdown, DELETE mode separately removes verified marker-only
-application state under exclusive idle ownership. The obsolete-file walk
-continues to treat reserved state as opaque while transfers may use
-it.</li>
+failures preserve their source and do not become deletion. Per-sync
+cleanup counters reset before every job, so an earlier failure does not
+fail a later safe run. After resource shutdown, DELETE mode separately
+removes verified marker-only application state under exclusive idle
+ownership. The obsolete-file walk continues to treat reserved state as
+opaque while transfers may use it.</li>
 <li><strong>Response ownership:</strong> streamed sync requests keep
 their coordinator lease until the body/response is closed. Always close
 responses on success, error, cancellation, and retry paths.</li>
@@ -1387,7 +1392,19 @@ download-details footer. Shared completion helpers in
 pool-closure messages for both CLI paths.
 <code>RunReport.closed_connection_pools</code> records successful
 known-URL backend closures outside the JSON snapshot and resets for each
-run; dry runs and preflight failures create no pools. The JSON result
+run; dry runs and preflight failures create no pools. Both modes check
+metrics output aliases against the selected file plan before transfers.
+A collision also blocks subsequent shutdown/CLI exports through that
+collector. <code>export_json()</code> serializes before opening any
+output, validates an existing regular, singly linked, owned report, and
+writes a sibling temporary file. It flushes and fsyncs that file, checks
+staging/output identities, and publishes with <code>os.replace</code>.
+Unrecognized or linked existing files and changed staging entries are
+preserved. Existing and newly serialized reports are capped at 16 MiB.
+New POSIX reports use mode <code>0600</code>; replacements retain
+existing mode bits. Export failure returns <code>False</code> with a
+warning; it does not independently change the transfer result.
+Configured report files remain protected by cleanup. The JSON result
 schema remains unchanged; its elapsed clock includes final timer and
 transfer guard cleanup. With <code>--print-logs</code> and without
 <code>--quiet</code>, the CLI sends human logs to stderr and leaves
@@ -1405,10 +1422,10 @@ so standalone file validation and runtime construction agree.</p>
            ├─► cli.main(): merge explicit overrides ─► MirrorConfig ─► MirrorURL
 config file┘   (expand environment variables, then validate merged values)</code></pre>
 <p><code>validate_config_file()</code> validates a standalone complete
-YAML/JSON file. <code>load_config_from_args()</code> remains a separate
-public helper. The CLI allows required URL/path values to come from
-explicit arguments before validating its final merged model. Benchmark
-mode uses the same merge precedence.
+YAML/JSON file. <code>load_config_from_args()</code> is also used by CLI
+paths without a configuration file. The CLI allows required URL/path
+values to come from explicit arguments before validating its final
+merged model. Benchmark mode uses the same merge precedence.
 <code>load_config_from_args()</code> maps an already populated argparse
 namespace; it does not read <code>args.config</code> or implement the
 CLI's explicit-override detection.</p>
@@ -1435,9 +1452,11 @@ and an explicit CLI listing choice disables the opposing file mode.</p>
 <h2 id="subsystem-deep-dives">Subsystem deep-dives</h2>
 <p><strong>SSRF-hardened transport (<code>transport.py</code>).</strong>
 <code>SecureTransport</code> / <code>SecureAsyncTransport</code> wrap
-httpx and reject requests whose resolved address is loopback or private.
-This is a security boundary: do not weaken it for convenience. Both
-accept a <code>test_mode</code> flag that relaxes the guard; this is how
+httpx and reject requests whose resolved address is non-global,
+multicast or reserved, including shared address space
+(<code>100.64/10</code>) and non-public IPv4-mapped IPv6 addresses. This
+is a security boundary: do not weaken it for convenience. Both accept a
+<code>test_mode</code> flag that relaxes the guard; this is how
 integration tests hit a local server (see <a
 href="#testing">Testing</a>). Note the flag is not wired from
 <code>MirrorConfig</code> and should remain test-only. Existing HTTP
@@ -1588,7 +1607,7 @@ needed only for annotations, to keep the import graph acyclic.</li>
 and <code>E501</code>/<code>B008</code> are ignored — see
 <code>pyproject.toml</code>. <code>B019</code> and <code>B904</code> are
 enforced; URL parsing is cached at module scope.</li>
-<li><strong>Formatting:</strong> Ruff 0.17.0 (<code>ruff format</code>,
+<li><strong>Formatting:</strong> Ruff 0.17.1 (<code>ruff format</code>,
 line length 100), matching CI and pre-commit.</li>
 <li><strong>Type-checking:</strong> <code>mypy</code> is required in CI
 and must report zero errors. The settings remain lenient
@@ -1669,6 +1688,19 @@ caller. Examples retained for library users include
 <code>compute_file_hash</code>,
 <code>AdaptiveBatchProcessor.record_batch</code>, and
 <code>FileSystemCache.get_stat</code>.</p>
+<p><code>ParallelDownloadManager.auto_mode</code> remains available for
+mode introspection; production method selection uses the configuration
+and enabled/streaming flags.
+<code>UnifiedConcurrencyManager.queue_size</code> likewise retains its
+compatibility value without limiting pending submissions. The unused
+<code>MirrorURL.multi_progress</code> allocation and obsolete
+<code>CONTENT_HASH_THRESHOLD</code> constant have been removed. The
+report formatters retain their public <code>target</code> parameter for
+compatibility; the unused private snapshot-helper parameter was removed.
+The startup header logs the validated destination.
+<code>MetricsCollector.report(show_stats=...)</code> also retains its
+documented compatibility argument; <code>config.metrics</code> controls
+logging.</p>
 <p>Match receivers precisely:
 <code>DirectoryScanner.batch_processor</code> has parser-stat readers;
 that does not establish a reader for an attribute with the same name on
@@ -1730,19 +1762,19 @@ NASA-style names, different contents and separate receipts through all
 modes and repeat syncs; insensitive filesystem tests require failure
 before any selected file payload. Additional tests preserve preexisting
 aliases and replaced/shared probe entries. The mutation check
-temporarily weakens twenty-one guards: mixed DNS rejection, archive
-collision rejection, incomplete-scan cleanup, same-origin scope, address
-pinning, lossy filename preflight and content receipt verification, the
-long-hash deadline policy, destination locking and retention of
-abandoned-worker ownership, scratch manifest ownership, live work leases
-and late chunk writer cleanup, case-insensitive filename collision
-rejection, probe inode/metadata identity, timestamp file-handle identity
-and preservation of existing filename aliases. Each selected test must
-first pass against the original source and then fail an assertion
-against the mutation. Collection or environment errors do not count as
-success. These checks improve evidence of correctness; neither 100%
-coverage nor this small mutation set guarantees that all bugs have been
-found.</p>
+temporarily weakens thirty guards, including: mixed DNS rejection,
+archive collision rejection, incomplete-scan cleanup, same-origin scope,
+address pinning, lossy filename preflight and content receipt
+verification, the long-hash deadline policy, destination locking and
+retention of abandoned-worker ownership, scratch manifest ownership,
+live work leases and late chunk writer cleanup, case-insensitive
+filename collision rejection, probe inode/metadata identity, timestamp
+file-handle identity and preservation of existing filename aliases. Each
+selected test must first pass against the original source and then fail
+an assertion against the mutation. Collection or environment errors do
+not count as success. These checks improve evidence of correctness;
+neither 100% coverage nor this small mutation set guarantees that all
+bugs have been found.</p>
 <p><code>test_process_recovery.py</code> starts real subprocesses
 against the local HTTP fixture, kills them at deterministic IO
 checkpoints, then restarts the same destination. Checkpoints cover
@@ -1962,7 +1994,7 @@ refactoring nearby code.</li>
 </table>
 
 <hr />
-<p><em>This guide describes the architecture as of version 3.9.10. When
+<p><em>This guide describes the architecture as of version 3.9.11. When
 you change the structure, update this document in the same PR.</em></p>
 </body>
 </html>

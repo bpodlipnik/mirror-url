@@ -152,6 +152,11 @@ class ReportMixin(MirrorHost):
                 "bytes_downloaded",
                 "files_deleted",
                 "files_moved",
+                "dirs_deleted",
+                "dirs_moved",
+                "files_would_delete",
+                "dirs_would_delete",
+                "cleanup_failed_operations",
             ):
                 self.metrics.metrics[key] = 0
 
@@ -289,10 +294,17 @@ class ReportMixin(MirrorHost):
                 ):
                     self.clean_obsolete(set(remote_files))
 
-                run.finish("failed dry run" if self.scan_incomplete else "dry run")
+                cleanup_failures = self.metrics.metrics.get("cleanup_failed_operations", 0)
+                failed = self.scan_incomplete or cleanup_failures > 0
+                reasons = []
+                if self.scan_incomplete:
+                    reasons.append("incomplete remote scan")
+                if cleanup_failures:
+                    reasons.append(f"{cleanup_failures} cleanup failures")
+                run.finish("failed dry run" if failed else "dry run", "; ".join(reasons))
                 if not run.job_active:
                     self.metrics.log_report(prefix, include_metrics=self.config.metrics)
-                return not getattr(self, "scan_incomplete", False)
+                return not failed
 
             if len(remote_files) > 0:
                 progress = ProgressTracker(

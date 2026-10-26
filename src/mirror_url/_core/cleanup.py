@@ -75,10 +75,8 @@ class CleanupMixin(MirrorHost):
         Local symlinks are never followed or removed. Every candidate is
         checked for containment again immediately before a mutation.
 
-        A directory that can't be listed (permission error, or it
-        disappeared mid-walk) is logged at debug level and skipped rather
-        than aborting the whole walk -- mirrors the previous code's
-        graceful handling of individual unreadable entries.
+        Inspection failures are counted and the walk continues for diagnostics.
+        clean_obsolete refuses to mutate a tree that could not be fully inspected.
         """
         if self.target_dir is None or self.target_dir.is_symlink():
             return [], []
@@ -98,8 +96,9 @@ class CleanupMixin(MirrorHost):
             try:
                 with os.scandir(current) as it:
                     entries = list(it)
-            except (PermissionError, FileNotFoundError, NotADirectoryError) as e:
-                logging.debug(f"Skipping unreadable directory {current}: {e}")
+            except OSError as e:
+                self.metrics.increment("cleanup_failed_operations")
+                logging.warning(f"Cannot inspect cleanup directory {current}: {e}")
                 continue
 
             for entry in entries:
@@ -118,7 +117,8 @@ class CleanupMixin(MirrorHost):
                     # Broken symlink or a permission/stat error on this one
                     # entry -- pathlib's is_file()/is_dir() would likewise
                     # treat this as neither, so skip it the same way.
-                    logging.debug(f"Skipping unreadable entry {entry_path}: {e}")
+                    self.metrics.increment("cleanup_failed_operations")
+                    logging.warning(f"Cannot inspect cleanup entry {entry_path}: {e}")
                     continue
 
                 if is_dir:
@@ -143,6 +143,10 @@ class CleanupMixin(MirrorHost):
         """Protect paths the current scan deliberately did not inspect."""
         if self.target_dir is None or self.target_parsed is None:
             return False
+        if getattr(self.config, "exclude_dirs", ()) and self._is_dir_excluded(
+            self.target_parsed.geturl()
+        ):
+            return False
         try:
             relative = path.relative_to(self.target_dir)
             if relative.parts and relative.parts[0].casefold() == ".mirror-url-state":
@@ -151,6 +155,16 @@ class CleanupMixin(MirrorHost):
                 return False
             if not PathSafety.is_subpath(self.target_dir, path):
                 return False
+            metrics_output = getattr(self.config, "metrics_json", None)
+            if metrics_output is not None:
+                output, candidate = Path(metrics_output).resolve(), path.resolve()
+                if output == candidate or (directory and output.is_relative_to(candidate)):
+                    return False
+                try:
+                    if candidate.samefile(output):
+                        return False
+                except FileNotFoundError:
+                    pass
             # The root is depth zero; filenames do not consume depth.
             depth = len(relative.parts) if directory else len(relative.parts) - 1
             if depth > self.config.max_depth:
@@ -257,7 +271,11 @@ class CleanupMixin(MirrorHost):
         # the confirm-delete count, preview mode's file/empty-dir checks,
         # and the real DELETE/MOVE collection all used to each re-walk the
         # entire tree independently via their own Path.rglob("*") call.
+        inspection_failures = self.metrics.metrics.get("cleanup_failed_operations", 0)
         all_files, all_dirs = self._scan_local_tree()
+        if self.metrics.metrics.get("cleanup_failed_operations", 0) > inspection_failures:
+            logging.warning("Cleanup skipped: local tree inspection was incomplete")
+            return
         protected = {item for item in all_files if not self._cleanup_path_selected(item)}
         expected.update(protected)
         all_dirs = [item for item in all_dirs if self._cleanup_path_selected(item, directory=True)]

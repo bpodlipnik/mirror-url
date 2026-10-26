@@ -69,11 +69,11 @@ def test_plain_pattern_does_not_match_the_root_itself():
     assert stub._is_dir_excluded(ROOT) is False
 
 
-def test_multi_segment_pattern_matches_only_that_exact_relative_path():
+def test_multi_segment_pattern_protects_only_its_rooted_subtree():
     stub = _Stub(["idl/beta"])
     assert stub._is_dir_excluded(ROOT + "idl/beta/") is True
     assert stub._is_dir_excluded(ROOT + "idl/") is False
-    assert stub._is_dir_excluded(ROOT + "idl/beta/gamma/") is False
+    assert stub._is_dir_excluded(ROOT + "idl/beta/gamma/") is True
     assert stub._is_dir_excluded(ROOT + "other/idl/beta/") is False
 
 

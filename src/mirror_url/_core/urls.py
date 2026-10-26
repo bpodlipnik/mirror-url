@@ -154,7 +154,7 @@ class UrlMixin(MirrorHost):
         pattern is still matched against the full root-relative path
         (not anchored to being rooted at depth 0 the way a plain pattern
         is), so `--exclude-dir '*/lasco'` matches `<root>/setup/lasco/`
-        (and `<root>/lasco/` itself, and any other depth) -- opt-in,
+        (and any deeper directory with that name) -- opt-in,
         explicit, and visible in the pattern itself, rather than being
         every plain pattern's silent default behavior.
 
@@ -192,12 +192,17 @@ class UrlMixin(MirrorHost):
             if not pattern_clean:
                 continue
 
-            if "*" in pattern_clean:
-                regex_pattern = re.escape(pattern_clean).replace(r"\*", ".*")
-                if re.fullmatch(regex_pattern, relative_path):
+            # A selected root can start below an excluded ancestor, bypassing
+            # the usual child-enqueue check. Exclusion protects its subtree too.
+            parts = relative_path.split("/")
+            for length in range(1, len(parts) + 1):
+                candidate = "/".join(parts[:length])
+                if "*" in pattern_clean:
+                    regex_pattern = re.escape(pattern_clean).replace(r"\*", ".*")
+                    if re.fullmatch(regex_pattern, candidate):
+                        return True
+                elif candidate == pattern_clean:
                     return True
-            elif relative_path == pattern_clean:
-                return True
 
         return False
 

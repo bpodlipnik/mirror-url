@@ -30,7 +30,7 @@ if TYPE_CHECKING:  # pragma: no cover - declarations have no runtime implementat
     from ..metrics import MetricsCollector
     from ..monitoring import DiskSpaceManager, MemoryMonitor, PerformanceMonitor
     from ..primitives import AtomicCounter, AtomicSize
-    from ..progress import DownloadProgress, MultiLevelProgress, ProgressTracker
+    from ..progress import DownloadProgress, ProgressTracker
     from ..queue import DownloadQueue
     from ..rate_limiter import BandwidthLimiter, PerIPRateLimiter
     from ..scanner import DirectoryScanner
@@ -85,7 +85,6 @@ if TYPE_CHECKING:  # pragma: no cover - declarations have no runtime implementat
         partial_manager: Optional[PartialDownloadManager]
         scratch_manager: Optional[OwnedScratch]
         health_checker: HealthChecker
-        multi_progress: MultiLevelProgress
         _download_progress: Optional[DownloadProgress]
         per_ip_limiter: PerIPRateLimiter
         health_server: Optional[HealthCheckServer]

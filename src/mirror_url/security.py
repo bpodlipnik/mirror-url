@@ -131,20 +131,24 @@ class SecurityValidator:
     @staticmethod
     def is_private_ip(ip: str) -> bool:
         """
-        Check if an IP address is private.
+        Check whether an address is unsafe for public remote requests.
 
         Args:
             ip: IP address string
 
         Returns:
-            True if IP is private
+            True for non-global, multicast, reserved or invalid addresses
         """
         try:
             addr = ipaddress.ip_address(ip)
+            if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped is not None:
+                return SecurityValidator.is_private_ip(str(addr.ipv4_mapped))
             for network in SecurityValidator.PRIVATE_NETWORKS:
                 if addr in network:
                     return True
-            return addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved
+            # Shared address space (100.64/10) is neither private nor global.
+            # Multicast may be classified global, but is not a public server.
+            return not addr.is_global or addr.is_multicast or addr.is_reserved
         except ValueError:
             return True
 

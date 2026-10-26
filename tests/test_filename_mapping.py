@@ -336,6 +336,27 @@ def test_probe_classifies_alias_by_inode(tmp_path, monkeypatch):
     assert not list(tmp_path.iterdir())
 
 
+def test_probe_detects_absent_case_alias(tmp_path, monkeypatch):
+    """Exercise a sensitive-parent result even on an insensitive host volume."""
+    original_create, original_stat = tempfile.mkstemp, Path.lstat
+    created = []
+
+    def create(**kwargs):
+        descriptor, name = original_create(**kwargs)
+        created.append(Path(name))
+        return descriptor, name
+
+    def inspect(path):
+        if created and path.name == created[0].name.swapcase():
+            raise FileNotFoundError(path)
+        return original_stat(path)
+
+    monkeypatch.setattr("mirror_url.filename_mapping.tempfile.mkstemp", create)
+    monkeypatch.setattr(Path, "lstat", inspect)
+    assert case_sensitive(tmp_path)
+    assert not list(tmp_path.iterdir())
+
+
 def test_probe_preserves_unrelated_alias(case_directory, monkeypatch):
     if not case_sensitive(case_directory):
         pytest.skip("requires case-sensitive destination for two unrelated probe spellings")

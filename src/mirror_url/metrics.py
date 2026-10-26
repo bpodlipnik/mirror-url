@@ -8,19 +8,24 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import stat
 import statistics
 import sys
+import tempfile
 import time
 from collections import deque
 from datetime import datetime
 from pathlib import Path
 from threading import RLock
-from typing import TYPE_CHECKING, Any, Dict, Literal, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Dict, Iterable, Literal, Optional, Sequence, Tuple
 
 from ._version import __version__
 from .constants import ADAPTIVE_START_CONCURRENCY
+from .filename_mapping import FilenameMap, _stat_identity
 from .head_recovery import HEAD_RECOVERY_METRICS
 from .run_report import TRANSFER_STAGES, RunReport
+from .security import PathSafety
 from .utils import format_bytes, format_duration, sanitize_command_line, sanitize_url_for_log
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, avoids an import cycle
@@ -36,12 +41,49 @@ CHUNK_METRICS = (
     "peak_parallel_chunks",
 )
 
+_MAX_METRICS_REPORT_BYTES = 16 * 1024 * 1024
+
+
+def _metrics_file_identity(path: Path) -> Optional[Tuple[int, ...]]:
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return None
+    if (
+        not stat.S_ISREG(info.st_mode)
+        or info.st_nlink != 1
+        or (hasattr(os, "getuid") and info.st_uid != os.getuid())
+    ):
+        raise ValueError("Metrics output is not an owned regular file with one link")
+    return _stat_identity(info)
+
+
+def _validate_previous_report(path: Path, identity: Tuple[int, ...]) -> int:
+    if identity[2] > _MAX_METRICS_REPORT_BYTES:
+        raise ValueError("Existing metrics output exceeds 16 MiB")
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    with os.fdopen(descriptor, "r", encoding="utf-8") as stream:
+        info = os.fstat(stream.fileno())
+        if _stat_identity(info) != identity:
+            raise ValueError("Metrics output changed before reading")
+        previous = stream.read(_MAX_METRICS_REPORT_BYTES + 1)
+    if len(previous) > _MAX_METRICS_REPORT_BYTES:
+        raise ValueError("Existing metrics output exceeds 16 MiB")
+    data = json.loads(previous)
+    if not isinstance(data, dict) or not all(
+        isinstance(data.get(key), kind)
+        for key, kind in (("timestamp", str), ("version", str), ("metrics", dict), ("config", dict))
+    ):
+        raise ValueError("Preserving an unrecognized existing metrics output")
+    return stat.S_IMODE(info.st_mode)
+
 
 class MetricsCollector:
     """Collect and report metrics with performance tracking"""
 
     def __init__(self):
         """Initialize metrics collector"""
+        self._blocked_exports: Dict[str, str] = {}
         self.metrics: Dict[str, Any] = {
             "files_downloaded": 0,
             "bytes_downloaded": 0,
@@ -612,6 +654,29 @@ class MetricsCollector:
 
         return "\n".join(lines)
 
+    def protect_output(self, output_path: Path, target: Path, files: Iterable[Path]) -> None:
+        """Reject report/payload aliases and suppress unsafe failure-time exports."""
+        output = PathSafety._resolve_destination_root(output_path)
+        target = PathSafety._resolve_destination_root(target)
+        key = output.as_posix()
+        with self.lock:
+            self._blocked_exports.pop(key, None)
+        try:
+            if output.is_dir() or output == target or output in target.parents:
+                raise ValueError("Metrics output must name a file outside destination ancestors")
+            if output.is_relative_to(target):
+                names = FilenameMap(target)
+                reserved = names.key(output)
+                for local in files:
+                    if names.key(local) == reserved:
+                        raise ValueError("Metrics output conflicts with a mirrored file")
+        except ValueError as error:
+            with self.lock:
+                self._blocked_exports[key] = str(error)
+            raise ValueError(
+                f"Metrics output conflicts with a payload or directory: {error}"
+            ) from error
+
     def export_json(self, output_path: Path, config: MirrorConfig) -> bool:
         """
         Export metrics to JSON file.
@@ -624,6 +689,10 @@ class MetricsCollector:
             True if export successful
         """
         try:
+            output_path = PathSafety._resolve_destination_root(output_path)
+            with self.lock:
+                if output_path.as_posix() in self._blocked_exports:
+                    raise ValueError(self._blocked_exports[output_path.as_posix()])
             summary = self.get_summary()
             export_data = {
                 "timestamp": datetime.now().isoformat(),
@@ -636,9 +705,46 @@ class MetricsCollector:
                     "parallel_downloads": config.parallel_downloads,
                 },
             }
+            body = json.dumps(export_data, indent=2)
+            if len(body) > _MAX_METRICS_REPORT_BYTES:
+                raise ValueError("Metrics output exceeds 16 MiB")
+            original = _metrics_file_identity(output_path)
+            original_mode = (
+                _validate_previous_report(output_path, original) if original is not None else None
+            )
             output_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(output_path, "w") as f:
-                json.dump(export_data, f, indent=2)
+            descriptor, name = tempfile.mkstemp(
+                prefix=".mirror-url-metrics-", dir=output_path.parent
+            )
+            temporary = Path(name)
+            staged = _stat_identity(os.fstat(descriptor))
+            try:
+                with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+                    try:
+                        stream.write(body)
+                        stream.flush()
+                        if original_mode is not None and hasattr(os, "fchmod"):
+                            os.fchmod(stream.fileno(), original_mode)
+                        os.fsync(stream.fileno())
+                    finally:
+                        staged = _stat_identity(os.fstat(stream.fileno()))
+                if _metrics_file_identity(temporary) != staged:
+                    raise ValueError("Metrics staging file changed; preserving it")
+                if _metrics_file_identity(output_path) != original:
+                    raise ValueError("Metrics output changed; preserving it")
+                PathSafety._resolve_destination_root(output_path)
+                os.replace(temporary, output_path)
+            finally:
+                try:
+                    current = _metrics_file_identity(temporary)
+                    if current == staged:
+                        temporary.unlink()
+                    elif current is not None:
+                        logging.warning("Preserving changed metrics staging file: %s", temporary)
+                except (OSError, ValueError) as error:
+                    logging.warning(
+                        "Cannot safely remove metrics staging file %s: %s", temporary, error
+                    )
             logging.info(f"📊 Metrics exported to JSON: {output_path}")
             return True
         except Exception as e:
@@ -736,7 +842,6 @@ def _format_run_metrics(
 def _download_report_snapshot(
     config: MirrorConfig,
     summary: dict,
-    target: Path,
     run: Optional[dict] = None,
     *,
     metrics: Optional[MetricsCollector] = None,
@@ -796,7 +901,7 @@ def format_download_summary(
     metrics: Optional[MetricsCollector] = None,
 ) -> str:
     """Format only the compact known-URL summary."""
-    metrics, snapshot = _download_report_snapshot(config, summary, target, run, metrics=metrics)
+    metrics, snapshot = _download_report_snapshot(config, summary, run, metrics=metrics)
     return metrics.summary(snapshot=snapshot)
 
 
@@ -809,7 +914,7 @@ def format_download_metrics(
     metrics: Optional[MetricsCollector] = None,
 ) -> str:
     """Format only the detailed known-URL metrics."""
-    metrics, snapshot = _download_report_snapshot(config, summary, target, run, metrics=metrics)
+    metrics, snapshot = _download_report_snapshot(config, summary, run, metrics=metrics)
     return metrics.report(snapshot=snapshot, run=snapshot["run"], known_urls=True)
 
 
@@ -822,7 +927,7 @@ def log_download_report(
     metrics: Optional[MetricsCollector] = None,
 ) -> None:
     """Log both modes with the same default, snapshot and per-line formatting."""
-    metrics, snapshot = _download_report_snapshot(config, summary, target, run, metrics=metrics)
+    metrics, snapshot = _download_report_snapshot(config, summary, run, metrics=metrics)
     metrics.log_report(include_metrics=config.metrics, snapshot=snapshot, known_urls=True)
 
 

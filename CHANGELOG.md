@@ -4,6 +4,38 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [3.9.11] - 2026-10-26
+
+### Fixed
+
+- Validate literal directory selections together before processing. Reject lossy
+  names, reserved state paths and filesystem aliases instead of allowing selected
+  directories to overwrite or clean up one another's files. Recognize Windows
+  device names with multiple extensions and superscript COM/LPT digits.
+- Reject non-global and multicast addresses, including shared address space and
+  IPv4-mapped private addresses, during DNS validation.
+- Apply exclusions to selected directory roots and their ancestors, preserving
+  excluded local files during cleanup. Abort obsolete-file cleanup and report a
+  failure when the local tree cannot be fully inspected.
+- Synchronize active-file insertion with progress reporting.
+- Protect metrics outputs from mirrored-file collisions and obsolete-file cleanup
+  in both modes. Publish JSON atomically, preserving existing reports after failed
+  writes and refusing to replace unrelated, linked or concurrently changed files.
+  Reset cleanup failure/preview counters for each sync so a prior failure does
+  not fail a later safe run. Remove an unused internal report-helper argument.
+- Honor JSON metrics and health-server settings in known-URL download mode,
+  including live transfer totals, and reject metrics paths that overlap payloads.
+  Report cleanup inspection failures in dry runs too. Encode selected suffixes
+  as literal URL paths and skip existing-receipt hashing when content
+  verification is disabled.
+- Enable detailed metrics in the mode benchmark and parse timestamped log lines.
+  Include the benchmark guide in source distributions.
+  Align developer documentation and pre-commit with the pinned Ruff toolchain,
+  current module count and safety checks. Remove unused internal progress state
+  and an obsolete hash-size constant.
+
 ## [3.9.10] - 2026-10-24
 
 ### Fixed

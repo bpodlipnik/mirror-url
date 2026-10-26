@@ -26,7 +26,7 @@ Run the same checks CI runs:
 
 ```bash
 ruff check .          # lint
-ruff format .         # formatting (Ruff 0.16.10)
+ruff format .         # formatting (Ruff 0.17.1)
 mypy                  # required type-check (zero errors)
 python scripts/render_site.py --check  # website release/CLI references
 pytest                # full suite, including live HTTP integration
@@ -56,9 +56,10 @@ of existing files, response closure, retry boundaries, and resource cleanup.
 
 The safety gate requires 100% statement and branch coverage separately for
 `scanner.py`, `_core/scan.py`, `_core/urls.py`, `_core/cleanup.py`, `security.py`,
-and `transport.py`, plus the shared `url_within_scope` and `_relative_url_path`
+`filename_mapping.py`, `transport.py`, `destination_lock.py`, and `scratch.py`,
+plus the shared `url_within_scope` and `_relative_url_path`
 helpers. It does not assert 100% coverage of the entire package. Hypothesis
-generates encoded path and origin-boundary cases. The mutation check runs twenty-one
+generates encoded path and origin-boundary cases. The mutation check runs thirty
 deliberately weakened guards in temporary source copies and requires the
 corresponding preservation tests to fail; this is a targeted check of test
 strength, not exhaustive mutation testing. Complete coverage measures execution,
@@ -74,7 +75,7 @@ diffs, and `pytest` passes.
 ## Project layout
 
 ```
-src/mirror_url/        # the package (48 Python files, including private mixins and helpers)
+src/mirror_url/        # the package (51 Python files, including private mixins and helpers)
 tests/                 # pytest suite
 REFACTORING_PLAN.md    # module map, dependency layering, and roadmap
 ```
@@ -87,7 +88,7 @@ migration plan. Type-only references use `if TYPE_CHECKING:` to avoid cycles.
 
 ## Conventions
 
-- **Style/format:** Ruff 0.16.10, 100-column lines. Run `ruff format .` before
+- **Style/format:** Ruff 0.17.1, 100-column lines. Run `ruff format .` before
   committing; pre-commit will catch the rest.
 - **Lint rule set:** `E, F, W, I, B, C4`. `UP` (pyupgrade) and `SIM` are
   intentionally *off* — the package supports Python 3.10+ and retains classic
