@@ -73,3 +73,7 @@ separate process wall clock includes interpreter startup and CLI exit.
 Transfer-stage worker sums overlap and must not be added together
 as elapsed time. Warnings remain in each result for review; failed runs never
 enter the medians. Interpret incomplete experiments as partial evidence.
+
+Errors and warnings are identified by their log-record level. Filenames containing
+`[ERROR]`, `[CRITICAL]`, `[WARNING]` or `Traceback` remain ordinary data; actual
+error records and unprefixed traceback headers still invalidate a run.

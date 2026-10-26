@@ -397,7 +397,7 @@ green after every change.</li>
 ├── pyproject.toml           # packaging, deps, tool config  (the other version source)
 ├── REFACTORING_PLAN.md      # the migration plan + module/line map
 ├── CHANGELOG.md             # Keep a Changelog format
-└── .github/workflows/       # ci.yml (lint+test matrix), release.yml (tag → build → GitHub Release, optional PyPI)</code></pre>
+└── .github/workflows/       # ci.yml (reusable lint+test matrix), release.yml (tag → full CI → build → publication)</code></pre>
 <hr />
 <h2 id="the-dependency-layer-architecture">The dependency-layer
 architecture</h2>
@@ -1862,18 +1862,25 @@ class="sourceCode bash"><code class="sourceCode bash"><span id="cb8-1"><a href="
 <span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> tag <span class="at">-a</span> vX.Y.Z <span class="at">-m</span> <span class="st">&quot;mirror-url X.Y.Z&quot;</span></span>
 <span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> push origin vX.Y.Z</span></code></pre></div></li>
 <li>The tag triggers <code>.github/workflows/release.yml</code>, which
-builds the wheel/sdist, creates a GitHub Release, and (when configured)
-publishes to PyPI via <strong>Trusted Publishing</strong> (OIDC — no API
-token). The PyPI step requires a one-time setup: a pending publisher on
-PyPI (<code>owner</code> = repo owner, workflow
-<code>release.yml</code>, environment <code>pypi</code>) and a matching
-<code>pypi</code> Environment in the repo settings. The PyPI job also
-requires the repository variable <code>PUBLISH_TO_PYPI=true</code>.
-Without that opt-in, it is skipped; the tag still builds the wheel and
-creates the GitHub Release. Verify the version and changelog before
-creating the tag. The release includes <code>index.html</code> as a
-downloadable asset. Deploy that file to the existing documentation host
-separately; the workflow does not upload to
+first calls the full reusable <code>ci.yml</code> workflow from that
+same tagged commit. Every checkout uses the triggering commit SHA. The
+complete Linux/Python and native macOS/Windows matrix, coverage gates
+and mutation checks must succeed before the package build can start.
+Failed, cancelled or incomplete CI blocks the build and both publication
+jobs; a green run on another commit does not satisfy this gate. This
+release CI runs even when branch CI has already passed. After CI
+succeeds, the workflow builds the wheel/sdist, creates a GitHub Release,
+and (when configured) publishes to PyPI via <strong>Trusted
+Publishing</strong> (OIDC — no API token). The PyPI step requires a
+one-time setup: a pending publisher on PyPI (<code>owner</code> = repo
+owner, workflow <code>release.yml</code>, environment <code>pypi</code>)
+and a matching <code>pypi</code> Environment in the repo settings. The
+PyPI job also requires the repository variable
+<code>PUBLISH_TO_PYPI=true</code>. Without that opt-in, it is skipped;
+the tag still builds the wheel and creates the GitHub Release. Verify
+the version and changelog before creating the tag. The release includes
+<code>index.html</code> as a downloadable asset. Deploy that file to the
+existing documentation host separately; the workflow does not upload to
 <code>star.mps.mpg.de</code>.</li>
 </ol>
 <hr />

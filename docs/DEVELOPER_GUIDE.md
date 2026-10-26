@@ -113,7 +113,7 @@ mirror-url/
 ├── pyproject.toml           # packaging, deps, tool config  (the other version source)
 ├── REFACTORING_PLAN.md      # the migration plan + module/line map
 ├── CHANGELOG.md             # Keep a Changelog format
-└── .github/workflows/       # ci.yml (lint+test matrix), release.yml (tag → build → GitHub Release, optional PyPI)
+└── .github/workflows/       # ci.yml (reusable lint+test matrix), release.yml (tag → full CI → build → publication)
 ```
 
 ---
@@ -1406,8 +1406,15 @@ and documentation synchronized when upgrading the formatter.
    git tag -a vX.Y.Z -m "mirror-url X.Y.Z"
    git push origin vX.Y.Z
    ```
-5. The tag triggers `.github/workflows/release.yml`, which builds the wheel/sdist,
-   creates a GitHub Release, and (when configured) publishes to PyPI via **Trusted
+5. The tag triggers `.github/workflows/release.yml`, which first calls the full
+   reusable `ci.yml` workflow from that same tagged commit. Every checkout uses
+   the triggering commit SHA. The complete Linux/Python and native macOS/Windows
+   matrix, coverage gates and mutation checks must succeed before the package
+   build can start. Failed, cancelled or incomplete CI blocks the build and both
+   publication jobs; a green run on another commit does not satisfy this gate.
+   This release CI runs even when branch CI has already passed.
+   After CI succeeds, the workflow builds the wheel/sdist, creates a GitHub
+   Release, and (when configured) publishes to PyPI via **Trusted
    Publishing** (OIDC — no API token). The PyPI step requires a one-time setup: a
    pending publisher on PyPI (`owner` = repo owner, workflow `release.yml`,
    environment `pypi`) and a matching `pypi` Environment in the repo settings.

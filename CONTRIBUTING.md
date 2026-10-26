@@ -69,6 +69,11 @@ Native macOS and Windows jobs run the full suite on Python 3.12 both with and
 without optional accelerators. Linux retains the Python 3.10–3.14 fast lane and
 the full coverage job with all optional dependencies.
 
+Version tags call this same full CI workflow on the tagged commit before release
+packages can be built or published. The release run includes the complete test
+matrix even when branch CI has already passed. Failed, cancelled or incomplete
+release CI prevents both GitHub Release creation and PyPI publication.
+
 A change is ready to merge when `ruff check` is clean, the formatter reports no
 diffs, and `pytest` passes.
 

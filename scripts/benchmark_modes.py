@@ -43,6 +43,13 @@ TIMES = {
     "flush_sum_seconds": "Disk flushing (sum)",
     "hash_sum_seconds": "SHA-256 hashing (sum)",
 }
+_LOG_RECORD = re.compile(
+    r"(?:\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\] )?"
+    r"\[(DEBUG|INFO|WARNING|ERROR|CRITICAL)\](?: |$)(.*)"
+)
+_TRACEBACK_HEADER = re.compile(
+    r"\s*(?:\+ Exception Group )?Traceback \(most recent call last\):\s*"
+)
 
 
 def write_json(path, data):
@@ -75,9 +82,12 @@ def schedule(pairs, backends, caches):
 
 
 def parse_summary(text):
-    # Every emitted field has its own logger prefix. Keep the original text
-    # for warning/error detection, and parse the actual message bodies.
-    messages = re.sub(r"^.*?\[INFO\] ?", "", text, flags=re.M)
+    # Classify complete records before inspecting message bodies: filenames
+    # can contain level markers or the word Traceback as ordinary data.
+    records = [(line, _LOG_RECORD.fullmatch(line)) for line in text.splitlines()]
+    messages = "\n".join(
+        record[2] if record and record[1] == "INFO" else line for line, record in records
+    )
     if len(re.findall(r"^SUMMARY:\s*$", messages, flags=re.M)) != 1:
         raise ValueError("Expected exactly one completed shared SUMMARY")
     summary = re.split(r"^SUMMARY:\s*$", messages, maxsplit=1, flags=re.M)[1]
@@ -86,7 +96,10 @@ def parse_summary(text):
         raise ValueError("Run did not report SUCCESS with zero failed files")
     if "Sync completed successfully" not in summary:
         raise ValueError("Missing final successful completion")
-    if re.search(r"\[(ERROR|CRITICAL)\]|Traceback", text):
+    if any(
+        record[1] in ("ERROR", "CRITICAL") if record else _TRACEBACK_HEADER.fullmatch(line)
+        for line, record in records
+    ):
         raise ValueError("An error was recorded even though the process exited successfully")
     values = {}
     for key, label in TIMES.items():
@@ -132,7 +145,7 @@ def parse_summary(text):
             ),
         )
     )
-    values["warnings"] = [line for line in text.splitlines() if "[WARNING]" in line]
+    values["warnings"] = [line for line, record in records if record and record[1] == "WARNING"]
     return values, fields
 
 

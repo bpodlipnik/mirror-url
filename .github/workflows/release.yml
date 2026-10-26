@@ -1,8 +1,8 @@
 name: Release
 
-# Build the wheel + sdist on a version tag and publish to PyPI via Trusted
-# Publishing (OIDC — no API token stored). Also attaches the artifacts to the
-# GitHub Release.
+# Require full CI on the tagged commit before building distributions.
+# Publish to PyPI with Trusted Publishing (OIDC, no stored API token) and attach
+# the wheel, source distribution and website to the GitHub Release.
 #
 # Setup (one-time, on PyPI): register the project "mirror-url", then add this
 # repository as a Trusted Publisher (Project → Settings → Publishing):
@@ -16,11 +16,19 @@ permissions:
   contents: read
 
 jobs:
+  ci:
+    name: Full CI for tagged commit
+    # A local workflow reference uses this tag's commit, not the current main.
+    uses: ./.github/workflows/ci.yml
+
   build:
     name: Build distributions
+    needs: ci
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"

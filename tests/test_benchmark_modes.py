@@ -66,9 +66,9 @@ def test_payload_validation_rejects_extra_or_missing_files(tmp_path):
         benchmark.payload_sizes(tmp_path, ["wanted"])
 
 
-def test_summary_parser_reads_prefixed_fields_after_the_completed_header():
+@pytest.fixture
+def successful_summary():
     lines = [
-        "Downloaded [INFO] SUMMARY:",
         "SUMMARY:",
         "  Files downloaded: 3",
         "METRICS SUMMARY:",
@@ -80,11 +80,48 @@ def test_summary_parser_reads_prefixed_fields_after_the_completed_header():
         *["  " + label + ": 1.000s" for label in benchmark.TIMES.values()],
         "Sync completed successfully",
     ]
-    console = "\n".join("[2026-10-26 12:00:00] [INFO] " + line for line in lines)
+    return "\n".join(lines)
+
+
+@pytest.mark.parametrize("prefix", ["", "[INFO] ", "[2026-10-26 12:00:00] [INFO] "])
+@pytest.mark.parametrize(
+    "filename",
+    ["[INFO] SUMMARY:", "Traceback.bin", "[ERROR].bin", "[CRITICAL].bin", "[WARNING].bin"],
+)
+def test_summary_parser_treats_downloaded_names_as_data(successful_summary, prefix, filename):
+    lines = ["Downloaded " + filename, *successful_summary.splitlines()]
+    console = "\n".join(prefix + line for line in lines)
     values, fields = benchmark.parse_summary(console)
     assert values["files_downloaded"] == 3
     assert values["mib_per_second"] == 1.0
     assert fields["Result"] == "SUCCESS"
+    assert values["warnings"] == []
+
+
+@pytest.mark.parametrize("after_summary", [False, True])
+@pytest.mark.parametrize(
+    "error",
+    [
+        "[ERROR] actual transfer error",
+        "[CRITICAL] actual fatal error",
+        "[2026-10-26 12:00:00] [ERROR] actual transfer error",
+        "[2026-10-26 12:00:00] [CRITICAL] actual fatal error",
+        'Traceback (most recent call last):\n  File "example.py", line 1\nRuntimeError: failure',
+        "  + Exception Group Traceback (most recent call last):\n  | ExceptionGroup: failure",
+    ],
+)
+def test_successful_totals_do_not_hide_real_errors(successful_summary, error, after_summary):
+    parts = [successful_summary, error] if after_summary else [error, successful_summary]
+    with pytest.raises(ValueError, match="An error was recorded"):
+        benchmark.parse_summary("\n".join(parts))
+
+
+@pytest.mark.parametrize("prefix", ["", "[2026-10-26 12:00:00] "])
+def test_warnings_contain_warning_records_only(successful_summary, prefix):
+    warning = prefix + "[WARNING] actual retry warning"
+    console = "\n".join([prefix + "[INFO] Downloaded [WARNING].bin", warning, successful_summary])
+    values, _ = benchmark.parse_summary(console)
+    assert values["warnings"] == [warning]
 
 
 def test_timeout_reaps_the_owned_child(tmp_path):
@@ -116,9 +153,9 @@ def test_real_cli_comparison_preserves_scope_and_cache_states(tmp_path, monkeypa
 
     monkeypatch.setattr(benchmark, "execute", invoke)
     files = {
-        "one (1).bin": b"a" * 1024**2,
+        "Traceback [ERROR] (1).bin": b"a" * 1024**2,
         "two + 2.bin": b"b" * 1024**2,
-        "three [3].bin": b"c" * 1024**2,
+        "three [CRITICAL] [WARNING].bin": b"c" * 1024**2,
     }
     listing = tmp_path / "files.txt"
     listing.write_text("\n".join(files) + "\n", encoding="utf-8")
