@@ -6,6 +6,7 @@ import importlib.util
 import json
 import subprocess
 import sys
+import sysconfig
 import time
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
@@ -100,6 +101,8 @@ def test_real_cli_comparison_preserves_scope_and_cache_states(tmp_path, monkeypa
     # Use the real CLI and real fixture HTTP requests. Only the subprocess
     # boundary is replaced so the existing fixture's DNS guards stay scoped
     # to this test process; no private-IP bypass enters the benchmark script.
+    entry_point = "mirror-url.exe" if sys.platform == "win32" else "mirror-url"
+
     def invoke(command, console, timeout):
         with console.open("w", encoding="utf-8") as output:
             with monkeypatch.context() as patch, redirect_stdout(output), redirect_stderr(output):
@@ -136,7 +139,7 @@ def test_real_cli_comparison_preserves_scope_and_cache_states(tmp_path, monkeypa
         benchmark.main(
             [
                 "--executable",
-                str(Path(sys.executable).parent / "mirror-url"),
+                str(Path(sysconfig.get_path("scripts")) / entry_point),
                 "--url",
                 origin.base,
                 "--url-list",
