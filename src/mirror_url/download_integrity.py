@@ -62,9 +62,12 @@ def replace_verified_file(
     """Publish only the verified staging file over the original destination."""
     if file_identity(staging) != staged_identity:
         raise ValueError("Owned staging file changed before publication")
+    relative = PathSafety._normalize_resolved_path(local).relative_to(
+        PathSafety._normalize_resolved_path(target)
+    )
     checked = PathSafety.safe_join(
         target,
-        *local.relative_to(target).parts,
+        *relative.parts,
         create_base=False,
         max_depth=max_depth,
         max_filename_len=max_filename_len,

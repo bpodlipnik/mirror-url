@@ -325,3 +325,47 @@ def test_changed_staging_after_hash_preserves_mirror_final(manager, mirror, monk
         assert not manager.download_parallel(download)
         assert download.publication_failed
     assert local.read_bytes() == b"old final"
+
+
+@pytest.mark.parametrize(
+    "target_name,local_name",
+    [
+        ("C:\\dest", "\\\\?\\C:\\dest\\a"),
+        ("\\\\?\\C:\\dest", "C:\\dest\\a"),
+        ("\\\\host\\share\\dest", "\\\\?\\UNC\\host\\share\\dest\\a"),
+        ("\\\\?\\UNC\\host\\share\\dest", "\\\\host\\share\\dest\\a"),
+    ],
+)
+def test_publication_accepts_equivalent_observed_windows_namespaces(
+    tmp_path, monkeypatch, target_name, local_name
+):
+    from pathlib import PureWindowsPath
+
+    from mirror_url.security import PathSafety
+
+    staging = tmp_path / "staging"
+    staging.write_bytes(b"new")
+    original = (1, 2, 3, 4, 5)
+    staged = (1, 6, 3, 7, 8)
+    local, target = PureWindowsPath(local_name), PureWindowsPath(target_name)
+    monkeypatch.setattr(
+        "mirror_url.download_integrity.file_identity",
+        lambda path: staged if path == staging else original,
+    )
+    joined = Mock(return_value=PathSafety._normalize_resolved_path(local))
+    monkeypatch.setattr(PathSafety, "safe_join", joined)
+    replace = Mock()
+    monkeypatch.setattr(os, "replace", replace)
+    replace_verified_file(
+        staging,
+        local,
+        target=target,
+        original=original,
+        staged_identity=staged,
+        max_depth=2,
+        max_filename_len=255,
+    )
+    joined.assert_called_once_with(
+        target, "a", create_base=False, max_depth=2, max_filename_len=255
+    )
+    replace.assert_called_once_with(staging, local)

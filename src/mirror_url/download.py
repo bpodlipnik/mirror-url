@@ -1243,7 +1243,11 @@ class ParallelDownloadManager:
         replace_verified_file(
             staging,
             download.final_path,
-            target=getattr(self.mirror, "target_dir", download.final_path.parent),
+            target=(
+                Path(self.scratch.target)
+                if self.scratch is not None
+                else getattr(self.mirror, "target_dir", download.final_path.parent)
+            ),
             original=download.original_identity,
             staged_identity=staged_identity,
             max_depth=self.config.max_depth + 1,
