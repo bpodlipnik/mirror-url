@@ -4,6 +4,23 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Reject MOVE selections whose archive trees overlap selected destinations,
+  including nested paths and filename aliases, before starting any job.
+- Write cache JSON through exclusively created staging files, preserving
+  unrelated files and pre-existing temporary-file symlinks or hardlinks.
+- Validate saved partials and their open handles before truncating or appending.
+  Reject hardlinks and changed entries without modifying their other names.
+- Fail chunk assembly when its final disk flush fails. Preserve the previous
+  complete file and prevent an unsafe whole-file fallback after publication
+  or assembly failure.
+- Recheck destination and staging identities before HTTPX mirror publication,
+  using the same final replacement guard as the other transfer paths. Preserve
+  concurrent destination edits in sequential, parallel and streaming modes.
+
 ## [3.9.12] - 2026-10-26
 
 ### Fixed

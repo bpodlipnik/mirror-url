@@ -1130,10 +1130,14 @@ ETag</strong>. Without these, the file uses a whole-file transfer, which
 may still run alongside other files. Each chunk sends
 <code>If-Range</code> and must return the exact requested
 <code>Content-Range</code>, length, and ETag. Existing destination files
-stay intact until verification and atomic replacement succeed. These
-checks do not compare against a server-provided cryptographic content
-digest; <code>--hash-algorithm</code> does not add such a
-comparison.</p>
+stay intact until verification and atomic replacement succeed. Final
+flush or publication errors fail the transfer and preserve the previous
+complete file; an assembly failure does not trigger a whole-file
+fallback that could replace it. Publication rechecks the identities of
+staging and destination files. An observed destination change fails the
+transfer instead of replacing the changed entry. These checks do not
+compare against a server-provided cryptographic content digest;
+<code>--hash-algorithm</code> does not add such a comparison.</p>
 <p>Traditional chunk files default to owned
 <code>.mirror-url-state/chunks/</code> state, or a destination-specific
 owned child of <code>--chunk-assembly-dir</code>. Final assembly and
@@ -1158,6 +1162,10 @@ partials can resume. Partials without a strong validator restart from
 zero. A response of 200 to a resume request restarts the transfer; 416
 triggers a fresh full request and never certifies the partial as
 complete.</p>
+<p>Saved partials must be owned regular files with one link. Their open
+handles and pathnames are checked before truncation or append; shared
+hardlinks, symlinks and entries replaced during preparation are rejected
+and preserved.</p>
 <p>The <code>.mirror-url-state</code> name is reserved
 case-insensitively. A conflicting remote path fails the sync before
 downloading. An existing directory without MirrorURL's valid ownership
@@ -2012,7 +2020,9 @@ Connection setup can still contact the server.</li>
 </ul>
 <p>The cache can be written after a complete scan and updated again
 after the normal download/cleanup path. It is separate from resumable
-file state in <code>.mirror-url-state/</code>.</p>
+file state in <code>.mirror-url-state/</code>. Cache writes use
+exclusively created temporary files. Existing adjacent temporary-file
+names, including symlinks and hardlinks, are left untouched.</p>
 <p>Process-interruption tests cover all three download modes. Killing a
 process before publication preserves the previous complete destination;
 killing it after publication leaves the complete replacement. A restart
@@ -2055,7 +2065,13 @@ the MOVE archive cannot be created, cleanup stops; a failed move leaves
 the source in place and never falls back to deletion. MOVE also refuses
 symlinked archive paths and existing timestamp collision names. It
 preserves the source and previous archives and reports a failed cleanup
-operation; inspect the archive before retrying.</p>
+operation; inspect the archive before retrying. For multiple
+<code>--dir</code> selections, MOVE archives must also be disjoint from
+every selected destination. Equal, nested and aliased
+archive/destination paths are rejected before listing or downloading.
+For example, <code>--dir data data_obsolete --cleanup move</code> is
+rejected because the second destination would overwrite the first
+selection's archive.</p>
 <div class="sourceCode" id="cb41"><pre
 class="sourceCode bash"><code class="sourceCode bash"><span id="cb41-1"><a href="#cb41-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Observe cleanup without downloads or changes to mirrored files</span></span>
 <span id="cb41-2"><a href="#cb41-2" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--config</span> mirror.yaml <span class="at">--cleanup</span> preview <span class="at">--dry-run</span></span>

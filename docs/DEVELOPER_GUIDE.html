@@ -1111,16 +1111,30 @@ MiB chunks and rejects observable stat changes during hashing. The
 single, assembled and streaming download paths hash the completed
 staging file before <code>os.replace</code>, then pass the digest to
 <code>CacheManager.save_file_metadata(..., sha256=digest)</code>. Cache
-entries can contain a receipt without an ETag. Cache saves use
-<code>os.replace</code> so existing JSON can be replaced on Windows.
-Legacy receipts are not invented from an unverified destination: missing
-receipts require downloading the file again. This mode adds local
-verification; remote freshness retains the HTTP policy.</p>
+entries can contain a receipt without an ETag. Cache saves write through
+an exclusively created <code>mkstemp</code> descriptor before
+<code>os.replace</code>, so unrelated temporary aliases are preserved
+and existing JSON can be replaced on Windows.
+<code>open_owned_partial</code> opens without truncating, checks the
+handle against its expected pathname identity, and rejects shared or
+unowned files before callers truncate or append.
+<code>replace_verified_file</code> checks staging, destination path and
+original file identity immediately before replacement in every backend.
+Parallel plans retain the original destination snapshot;
+assembly/publication failures block the whole-file fallback. Real final
+<code>fsync</code> errors fail assembly. Legacy receipts are not
+invented from an unverified destination: missing receipts require
+downloading the file again. This mode adds local verification; remote
+freshness retains the HTTP policy.</p>
 <p>The regression contracts live in
 <code>test_release_audit_regressions.py</code>, the download
 failure/integrity/storage-fault tests, HTTP workflow tests, and config
 precedence tests. Keep those observable contracts intact during
-refactoring.</p>
+refactoring. The preservation fault/backend-matrix/publication-guard
+tests cover archive selection conflicts, linked state, storage errors,
+repeated runs and concurrent changes. <code>validate_move_targets</code>
+checks all selected payload/archive trees together before CLI jobs
+start, including nesting and filesystem aliases.</p>
 <hr />
 <h2 id="the-configuration-system">The configuration system</h2>
 <p>Transfer configuration includes <code>mode</code>

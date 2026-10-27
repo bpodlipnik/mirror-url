@@ -13,7 +13,7 @@ from concurrent.futures import Future
 from dataclasses import dataclass, field
 from pathlib import Path
 from threading import RLock
-from typing import Any, Callable, Deque, Dict, List, Optional
+from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
 
 from .constants import (
     ADAPTIVE_ERROR_THRESHOLD,
@@ -195,6 +195,9 @@ class ParallelFileDownload:
         default=None, repr=False, compare=False
     )
     lock: RLock = field(default_factory=RLock)
+    original_identity: Optional[Tuple[int, ...]] = None
+    identity_captured: bool = False
+    publication_failed: bool = False
 
 
 __all__ = [

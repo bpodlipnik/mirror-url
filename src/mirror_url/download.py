@@ -47,7 +47,9 @@ from .destination_lock import destination_operation
 from .download_integrity import (
     clear_resume_metadata,
     content_length,
+    file_identity,
     file_sha256,
+    replace_verified_file,
     strong_etag,
     validate_range,
 )
@@ -477,6 +479,7 @@ class ParallelDownloadManager:
         download = ParallelFileDownload(
             url=url, final_path=local_path, file_size=file_size, server_etag=etag
         )
+        self._capture_destination(download)
         last_modified = response.headers.get("Last-Modified")
         if last_modified:
             try:
@@ -786,6 +789,8 @@ class ParallelDownloadManager:
         progress = self.progress or get_download_progress(self.mirror)
         staging_work = download.staging_path.parent if download.staging_path else None
         try:
+            download.publication_failed = True
+            self._capture_destination(download)
             if not download.staging_path or any(c.status != "completed" for c in download.chunks):
                 raise ChunkAssemblyError("Streaming download is incomplete")
             if download.staging_path.stat().st_size != download.file_size:
@@ -795,6 +800,7 @@ class ParallelDownloadManager:
                 with self._measure_flush():
                     os.fsync(f.fileno())
             digest = self._publish_staging(download, download.staging_path)
+            download.publication_failed = False
             download.staging_path = None
             download.status = "completed"
             try:
@@ -820,7 +826,7 @@ class ParallelDownloadManager:
             log_file_downloaded(download.final_path, download.file_size, digest)
             logging.info(f"✅ Streaming complete: {download.final_path.name}")
             return True
-        except (OSError, ChunkAssemblyError) as e:
+        except (OSError, ValueError, ChunkAssemblyError) as e:
             logging.error(f"Streaming completion failed: {e}")
             download.status = "failed"
             return False
@@ -1008,6 +1014,8 @@ class ParallelDownloadManager:
         temp_file_moved = False
 
         try:
+            download.publication_failed = True
+            self._capture_destination(download)
             download.final_path.parent.mkdir(parents=True, exist_ok=True)
             if self.scratch is not None:
                 temp_assembly = self.scratch.staging(download.final_path, "assembling")
@@ -1092,10 +1100,7 @@ class ParallelDownloadManager:
                                 mm.flush()
                             else:
                                 f.flush()
-                                try:
-                                    os.fsync(f.fileno())
-                                except OSError:
-                                    pass  # fsync unsupported on some FS
+                                os.fsync(f.fileno())
                     finally:
                         # Always close mmap safely
                         if mm is not None:
@@ -1129,6 +1134,7 @@ class ParallelDownloadManager:
             # failed replace must leave the old file intact. A copy/move
             # fallback could destroy it before that fallback completes.
             digest = self._publish_staging(download, temp_assembly)
+            download.publication_failed = False
             temp_file_moved = True
 
             # ====================================================================
@@ -1219,6 +1225,9 @@ class ParallelDownloadManager:
         """Share chunk verification/assembly while allowing the caller's publication policy."""
         if download.publish is not None:
             return download.publish(download, staging)
+        staged_identity = file_identity(staging)
+        if staged_identity is None:
+            raise ValueError("Owned staging file is missing")
         progress = self.progress or get_download_progress(self.mirror)
         progress.stage(
             download.final_path,
@@ -1231,9 +1240,27 @@ class ParallelDownloadManager:
         ):
             digest = file_sha256(staging, enabled=self.config.verify_content)
         progress.stage(download.final_path, "publishing")
-        os.replace(staging, download.final_path)
+        replace_verified_file(
+            staging,
+            download.final_path,
+            target=(
+                Path(self.scratch.target)
+                if self.scratch is not None
+                else getattr(self.mirror, "target_dir", download.final_path.parent)
+            ),
+            original=download.original_identity,
+            staged_identity=staged_identity,
+            max_depth=self.config.max_depth + 1,
+            max_filename_len=self.config.max_filename_len,
+        )
         self._restore_server_timestamp(download)
         return digest
+
+    @staticmethod
+    def _capture_destination(download: ParallelFileDownload) -> None:
+        if not download.identity_captured:
+            download.original_identity = file_identity(download.final_path)
+            download.identity_captured = True
 
     def _restore_server_timestamp(self, download: ParallelFileDownload) -> None:
         """Restore mtime before saving the cache's local file identity."""

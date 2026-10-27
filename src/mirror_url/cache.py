@@ -214,6 +214,7 @@ class CacheManager:
         """
         if self.config.no_cache:
             return False
+        temp_file = None
         try:
             cache_data = {
                 "_meta": {
@@ -238,10 +239,13 @@ class CacheManager:
                 cache_data["_files"] = self.file_metadata_cache
 
             self.cache_file.parent.mkdir(parents=True, exist_ok=True)
-            temp_file = self.cache_file.with_suffix(".json.tmp")
+            descriptor, name = tempfile.mkstemp(
+                prefix=self.cache_file.name + ".", suffix=".tmp", dir=self.cache_file.parent
+            )
+            temp_file = Path(name)
 
             # ✅ Strict formatting: no trailing spaces, consistent separators
-            with open(temp_file, "w", encoding="utf-8") as f:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as f:
                 json.dump(cache_data, f, indent=2, ensure_ascii=False, separators=(",", ": "))
                 f.flush()
                 os.fsync(f.fileno())
@@ -255,8 +259,7 @@ class CacheManager:
         except Exception as e:
             logging.warning(f"Failed to save cache: {e}")
             self.metrics.add_error(str(e), "cache_save")
-            temp_file = self.cache_file.with_suffix(".json.tmp")
-            if temp_file.exists():
+            if temp_file is not None and temp_file.exists():
                 try:
                     temp_file.unlink()
                 except Exception:

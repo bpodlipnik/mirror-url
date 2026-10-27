@@ -72,7 +72,7 @@ from .exceptions import (
     PathTraversalError,
     URLScopeError,
 )
-from .filename_mapping import selected_directory_targets
+from .filename_mapping import selected_directory_targets, validate_move_targets
 from .metrics import (
     MetricsCollector,
     log_connection_pools_closed,
@@ -1436,11 +1436,14 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
     settings = effective if effective is not None else args
     resources: List[Path] = []
     try:
-        for target in selected_directory_targets(
+        targets = selected_directory_targets(
             Path(args.dest_path),
             [""] if args.dir_regex else args.dir_suffix or [""],
             max_filename_len=settings.max_filename_len,
-        ):
+        )
+        if settings.cleanup_policy == CleanupPolicy.MOVE:
+            validate_move_targets(targets)
+        for target in targets:
             resources.append(target)
             if settings.cleanup_policy == CleanupPolicy.MOVE:
                 resources.append(target.parent / (target.name + "_obsolete"))

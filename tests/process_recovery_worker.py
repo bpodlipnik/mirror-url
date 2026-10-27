@@ -73,16 +73,22 @@ def main():
             os.replace = checkpoint_replace
         elif phase == "cache":
             dump = json.dump
-            cache_tmp = mirror.cache_file.with_suffix(".json.tmp")
             initial_digest = hashlib.sha256(final.read_bytes()).hexdigest()
 
             def incomplete_cache(data, file, *args, **kwargs):
                 receipt = data.get("_files", {}).get(str(final.resolve()), {})
+                cache_tmp = next(
+                    (
+                        path
+                        for path in mirror.cache_file.parent.glob(mirror.cache_file.name + ".*.tmp")
+                        if os.path.samestat(path.stat(), os.fstat(file.fileno()))
+                    ),
+                    None,
+                )
                 # Skip the earlier scan-only cache save. Interrupt the save
                 # containing the receipt for the newly published file.
                 if (
-                    isinstance(file.name, (str, os.PathLike))
-                    and Path(file.name) == cache_tmp
+                    cache_tmp is not None
                     and receipt.get("sha256") != initial_digest
                     and receipt.get("sha256") == hashlib.sha256(final.read_bytes()).hexdigest()
                 ):
@@ -91,7 +97,7 @@ def main():
                     file.write(text[: len(text) // 2])
                     file.flush()
                     os.fsync(file.fileno())
-                    pause(previous_cache_sha256=previous)
+                    pause(previous_cache_sha256=previous, cache_temporary=str(cache_tmp))
                 return dump(data, file, *args, **kwargs)
 
             json.dump = incomplete_cache

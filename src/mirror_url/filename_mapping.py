@@ -47,6 +47,25 @@ def selected_directory_targets(
     return targets
 
 
+def validate_move_targets(targets: Iterable[Path]) -> None:
+    """Keep every selected payload tree separate from every MOVE archive."""
+    targets = list(targets)
+    if not targets:
+        return
+    try:
+        archives = [target.with_name(target.name + "_obsolete") for target in targets]
+        root = Path(os.path.commonpath([*targets, *archives]))
+        names = FilenameMap(root)
+        payload_keys = [names.key(target, directory=True) for target in targets]
+        archive_keys = [names.key(archive, directory=True) for archive in archives]
+        for payload in payload_keys:
+            for archive in archive_keys:
+                if payload[: len(archive)] == archive or archive[: len(payload)] == payload:
+                    raise ValueError("MOVE archive overlaps a selected destination")
+    except ValueError as error:
+        raise ConfigError(f"Unsafe MOVE archive and destination selection: {error}") from error
+
+
 def _stat_identity(info: os.stat_result) -> Tuple[int, ...]:
     """Use one timestamp namespace for path and handle identities.
 

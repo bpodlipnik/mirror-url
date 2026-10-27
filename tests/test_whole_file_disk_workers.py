@@ -10,7 +10,7 @@ from pathlib import PureWindowsPath
 import httpx
 import pytest
 
-from mirror_url import MirrorConfig, transfers
+from mirror_url import MirrorConfig, download_integrity, transfers
 from mirror_url.destination_lock import DestinationLock
 from mirror_url.download import PartialDownloadManager
 from mirror_url.scratch import OwnedScratch
@@ -313,9 +313,11 @@ def test_publication_accepts_equivalent_resolved_windows_spellings(
     inode = staging.stat()
     planned, checked = PureWindowsPath(planned), PureWindowsPath(checked)
     engine.target = planned.parent
-    original_identity = transfers._identity
+    original_identity = download_integrity.file_identity
     monkeypatch.setattr(
-        transfers, "_identity", lambda path: None if path is planned else original_identity(path)
+        download_integrity,
+        "file_identity",
+        lambda path: None if path is planned else original_identity(path),
     )
     monkeypatch.setattr(transfers.PathSafety, "safe_join", lambda *args, **kwargs: checked)
     replacements = []

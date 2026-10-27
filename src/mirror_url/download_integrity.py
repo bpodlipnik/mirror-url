@@ -9,7 +9,74 @@ import re
 import stat
 import tempfile
 from pathlib import Path
-from typing import Optional
+from typing import BinaryIO, Optional, Tuple
+
+from .filename_mapping import _stat_identity
+from .security import PathSafety
+
+
+def file_identity(path: Path) -> Optional[Tuple[int, ...]]:
+    """Snapshot an owned regular file without accepting symlinks or hardlinks."""
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return None
+    if (
+        not stat.S_ISREG(info.st_mode)
+        or info.st_nlink != 1
+        or (hasattr(os, "getuid") and info.st_uid != os.getuid())
+    ):
+        raise ValueError("Download would replace an unsafe or unowned local entry")
+    return _stat_identity(info)
+
+
+def open_owned_partial(path: Path, expected: Optional[Tuple[int, ...]]) -> BinaryIO:
+    """Open without truncation; verify the handle and pathname before any write."""
+    flags = os.O_RDWR | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
+    if expected is None:
+        flags |= os.O_CREAT | os.O_EXCL
+    descriptor = os.open(path, flags, 0o600)
+    try:
+        info = os.fstat(descriptor)
+        opened = _stat_identity(info)
+        named = file_identity(path)
+        if named != opened or (expected is not None and opened != expected):
+            raise ValueError("Partial download changed before opening; preserving it")
+        return os.fdopen(descriptor, "r+b")
+    except BaseException:
+        os.close(descriptor)
+        raise
+
+
+def replace_verified_file(
+    staging: Path,
+    local: Path,
+    *,
+    target: Path,
+    original: Optional[Tuple[int, ...]],
+    staged_identity: Tuple[int, ...],
+    max_depth: int,
+    max_filename_len: int,
+    cancelled=None,
+) -> None:
+    """Publish only the verified staging file over the original destination."""
+    if file_identity(staging) != staged_identity:
+        raise ValueError("Owned staging file changed before publication")
+    relative = PathSafety._normalize_resolved_path(local).relative_to(
+        PathSafety._normalize_resolved_path(target)
+    )
+    checked = PathSafety.safe_join(
+        target,
+        *relative.parts,
+        create_base=False,
+        max_depth=max_depth,
+        max_filename_len=max_filename_len,
+    )
+    if not PathSafety.same_resolved_path(checked, local) or file_identity(local) != original:
+        raise ValueError("Destination changed during transfer; preserving existing entry")
+    if cancelled is not None and cancelled.is_set():
+        raise ValueError("Chunk transfer cancelled before publication")
+    os.replace(staging, local)
 
 
 def file_sha256(path: Path, enabled: bool = True) -> Optional[str]:
