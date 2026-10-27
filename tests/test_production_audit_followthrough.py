@@ -218,9 +218,24 @@ def test_domain_health_write_failures_preserve_previous_state(tmp_path, monkeypa
     assert list(tmp_path.iterdir()) == [path]
 
 
-def test_domain_health_separate_process_writers_leave_valid_json(tmp_path):
+@pytest.mark.parametrize("sharing_violation", [False, True])
+def test_domain_health_separate_process_writers_leave_valid_json(
+    tmp_path, monkeypatch, sharing_violation
+):
     path = tmp_path / "health.json"
     DomainHealthTracker(path).record_incident("initial.example")
+    if sharing_violation:
+        read_text = Path.read_text
+        interrupted = False
+
+        def interrupted_read(file, *args, **kwargs):
+            nonlocal interrupted
+            if file == path and not interrupted:
+                interrupted = True
+                raise PermissionError("injected replacement sharing violation")
+            return read_text(file, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "read_text", interrupted_read)
     program = """
 import sys
 from pathlib import Path
@@ -239,14 +254,24 @@ for iteration in range(40):
     ]
     try:
         deadline = time.monotonic() + 20
+        observations = 0
         while any(writer.poll() is None for writer in writers):
-            assert json.loads(path.read_text())["_meta"]["version"] == 1
             assert time.monotonic() < deadline, "domain-health writer did not finish"
+            try:
+                snapshot = path.read_text(encoding="utf-8")
+            except PermissionError:
+                # Windows can briefly deny opening a name being replaced.
+                # Retry access only; malformed or mixed JSON must still fail.
+                pass
+            else:
+                assert json.loads(snapshot)["_meta"]["version"] == 1
+                observations += 1
             time.sleep(0.001)
         for writer in writers:
             stdout, stderr = writer.communicate(timeout=2)
             assert writer.returncode == 0, (stdout, stderr)
-        assert json.loads(path.read_text())["domains"]
+        assert observations > 0
+        assert json.loads(path.read_text(encoding="utf-8"))["domains"]
         assert list(tmp_path.iterdir()) == [path]
     finally:
         for writer in writers:
