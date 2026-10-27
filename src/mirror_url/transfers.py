@@ -49,7 +49,7 @@ from .run_report import RunReport
 from .scratch import OwnedScratch
 from .security import PathSafety, SecurityValidator
 from .transport import SecureAsyncTransport, SecureTransport
-from .utils import _relative_url_path, sanitize_url_for_log, url_within_scope
+from .utils import _relative_url_path, sanitize_log_text, sanitize_url_for_log, url_within_scope
 
 
 @dataclass
@@ -880,7 +880,9 @@ class AsyncTransfers:
                                         local,
                                         staging,
                                         size,
-                                        strong_etag(headers),
+                                        # Weak validators are valid for freshness,
+                                        # but remain forbidden for byte ranges.
+                                        headers.get("ETag"),
                                         mtime,
                                         original,
                                         (staged_inode.st_dev, staged_inode.st_ino),
@@ -951,8 +953,10 @@ class AsyncTransfers:
                     else:
                         result = await self._one(backend, url, local, published)
                 except Exception as error:
-                    result = TransferResult(url, local, False, error=str(error))
-                    logging.error("Download failed for %s: %s", sanitize_url_for_log(url), error)
+                    result = TransferResult(url, local, False, error=sanitize_log_text(str(error)))
+                    logging.error(
+                        "Download failed for %s: %s", sanitize_url_for_log(url), result.error
+                    )
                 results.append(result)
                 if self.config.mode == "download":
                     self.metrics.increment_batch(

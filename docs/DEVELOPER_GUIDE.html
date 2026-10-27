@@ -282,7 +282,7 @@ repeats the essentials so you can work from it alone.</p>
 <ul>
 <li><strong>Package:</strong> <code>mirror_url</code> (src-layout under
 <code>src/</code>)</li>
-<li><strong>Version:</strong> 3.9.13</li>
+<li><strong>Version:</strong> 3.9.14</li>
 <li><strong>Python:</strong> 3.10 or newer; CI tests Python
 3.10–3.14</li>
 <li><strong>Runtime deps:</strong> <code>httpx[http2]</code> (including
@@ -1237,9 +1237,16 @@ publication path. Receipts are namespaced by the scoped base URL under
 receipt or explicit overwrite. It never calls the scanner or metadata
 freshness layer. <code>ReportMixin.sync()</code> uses the same pipeline
 for <code>backend="aiohttp"</code> after its normal discovery and
-checks, then saves results through <code>CacheManager</code>. HTTPX
-remains the default mirror implementation, including ranged resume and
-chunks. The whole-file pipeline preserves those existing partials.</p>
+checks, then saves results through <code>CacheManager</code>. Whole-file
+<code>TransferResult.etag</code> retains the raw response ETag,
+including weak validators, for freshness checks.
+<code>strong_etag</code> remains required by range probes, range
+validation and resume metadata. The shared whole-file pipeline retries
+transport interruptions but does not retry HTTP status failures,
+including aiohttp mirror transfers. HTTPX mirror requests keep their
+existing status policy. HTTPX remains the default mirror implementation,
+including ranged resume and chunks. The whole-file pipeline preserves
+those existing partials.</p>
 <p><code>AsyncTransfers._one_chunked</code> adapts the same
 <code>ParallelDownloadManager</code> used by mirror mode, rather than
 implementing another range engine. <code>_ChunkConnection</code> uses
@@ -1309,6 +1316,12 @@ hashing setting. The CLI logs no duplicate mirror configuration; the
 mirror lifecycle owns that block once per suffix.
 <code>metrics.log_file_download_plan</code> supplies one
 selected-file/worker message to synchronous and async transfer paths.
+Both logging setup paths install <code>SafeLogFormatter</code>, which
+sanitizes the final rendered text including chained exception
+tracebacks. <code>MetricsCollector.add_error</code> and public transfer
+failure strings sanitize embedded HTTP URLs before storage. Do not
+sanitize the URL used for network requests. Library-supplied handlers
+need the same formatter if they render raw request/exception records.
 <code>RunReport.record_publication</code> counts SHA-256-bearing
 publications once per URL and resets those observations at each run.
 Both summary modes render the hashing setting and actual recorded count
@@ -1653,10 +1666,10 @@ across Python 3.10–3.14.</li>
 <code>test_http_mirror_workflows.py</code>, using the static server
 fixture or a controllable Range/ETag/failure server.</li>
 <li><strong>Full coverage lane</strong> — both lanes together, plus 100%
-statement/branch gates for the two download modules, eight safety
-modules and shared URL scope helpers (see below). It requires all
-optional dependencies and local socket binding. A sandbox socket denial
-is an environment error, not a successful full-suite run.</li>
+statement/branch gates for the two download modules, nine safety modules
+and shared URL scope helpers (see below). It requires all optional
+dependencies and local socket binding. A sandbox socket denial is an
+environment error, not a successful full-suite run.</li>
 </ul>
 <p><strong>End-to-end tests:</strong>
 <code>tests/test_integration.py</code> runs a real local HTTP mirror
@@ -1715,6 +1728,22 @@ The startup header logs the validated destination.
 <code>MetricsCollector.report(show_stats=...)</code> also retains its
 documented compatibility argument; <code>config.metrics</code> controls
 logging.</p>
+<p>The current sync workflow has no caller for
+<code>CompareMixin._response_is_current</code> or
+<code>UrlMixin._parse_url_cached</code>; both remain compatibility
+helpers. Scanner <code>target_base_url</code>/<code>target_dir</code>
+snapshots and <code>ServerProfile.last_adjustment</code> are retained
+introspection state, not inputs to scan or concurrency decisions.
+<code>ProgressTracker</code> stores its supplied config so its debug
+reporting is reachable. Legacy metrics placeholders are listed in the
+user guide; default values should not be interpreted as measurements.
+Domain-health writers use exclusive unique staging and atomic
+replacement; simultaneous processes can still lose increments, as
+documented in <code>DomainHealthTracker</code>, but cannot share the
+same staging inode. Corrupt-cache recovery reserves a unique backup
+before moving the source and keeps the source if reservation or
+replacement fails. Existing timestamped backups remain eligible for
+recovery and are never reused as output names.</p>
 <p>Match receivers precisely:
 <code>DirectoryScanner.batch_processor</code> has parser-stat readers;
 that does not establish a reader for an attribute with the same name on
@@ -2017,7 +2046,7 @@ refactoring nearby code.</li>
 </table>
 
 <hr />
-<p><em>This guide describes the architecture as of version 3.9.13. When
+<p><em>This guide describes the architecture as of version 3.9.14. When
 you change the structure, update this document in the same PR.</em></p>
 </body>
 </html>

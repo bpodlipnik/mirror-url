@@ -35,6 +35,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import tempfile
 import time
 from pathlib import Path
 from threading import RLock
@@ -162,20 +163,33 @@ class DomainHealthTracker:
 
     def _save(self) -> None:
         """Must be called with self.lock held."""
+        temp_path = None
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             payload = {
                 "_meta": {"version": DOMAIN_HEALTH_SCHEMA_VERSION},
                 "domains": self._data,
             }
-            temp_path = self.path.with_suffix(".json.tmp")
-            with open(temp_path, "w", encoding="utf-8") as f:
+            descriptor, name = tempfile.mkstemp(prefix=".mirror-url-health-", dir=self.path.parent)
+            temp_path = Path(name)
+            try:
+                stream = os.fdopen(descriptor, "w", encoding="utf-8")
+            except BaseException:
+                os.close(descriptor)
+                raise
+            with stream as f:
                 json.dump(payload, f, indent=2, ensure_ascii=False, separators=(",", ": "))
                 f.flush()
                 os.fsync(f.fileno())
             temp_path.replace(self.path)
         except Exception as e:
             logging.debug(f"Could not save domain health file ({self.path}): {e}")
+        finally:
+            if temp_path is not None:
+                try:
+                    temp_path.unlink(missing_ok=True)
+                except OSError as e:
+                    logging.debug("Could not remove domain health staging (%s): %s", temp_path, e)
 
 
 _default_tracker: Optional[DomainHealthTracker] = None

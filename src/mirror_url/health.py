@@ -28,12 +28,13 @@ from __future__ import annotations
 
 import json
 import logging
+import socket
 import sys
 import threading
 import time
 from collections import deque
 from datetime import datetime
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from .enums import CircuitBreakerState
@@ -236,14 +237,75 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         logging.debug("HealthCheck: %s", message)
 
 
-class _MirrorHTTPServer(HTTPServer):
-    """HTTPServer that carries the MirrorURL instance and allows port reuse."""
+class _MirrorHTTPServer(ThreadingHTTPServer):
+    """Isolate slow clients with bounded, time-limited daemon request workers."""
 
     allow_reuse_address = True
+    daemon_threads = True
+    MAX_CLIENTS = 16
+    CLIENT_TIMEOUT = 2.0
 
     def __init__(self, server_address, RequestHandlerClass, mirror_instance):
         self.mirror_instance = mirror_instance
+        self._client_slots = threading.BoundedSemaphore(self.MAX_CLIENTS)
+        self._clients_changed = threading.Condition()
+        self._clients: set = set()
+        self._closing = False
         super().__init__(server_address, RequestHandlerClass)
+
+    def get_request(self):
+        request, address = super().get_request()
+        request.settimeout(self.CLIENT_TIMEOUT)
+        return request, address
+
+    def process_request(self, request, client_address):
+        if not self._client_slots.acquire(blocking=False):
+            self.shutdown_request(request)
+            return
+        with self._clients_changed:
+            if self._closing:
+                self._client_slots.release()
+                self.shutdown_request(request)
+                return
+            self._clients.add(request)
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self._retire_client(request)
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._retire_client(request)
+
+    def _retire_client(self, request):
+        with self._clients_changed:
+            self._clients.discard(request)
+            self._client_slots.release()
+            self._clients_changed.notify_all()
+
+    def server_close(self):
+        super().server_close()
+        with self._clients_changed:
+            self._closing = True
+            clients = tuple(self._clients)
+        # Closing the listener alone leaves accepted clients alive. Interrupt
+        # their reads/writes too, including clients trickling partial headers.
+        for client in clients:
+            try:
+                client.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+        with self._clients_changed:
+            self._clients_changed.wait_for(lambda: not self._clients, timeout=0.2)
+
+    def handle_error(self, request, client_address):
+        if isinstance(sys.exc_info()[1], OSError):
+            logging.debug("Health check client disconnected", exc_info=True)
+        else:
+            logging.exception("Health check request failed")
 
 
 class HealthCheckServer:

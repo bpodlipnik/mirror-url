@@ -4,6 +4,23 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.9.14] - 2026-10-27
+
+### Fixed
+
+- Preserve weak ETags in whole-file transfer receipts so aiohttp mirrors detect
+  equal-size remote changes. Range and resume validation still require strong ETags.
+- Publish shared domain-health state through unique, exclusively created staging
+  files, preserving adjacent files and valid JSON under overlapping writers.
+- Reserve unique corrupt-cache backup names, preserving existing backup files
+  and links. Keep the corrupt source if backup creation or replacement fails.
+- Redact URL credentials, queries and fragments in formatted logs, exception
+  tracebacks, recorded metrics errors and public download failure details.
+- Isolate slow health clients in bounded request workers with socket timeouts,
+  keeping other probes and shutdown responsive.
+- Write DEBUG records to file logs with `--verbose` as well as `--debug`, and
+  honor the configuration supplied to progress debug reporting.
+
 ## [3.9.13] - 2026-10-27
 
 ### Fixed

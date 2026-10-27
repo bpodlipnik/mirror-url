@@ -49,7 +49,7 @@ from ..scratch import OwnedScratch
 from ..security import SymlinkTracker
 from ..storage import DiskBackedSet, FileSystemCache
 from ..tuner import AutoConcurrencyTuner
-from ..utils import _log_files, sanitize_url_for_log, trim_url
+from ..utils import SafeLogFormatter, _log_files, sanitize_url_for_log, trim_url
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, avoids an import cycle
     from ..config import MirrorConfig
@@ -1084,9 +1084,11 @@ class _MirrorBase(MirrorHost):
         # File handler (always add)
         try:
             file_handler = MirrorFileHandler(str(log_filepath), mode="a", encoding="utf-8")
-            file_handler.setLevel(logging.DEBUG if self.config.debug else logging.INFO)
+            file_handler.setLevel(
+                logging.DEBUG if self.config.debug or self.config.verbose else logging.INFO
+            )
             file_handler.setFormatter(
-                logging.Formatter(
+                SafeLogFormatter(
                     "[%(asctime)s] [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
                 )
             )
@@ -1098,7 +1100,7 @@ class _MirrorBase(MirrorHost):
             if not logging.root.handlers:
                 console = ProgressConsoleHandler(sys.stderr)
                 console.setFormatter(
-                    logging.Formatter(
+                    SafeLogFormatter(
                         "[%(asctime)s] [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
                     )
                 )
@@ -1119,7 +1121,7 @@ class _MirrorBase(MirrorHost):
         if self.config.print_logs and not existing_console:
             console_handler = ProgressConsoleHandler(sys.stderr)
             console_handler.setFormatter(
-                logging.Formatter(
+                SafeLogFormatter(
                     "[%(asctime)s] [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
                 )
             )

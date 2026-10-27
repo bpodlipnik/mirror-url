@@ -8,7 +8,7 @@ integrity checks and incremental caching. It also supports direct file URLs
 and exact URL lists without directory discovery. URL-scope, private-network
 and filesystem protections guard discovery and transfers.
 
-- **Version:** 3.9.13
+- **Version:** 3.9.14
 - **Python:** 3.10 or newer; CI tests Python 3.10–3.14
 - **License:** MIT
 
@@ -107,21 +107,21 @@ From a checkout of the repository on a build machine:
 
 ```bash
 pip install build
-python -m build          # produces dist/mirror_url-3.9.13-py3-none-any.whl
+python -m build          # produces dist/mirror_url-3.9.14-py3-none-any.whl
 ```
 
 Copy the wheel to the target server and install it:
 
 ```bash
 python3 -m venv /opt/mirror-url
-/opt/mirror-url/bin/pip install /tmp/mirror_url-3.9.13-py3-none-any.whl
+/opt/mirror-url/bin/pip install /tmp/mirror_url-3.9.14-py3-none-any.whl
 /opt/mirror-url/bin/mirror-url --help
 ```
 
 To include the optional speed extras:
 
 ```bash
-/opt/mirror-url/bin/pip install "/tmp/mirror_url-3.9.13-py3-none-any.whl[fast]"
+/opt/mirror-url/bin/pip install "/tmp/mirror_url-3.9.14-py3-none-any.whl[fast]"
 ```
 
 Available extras: `fast` (stringzilla + lxml),
@@ -132,24 +132,24 @@ and aiohttp backends are installed with the base package.
 ### From a Git repository
 
 ```bash
-pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.9.13"
+pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.9.14"
 # private repo over SSH:
-pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.9.13"
+pip install "git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.9.14"
 ```
 
 ### As an isolated CLI with pipx
 
 ```bash
-pipx install /tmp/mirror_url-3.9.13-py3-none-any.whl
-# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.9.13"
+pipx install /tmp/mirror_url-3.9.14-py3-none-any.whl
+# or:  pipx install "git+https://github.com/bpodlipnik/mirror-url.git@v3.9.14"
 ```
 
 ### With Docker
 
 ```dockerfile
 FROM python:3.12-slim
-COPY dist/mirror_url-3.9.13-py3-none-any.whl /tmp/
-RUN pip install --no-cache-dir "/tmp/mirror_url-3.9.13-py3-none-any.whl[fast]"
+COPY dist/mirror_url-3.9.14-py3-none-any.whl /tmp/
+RUN pip install --no-cache-dir "/tmp/mirror_url-3.9.14-py3-none-any.whl[fast]"
 ENTRYPOINT ["mirror-url"]
 ```
 
@@ -1278,6 +1278,10 @@ assembly or publication. When
 the server omits the length, the backend must report a clean stream end;
 SHA-256 records local bytes, not proof of a remote reference digest.
 
+The aiohttp mirror backend shares this transfer retry policy after discovery
+and freshness checks. HTTPX mirror requests retain their existing transient
+status retries; switching backends can therefore change recovery from HTTP 503.
+
 Owned temporary work is removed after success, failure or cooperative
 cancellation. Unknown state and pre-existing partial downloads are preserved.
 Receipts for published files are saved at the end of the run, including during
@@ -1994,6 +1998,10 @@ limit tracker behavior; they do not make the heuristic a definitive detector.
   saved ETag without returning that header, so it does not increase this count.
   ETag counters describe metadata responses, rather than all file outcomes.
 
+  Whole-file downloads retain both weak and strong ETags for later freshness
+  comparisons. Resume and parallel byte ranges require strong ETags; a weak
+  validator alone cannot establish byte-for-byte range identity.
+
   Discovery, metadata, download preparation, downloads and cleanup have separate
   elapsed times. **Download throughput** divides newly transferred bytes by the
   download phase's wall-clock duration, including concurrent transfers, retries,
@@ -2048,6 +2056,13 @@ limit tracker behavior; they do not make the heuristic a definitive detector.
   log a warning; the Python `export_json()` helper returns `False`.
   On POSIX, new reports are readable only by their owner; replacement preserves
   an existing report's mode bits.
+  Some legacy fields remain compatibility placeholders and are not measured by
+  the current workflow: `content_hash_verifications`, `http2_connections`,
+  `http11_fallbacks`, `adaptive_async_enabled`, `bandwidth_limited`,
+  `connection_pool_hits`, `connection_pool_misses`, `connection_pool_evictions`,
+  `fs_cache_hits`, `fs_cache_misses`, `rate_limit_delays` and `peak_memory_mb`.
+  Their default zero/false values do not establish absence of that activity.
+  Use `metrics.run.sha256_hashes_recorded` for published SHA-256 counts.
   Its `metrics.run` object contains the per-job outcomes, result,
   phase timings, `discovery_mode`, `discovery_workers`, `directories_examined`,
   `discovery_throughput` and `download_throughput` (throughputs are `null` when
@@ -2071,6 +2086,11 @@ limit tracker behavior; they do not make the heuristic a definitive detector.
   - `GET /metrics` → JSON counters (files downloaded/failed/skipped, bytes,
     elapsed).
 
+  Slow clients have a two-second socket inactivity timeout. At most 16 client
+  workers are admitted concurrently; excess connections close immediately.
+  An incomplete request does not block other probes or mirror shutdown.
+  Shutdown closes accepted clients as well as the listening socket.
+
   ```bash
   curl http://localhost:8080/health
   curl http://localhost:8080/metrics
@@ -2079,6 +2099,12 @@ limit tracker behavior; they do not make the heuristic a definitive detector.
 - **Logging.** Each run writes a timestamped log under `--log-path`. Use
   `--verbose`/`--debug` for more detail, `--quiet` for less, and `--print-logs`
   to also echo to the console.
+  Both `--verbose` and `--debug` enable DEBUG records in the file and enabled
+  console handlers. MirrorURL's formatters redact URL credentials, query strings
+  and fragments, including URLs embedded in exception tracebacks. Metrics error
+  messages and download failure details use the same redaction. Library callers
+  supplying their own logging handlers should use
+  `mirror_url.utils.SafeLogFormatter` to protect their rendered logs too.
 
 ---
 

@@ -83,7 +83,7 @@ from .metrics import (
 )
 from .progress import ProgressConsoleHandler
 from .security import PathSafety
-from .utils import _log_files
+from .utils import SafeLogFormatter, _log_files
 
 
 def setup_shared_logging(
@@ -120,9 +120,9 @@ def setup_shared_logging(
 
     # Create file handler (always)
     file_handler = MirrorFileHandler(str(log_path), mode="a", encoding="utf-8")
-    file_handler.setLevel(logging.DEBUG if args.debug else logging.INFO)
+    file_handler.setLevel(logging.DEBUG if args.debug or args.verbose else logging.INFO)
     file_handler.setFormatter(
-        logging.Formatter("[%(asctime)s] [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+        SafeLogFormatter("[%(asctime)s] [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
     )
 
     # Create console handler (if print-logs is enabled)
@@ -130,7 +130,7 @@ def setup_shared_logging(
     if args.print_logs:
         console_handler = ProgressConsoleHandler(sys.stderr)
         console_handler.setFormatter(
-            logging.Formatter(
+            SafeLogFormatter(
                 "[%(asctime)s] [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
             )
         )
@@ -1499,7 +1499,7 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
         if args.print_logs and not console_handlers_to_keep:
             console_handler = ProgressConsoleHandler(sys.stderr)
             console_handler.setFormatter(
-                logging.Formatter(
+                SafeLogFormatter(
                     "[%(asctime)s] [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
                 )
             )

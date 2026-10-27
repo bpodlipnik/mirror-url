@@ -101,6 +101,7 @@ class ProgressTracker:
         self.prefix = prefix
         self.name = name
         self.level = level
+        self.config = config
         self.completed = 0
         self.lock = RLock()
         self.start_time = time.time()
@@ -174,12 +175,7 @@ class ProgressTracker:
             old_completed = self.completed
             self.completed = min(self.completed + n, self.total)
 
-            if (
-                logging.root.level <= logging.DEBUG
-                and hasattr(self, "config")
-                and self.config
-                and self.config.debug
-            ):
+            if logging.root.level <= logging.DEBUG and self.config and self.config.debug:
                 logging.debug(
                     f"Progress.update({n}): {old_completed} -> {self.completed}/{self.total}"
                 )
