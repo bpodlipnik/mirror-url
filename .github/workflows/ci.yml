@@ -101,5 +101,7 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install --upgrade pip
       - run: python -m pip install -e ".[${{ matrix.extras }}]"
+      - name: Check production regressions before the full suite
+        run: python -m pytest tests/test_production_audit_followthrough.py
       - name: Run full suite including real HTTP and filesystem preservation tests
         run: python -m pytest
