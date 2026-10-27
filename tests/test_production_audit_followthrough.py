@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import logging
 import os
@@ -287,8 +288,6 @@ def test_request_errors_redact_metrics(tmp_path, monkeypatch, mode, failure):
 def test_real_log_handlers_redact_tracebacks_and_honor_levels(
     tmp_path, restore_logging, capsys, shared, flag
 ):
-    from scripts.render_site import capture_parser
-
     from mirror_url.cli import setup_shared_logging
 
     argv = [
@@ -304,7 +303,12 @@ def test_real_log_handlers_redact_tracebacks_and_honor_levels(
         argv.append(flag)
     mirror = None
     if shared:
-        setup_shared_logging(capture_parser().parse_args(argv))
+        helper = Path(__file__).resolve().parents[1] / "scripts" / "render_site.py"
+        spec = importlib.util.spec_from_file_location("audit_site_renderer", helper)
+        assert spec is not None and spec.loader is not None
+        renderer = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(renderer)
+        setup_shared_logging(renderer.capture_parser().parse_args(argv))
     else:
         mirror = MirrorURL(
             MirrorConfig(
@@ -327,7 +331,7 @@ def test_real_log_handlers_redact_tracebacks_and_honor_levels(
             logging.exception("OUTER_ERROR")
         for handler in logging.root.handlers:
             handler.flush()
-        logfile = next((tmp_path / "logs").glob("*.log")).read_text()
+        logfile = next((tmp_path / "logs").glob("*.log")).read_text(encoding="utf-8")
         console = capsys.readouterr().err
         for rendered in (logfile, console):
             assert "OUTER_ERROR" in rendered and "ValueError" in rendered
