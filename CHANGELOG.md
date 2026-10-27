@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.9.15] - 2026-10-27
+
+### Fixed
+
+- Keep the concurrent domain-health test's observation reader from blocking
+  another Windows replacement while retaining overlapping staging writes.
+  The v3.9.14 tag failed this test before publication; v3.9.15 includes its
+  production fixes below and the corrected test.
+
 ## [3.9.14] - 2026-10-27
 
 ### Fixed

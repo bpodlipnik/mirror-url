@@ -162,11 +162,15 @@ def test_domain_health_overlapping_writers_publish_complete_documents(tmp_path, 
     trackers[1]._data = {"short.example": [1]}
     published = []
     replace = Path.replace
+    publication_lock = threading.Lock()
 
     def observe_replace(source, destination):
-        result = replace(source, destination)
-        published.append(json.loads(path.read_text()))
-        return result
+        # Staging writes still overlap at the barrier above. Serialize the
+        # observation so its open reader cannot block a Windows replacement.
+        with publication_lock:
+            result = replace(source, destination)
+            published.append(json.loads(path.read_text(encoding="utf-8")))
+            return result
 
     monkeypatch.setattr(Path, "replace", observe_replace)
     with ThreadPoolExecutor(2) as executor:
