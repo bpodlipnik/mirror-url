@@ -728,14 +728,26 @@ unnecessary downloads of large unchanged files.
 observable stat changes during hashing. The single, assembled and streaming
 download paths hash the completed staging file before `os.replace`, then pass
 the digest to `CacheManager.save_file_metadata(..., sha256=digest)`. Cache entries
-can contain a receipt without an ETag. Cache saves use `os.replace` so existing
-JSON can be replaced on Windows. Legacy receipts are not invented from an
+can contain a receipt without an ETag. Cache saves write through an exclusively
+created `mkstemp` descriptor before `os.replace`, so unrelated temporary aliases
+are preserved and existing JSON can be replaced on Windows.
+`open_owned_partial` opens without truncating, checks the handle against its
+expected pathname identity, and rejects shared or unowned files before callers
+truncate or append. `replace_verified_file` checks staging, destination path
+and original file identity immediately before replacement in every backend.
+Parallel plans retain the original destination snapshot; assembly/publication
+failures block the whole-file fallback. Real final `fsync` errors fail assembly.
+Legacy receipts are not invented from an
 unverified destination: missing receipts require downloading the file again.
 This mode adds local verification; remote freshness retains the HTTP policy.
 
 The regression contracts live in `test_release_audit_regressions.py`, the
 download failure/integrity/storage-fault tests, HTTP workflow tests, and config
 precedence tests. Keep those observable contracts intact during refactoring.
+The preservation fault/backend-matrix/publication-guard tests cover archive
+selection conflicts, linked state, storage errors, repeated runs and concurrent
+changes. `validate_move_targets` checks all selected payload/archive trees
+together before CLI jobs start, including nesting and filesystem aliases.
 
 ---
 

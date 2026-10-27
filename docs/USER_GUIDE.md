@@ -903,7 +903,12 @@ support, and a **strong ETag**. Without these, the file uses a whole-file
 transfer, which may still run alongside other files. Each chunk sends
 `If-Range` and must return the exact requested `Content-Range`, length, and ETag.
 Existing destination files stay intact until verification and atomic
-replacement succeed. These checks do not compare against a server-provided
+replacement succeed. Final flush or publication errors fail the transfer and
+preserve the previous complete file; an assembly failure does not trigger a
+whole-file fallback that could replace it. Publication rechecks the identities
+of staging and destination files. An observed destination change fails the
+transfer instead of replacing the changed entry.
+These checks do not compare against a server-provided
 cryptographic content digest; `--hash-algorithm` does not add such a comparison.
 
 Traditional chunk files default to owned `.mirror-url-state/chunks/` state,
@@ -927,6 +932,10 @@ sidecar records the source URL, total size, and strong ETag. With
 Partials without a strong validator restart from zero. A response of 200 to a
 resume request restarts the transfer; 416 triggers a fresh full request and
 never certifies the partial as complete.
+
+Saved partials must be owned regular files with one link. Their open handles
+and pathnames are checked before truncation or append; shared hardlinks,
+symlinks and entries replaced during preparation are rejected and preserved.
 
 The `.mirror-url-state` name is reserved case-insensitively. A conflicting
 remote path fails the sync before downloading. An existing directory without
@@ -1754,6 +1763,8 @@ fetching the remote listing.
 
 The cache can be written after a complete scan and updated again after the
 normal download/cleanup path. It is separate from resumable file state in `.mirror-url-state/`.
+Cache writes use exclusively created temporary files. Existing adjacent
+temporary-file names, including symlinks and hardlinks, are left untouched.
 
 Process-interruption tests cover all three download modes. Killing a process
 before publication preserves the previous complete destination; killing it
@@ -1796,6 +1807,11 @@ the source in place and never falls back to deletion.
 MOVE also refuses symlinked archive paths and existing timestamp collision
 names. It preserves the source and previous archives and reports a failed
 cleanup operation; inspect the archive before retrying.
+For multiple `--dir` selections, MOVE archives must also be disjoint from every
+selected destination. Equal, nested and aliased archive/destination paths are
+rejected before listing or downloading. For example, `--dir data data_obsolete
+--cleanup move` is rejected because the second destination would overwrite
+the first selection's archive.
 
 ```bash
 # Observe cleanup without downloads or changes to mirrored files

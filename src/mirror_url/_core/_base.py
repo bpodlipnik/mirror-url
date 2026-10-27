@@ -36,7 +36,7 @@ from ..download import ParallelDownloadManager, PartialDownloadManager
 from ..download_integrity import content_length
 from ..enums import CleanupPolicy
 from ..exceptions import URLScopeError
-from ..filename_mapping import selected_directory_targets
+from ..filename_mapping import selected_directory_targets, validate_move_targets
 from ..health import HealthChecker, HealthCheckServer
 from ..metrics import MetricsCollector, log_run_start
 from ..monitoring import DiskSpaceManager, MemoryMonitor, PerformanceMonitor
@@ -177,6 +177,7 @@ class _MirrorBase(MirrorHost):
         self._destination_lock: Optional[DestinationLock] = None
         resources = [computed_target_path]
         if config.cleanup_policy == CleanupPolicy.MOVE:
+            validate_move_targets(resources)
             resources.append(
                 computed_target_path.parent / (computed_target_path.name + "_obsolete")
             )

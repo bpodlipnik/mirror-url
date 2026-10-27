@@ -32,7 +32,8 @@ import httpx
 from .config import MirrorConfig, _root_relative_file_path
 from .destination_lock import DestinationLock, current_run_lock
 from .download import ParallelDownloadManager, PartialDownloadManager
-from .download_integrity import content_length, file_sha256, strong_etag
+from .download_integrity import content_length, file_sha256, replace_verified_file, strong_etag
+from .download_integrity import file_identity as _identity
 from .exceptions import ConfigError, SecurityError, URLScopeError
 from .filename_mapping import FilenameMap, _stat_identity, selected_directory_targets
 from .health import DownloadHealthChecker, HealthCheckServer
@@ -173,20 +174,6 @@ def resolve_download_files(entries: Iterable[str], root: str) -> List[str]:
             # and the shared validator rejects traversal before URL normalization.
             urls.append(base + quote(path, safe="/"))
     return urls
-
-
-def _identity(path: Path) -> Optional[Tuple[int, ...]]:
-    try:
-        info = path.lstat()
-    except FileNotFoundError:
-        return None
-    if (
-        not stat.S_ISREG(info.st_mode)
-        or info.st_nlink != 1
-        or (hasattr(os, "getuid") and info.st_uid != os.getuid())
-    ):
-        raise ValueError("Download would replace an unsafe or unowned local entry")
-    return _stat_identity(info)
 
 
 def _set_file_timestamp(descriptor: int, timestamp: float) -> None:
@@ -660,18 +647,16 @@ class AsyncTransfers:
         current_staging = _identity(staging)
         if current_staging is None or current_staging[:3] != staged_identity[:3]:
             raise ValueError("Owned staging file changed before publication")
-        checked = PathSafety.safe_join(
-            self.target,
-            *local.relative_to(self.target).parts,
-            create_base=False,
+        replace_verified_file(
+            staging,
+            local,
+            target=self.target,
+            original=original,
+            staged_identity=current_staging,
             max_depth=self.config.max_depth,
             max_filename_len=self.config.max_filename_len,
+            cancelled=cancelled,
         )
-        if not PathSafety.same_resolved_path(checked, local) or _identity(local) != original:
-            raise ValueError("Destination changed during transfer; preserving existing entry")
-        if cancelled is not None and cancelled.is_set():
-            raise ValueError("Chunk transfer cancelled before publication")
-        os.replace(staging, local)
         return TransferResult(url, local, True, size, etag, digest, mtime)
 
     async def _one_chunked(self, manager, connection, backend, url, local, published):

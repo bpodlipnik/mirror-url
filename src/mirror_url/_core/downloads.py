@@ -22,13 +22,17 @@ from ..destination_lock import destination_operation
 from ..download_integrity import (
     clear_resume_metadata,
     content_length,
+    file_identity,
     file_sha256,
     load_resume_metadata,
+    open_owned_partial,
+    replace_verified_file,
     save_resume_metadata,
     strong_etag,
     validate_range,
 )
 from ..exceptions import MirrorConnectionError
+from ..filename_mapping import _stat_identity
 from ..metrics import log_file_downloaded, log_whole_file_fallback
 from ..progress import get_download_progress
 from ..utils import exponential_backoff, sanitize_url_for_log, trim_url
@@ -70,6 +74,19 @@ class DownloadMixin(MirrorHost):
                         if success:
                             return True
 
+                        try:
+                            destination_changed = (
+                                download.identity_captured
+                                and file_identity(local_path) != download.original_identity
+                            )
+                        except (OSError, ValueError):
+                            destination_changed = True
+                        if download.publication_failed or destination_changed:
+                            logging.error("Publication failed; preserving the destination")
+                            self.files_failed.increment(1)
+                            self.metrics.increment("files_failed")
+                            return False
+
                         log_whole_file_fallback(remote_url, "parallel chunk transfer failed")
                         # Fallback to single-threaded download if parallel fails.
                         # ⚠️ IMPORTANT: _download_file_single ALREADY increments failur
@@ -97,8 +114,9 @@ class DownloadMixin(MirrorHost):
         download_start = time.time()
         progress = get_download_progress(self)
         partial_manager = self.partial_manager
-        if partial_manager is None:
-            logging.error("Partial download manager is unavailable")
+        target = self.target_dir
+        if partial_manager is None or target is None:
+            logging.error("Partial download manager or destination is unavailable")
             self.files_failed.increment(1)
             return False
 
@@ -108,24 +126,40 @@ class DownloadMixin(MirrorHost):
         # ``connection_manager.circuit_breaker`` attribute was dead code and
         # has been removed.
 
+        partial_path = None
         try:
+            original_destination = file_identity(local_path)
             partial_path = partial_manager.register_partial(local_path, remote_url)
+            original_partial = file_identity(partial_path)
         except (OSError, ValueError) as error:
+            if partial_path is not None:
+                partial_manager.complete_partial(partial_path)
             logging.error(f"Cannot create partial download: {error}")
             self.files_failed.increment(1)
             return False
         logging.debug(f"Partial path: {partial_path}")
+        owned_partial = original_partial[:2] if original_partial is not None else None
+
+        def discard_partial() -> None:
+            try:
+                current = file_identity(partial_path)
+                if current is not None and current[:2] == owned_partial:
+                    partial_path.unlink()
+                    clear_resume_metadata(partial_path)
+            except (OSError, ValueError) as error:
+                logging.debug(f"Preserving partial download after cleanup failure: {error}")
 
         try:
             local_path.parent.mkdir(parents=True, exist_ok=True)
-            if partial_path.is_symlink():
-                raise ValueError("Partial download path is a symlink")
 
             for attempt in range(self.config.max_retries + 1):
                 r = None
                 try:
                     progress.begin(local_path, "waiting for response")
                     headers = {"Accept-Encoding": "identity"}
+                    expected_partial = file_identity(partial_path)
+                    if expected_partial is not None and expected_partial[:2] != owned_partial:
+                        raise ValueError("Partial download changed between attempts; preserving it")
                     metadata = (
                         load_resume_metadata(partial_path, remote_url)
                         if self.config.enable_resume
@@ -194,7 +228,12 @@ class DownloadMixin(MirrorHost):
 
                     size = bytes_already
                     progress.resume(local_path, bytes_already, expected_size)
-                    with open(partial_path, mode) as f:
+                    with open_owned_partial(partial_path, expected_partial) as f:
+                        opened = os.fstat(f.fileno())
+                        owned_partial = (opened.st_dev, opened.st_ino)
+                        if mode == "wb":
+                            f.truncate(0)
+                        f.seek(0, os.SEEK_END if mode == "ab" else os.SEEK_SET)
                         with self.metrics.run_report.transfer_stage("flush"):
                             f.flush()
                             os.fsync(f.fileno())
@@ -224,6 +263,13 @@ class DownloadMixin(MirrorHost):
                         with self.metrics.run_report.transfer_stage("flush"):
                             f.flush()
                             os.fsync(f.fileno())
+                        written_identity = _stat_identity(os.fstat(f.fileno()))
+                    # Windows may finalize write timestamps only when the
+                    # handle closes. Retain its inode/size proof, then snapshot
+                    # the closed file's timestamps for the hashing guard.
+                    staged_identity = file_identity(partial_path)
+                    if staged_identity is None or staged_identity[:3] != written_identity[:3]:
+                        raise ValueError("Owned partial changed before verification")
                     if expected_size is not None and size != expected_size:
                         raise ValueError(f"Incomplete download: {size} != {expected_size}")
 
@@ -243,7 +289,15 @@ class DownloadMixin(MirrorHost):
                             partial_path, enabled=getattr(self.config, "verify_content", False)
                         )
                     progress.stage(local_path, "publishing")
-                    os.replace(partial_path, local_path)
+                    replace_verified_file(
+                        partial_path,
+                        local_path,
+                        target=target,
+                        original=original_destination,
+                        staged_identity=staged_identity,
+                        max_depth=self.config.max_depth + 1,
+                        max_filename_len=self.config.max_filename_len,
+                    )
                     try:
                         clear_resume_metadata(partial_path)
                     except OSError as error:
@@ -325,14 +379,7 @@ class DownloadMixin(MirrorHost):
                         self.files_skipped.increment(1)
                         self.metrics.increment("files_skipped")
 
-                        if partial_path.exists():
-                            try:
-                                partial_path.unlink()
-                                clear_resume_metadata(partial_path)
-                            except Exception as unlink_err:
-                                logging.debug(
-                                    f"Failed to remove partial file {partial_path}: {unlink_err}"
-                                )
+                        discard_partial()
 
                         partial_manager.complete_partial(partial_path)
                         # This is a SKIP (the resource is gone / forbidden), not a
@@ -352,14 +399,7 @@ class DownloadMixin(MirrorHost):
                     self.files_failed.increment(1)  # Atomic
                     self.metrics.increment("files_failed")
 
-                    if partial_path.exists():
-                        try:
-                            partial_path.unlink()
-                            clear_resume_metadata(partial_path)
-                        except Exception as unlink_err:
-                            logging.debug(
-                                f"Failed to remove partial file {partial_path}: {unlink_err}"
-                            )
+                    discard_partial()
 
                     partial_manager.complete_partial(partial_path)
                     self.performance_monitor.record("download", time.time() - download_start, False)
@@ -387,11 +427,7 @@ class DownloadMixin(MirrorHost):
                 )
                 and partial_path.exists()
             ):
-                try:
-                    partial_path.unlink()
-                    clear_resume_metadata(partial_path)
-                except Exception as unlink_err:
-                    logging.debug(f"Failed to remove partial file {partial_path}: {unlink_err}")
+                discard_partial()
 
             partial_manager.complete_partial(partial_path)
             self.performance_monitor.record("download", time.time() - download_start, False)

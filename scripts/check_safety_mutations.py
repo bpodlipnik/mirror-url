@@ -107,8 +107,8 @@ MUTATIONS = (
     ),
     (
         "whole-file concurrent destination change",
-        "transfers.py",
-        "if not PathSafety.same_resolved_path(checked, local) or _identity(local) != original:",
+        "download_integrity.py",
+        "if not PathSafety.same_resolved_path(checked, local) or file_identity(local) != original:",
         "if False:",
         "tests/test_transfer_backends.py::test_destination_changed_during_transfer_is_preserved[httpx]",
     ),

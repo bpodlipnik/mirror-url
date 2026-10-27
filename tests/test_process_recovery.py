@@ -174,7 +174,7 @@ def test_process_kill_preserves_complete_files_and_recovery(remote, config, tmp_
         )
         json.loads(cache_path.read_text())
         with pytest.raises(json.JSONDecodeError):
-            json.loads(cache_path.with_suffix(".json.tmp").read_text())
+            json.loads(Path(checkpoint["cache_temporary"]).read_text())
     if phase == "cleanup":
         assert Path(checkpoint["moved"]).read_bytes() in obsolete.values()
         assert sum((destination / name).exists() for name in obsolete) == 1

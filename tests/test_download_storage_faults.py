@@ -35,13 +35,14 @@ def test_mmap_threshold_uses_standard_io_at_boundary(manager, monkeypatch, size)
     assert mmap.call_count == (size > 6)
 
 
-def test_standard_io_flush_survives_unsupported_fsync(manager, monkeypatch):
+def test_standard_io_flush_failure_preserves_original(manager, monkeypatch):
     download = make_download(manager)
     manager.MMAP_MAX_FILE_SIZE = 0
     fsync = Mock(side_effect=[None, OSError("unsupported")])
     monkeypatch.setattr("mirror_url.download.os.fsync", fsync)
-    assert manager.assemble_file(download)
-    assert download.final_path.read_bytes() == b"abcdef"
+    assert not manager.assemble_file(download)
+    assert download.final_path.read_bytes() == b"original"
+    assert download.publication_failed
     assert fsync.call_count == 2
 
 
