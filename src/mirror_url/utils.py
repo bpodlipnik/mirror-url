@@ -13,6 +13,7 @@ import atexit
 import hashlib
 import logging
 import random
+import re
 import shlex
 import sys
 import threading
@@ -339,7 +340,35 @@ def sanitize_url_for_log(url: str) -> str:
         sanitized = parsed._replace(netloc=netloc, query=new_query, fragment="").geturl()
         return sanitized
     except Exception:
-        return url
+        return "<invalid URL>"
+
+
+# Stop before another URL even when compact exception/JSON text has no
+# whitespace between them; otherwise its userinfo can hide in the first path.
+_LOG_URL = re.compile(r"https?://(?:(?!https?://)[^\s])+", re.IGNORECASE)
+
+
+def sanitize_log_text(text: str) -> str:
+    """Redact credentials, queries and fragments in embedded HTTP URLs.
+
+    Exceptions and tracebacks can contain more than one URL. Sanitize the
+    fully rendered text as well as structured error fields before persistence.
+    Request objects and the URLs sent to servers are left untouched.
+    """
+
+    def replace(match: re.Match) -> str:
+        value = match.group()
+        url = value.rstrip("'\"),.;]}")
+        return sanitize_url_for_log(url) + value[len(url) :]
+
+    return _LOG_URL.sub(replace, str(text))
+
+
+class SafeLogFormatter(logging.Formatter):
+    """Redact the final message, including chained exception tracebacks."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        return sanitize_log_text(super().format(record))
 
 
 def compute_file_hash(file_path: Path, algorithm: str = "sha256") -> Optional[str]:

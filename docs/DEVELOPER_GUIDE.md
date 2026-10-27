@@ -11,7 +11,7 @@ If you only want to *use* MirrorURL (install, CLI, config, Python API), read
 repeats the essentials so you can work from it alone.
 
 - **Package:** `mirror_url` (src-layout under `src/`)
-- **Version:** 3.9.13
+- **Version:** 3.9.14
 - **Python:** 3.10 or newer; CI tests Python 3.10–3.14
 - **Runtime deps:** `httpx[http2]` (including `h2`), `aiohttp`, `pydantic` v2, `PyYAML`, `portalocker` 3.x or 4.x (with `pywin32` on Windows), `tqdm` (optional: `stringzilla`,
   `lxml`, `psutil`)
@@ -843,6 +843,11 @@ under `.mirror-url-state`, and existing payloads require a matching receipt or
 explicit overwrite. It never calls the scanner or metadata freshness layer.
 `ReportMixin.sync()` uses the same pipeline for `backend="aiohttp"` after its
 normal discovery and checks, then saves results through `CacheManager`.
+Whole-file `TransferResult.etag` retains the raw response ETag, including weak
+validators, for freshness checks. `strong_etag` remains required by range probes,
+range validation and resume metadata. The shared whole-file pipeline retries
+transport interruptions but does not retry HTTP status failures, including
+aiohttp mirror transfers. HTTPX mirror requests keep their existing status policy.
 HTTPX remains the default mirror implementation, including ranged resume and
 chunks. The whole-file pipeline preserves those existing partials.
 
@@ -903,6 +908,11 @@ sanitized command, suffix, root, destination, log path, backend and hashing
 setting. The CLI logs no duplicate mirror configuration; the mirror lifecycle
 owns that block once per suffix. `metrics.log_file_download_plan` supplies one
 selected-file/worker message to synchronous and async transfer paths.
+Both logging setup paths install `SafeLogFormatter`, which sanitizes the final
+rendered text including chained exception tracebacks. `MetricsCollector.add_error`
+and public transfer failure strings sanitize embedded HTTP URLs before storage.
+Do not sanitize the URL used for network requests. Library-supplied handlers
+need the same formatter if they render raw request/exception records.
 `RunReport.record_publication` counts SHA-256-bearing publications once per URL
 and resets those observations at each run. Both summary modes render the hashing
 setting and actual recorded count through the same formatter; neither implies
@@ -1211,7 +1221,7 @@ The suite lives in `tests/` and runs under `pytest`. Test lanes:
   `test_integration.py` and `test_http_mirror_workflows.py`, using the static
   server fixture or a controllable Range/ETag/failure server.
 - **Full coverage lane** — both lanes together, plus 100% statement/branch
-  gates for the two download modules, eight safety modules and shared URL scope
+  gates for the two download modules, nine safety modules and shared URL scope
   helpers (see below). It requires all optional dependencies
   and local socket binding. A sandbox socket denial is an environment error,
   not a successful full-suite run.
@@ -1266,6 +1276,19 @@ The report formatters retain their public `target` parameter for compatibility;
 the unused private snapshot-helper parameter was removed. The startup header
 logs the validated destination. `MetricsCollector.report(show_stats=...)` also
 retains its documented compatibility argument; `config.metrics` controls logging.
+
+The current sync workflow has no caller for `CompareMixin._response_is_current`
+or `UrlMixin._parse_url_cached`; both remain compatibility helpers. Scanner
+`target_base_url`/`target_dir` snapshots and `ServerProfile.last_adjustment` are
+retained introspection state, not inputs to scan or concurrency decisions.
+`ProgressTracker` stores its supplied config so its debug reporting is reachable.
+Legacy metrics placeholders are listed in the user guide; default values should
+not be interpreted as measurements. Domain-health writers use exclusive unique
+staging and atomic replacement; simultaneous processes can still lose increments,
+as documented in `DomainHealthTracker`, but cannot share the same staging inode.
+Corrupt-cache recovery reserves a unique backup before moving the source and
+keeps the source if reservation or replacement fails. Existing timestamped
+backups remain eligible for recovery and are never reused as output names.
 
 Match receivers precisely: `DirectoryScanner.batch_processor` has parser-stat
 readers; that does not establish a reader for an attribute with the same name
@@ -1557,5 +1580,5 @@ Preserve these constraints when extending or refactoring the current code.
 
 ---
 
-*This guide describes the architecture as of version 3.9.13. When you change the
+*This guide describes the architecture as of version 3.9.14. When you change the
 structure, update this document in the same PR.*

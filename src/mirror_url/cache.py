@@ -151,29 +151,28 @@ class CacheManager:
             logging.error(f"Corrupted cache file {self.cache_file}: {e}")
             self.metrics.add_error(f"Cache corruption: {e}", "cache_corruption")
             self.metrics.increment("cache_corruptions")
-            backup_path = self.cache_file.with_suffix(f".json.corrupted.{int(time.time())}")
+            backup_path = None
             backup_success = False
             try:
-                self.cache_file.rename(backup_path)
-                logging.info(f"Backed up corrupted cache to {backup_path}")
+                descriptor, name = tempfile.mkstemp(
+                    prefix=f"{self.cache_file.stem}.json.corrupted.", dir=self.cache_file.parent
+                )
+                backup_path = Path(name)
+                os.close(descriptor)
+                # Replace only our exclusively reserved entry. Timestamp names
+                # can collide with an earlier backup or an unrelated link.
+                self.cache_file.replace(backup_path)
                 backup_success = True
+                logging.info(f"Backed up corrupted cache to {backup_path}")
             except Exception as backup_error:
                 logging.error(f"Failed to backup corrupted cache: {backup_error}")
                 self.metrics.add_error(f"Backup failed: {backup_error}", "cache_backup_failed")
-            if not backup_success:
-                # Only delete if the rename above did NOT already move the file.
-                # (After a successful rename the original path no longer exists,
-                # so unlinking it unconditionally always raised FileNotFoundError
-                # and logged a misleading "Failed to delete" error.)
-                try:
-                    self.cache_file.unlink()
-                    logging.warning(
-                        f"Deleted corrupted cache file (backup failed): {self.cache_file}"
-                    )
-                except FileNotFoundError:
-                    pass
-                except Exception as delete_error:
-                    logging.error(f"Failed to delete corrupted cache: {delete_error}")
+            finally:
+                if not backup_success and backup_path is not None:
+                    try:
+                        backup_path.unlink(missing_ok=True)
+                    except OSError as cleanup_error:
+                        logging.debug("Could not remove reserved cache backup: %s", cleanup_error)
             if backup_success:
                 old_backup = self._find_oldest_valid_backup()
                 if old_backup:

@@ -276,7 +276,7 @@ It also supports direct file URLs and exact URL lists without directory
 discovery. URL-scope, private-network and filesystem protections guard
 discovery and transfers.</p>
 <ul>
-<li><strong>Version:</strong> 3.9.13</li>
+<li><strong>Version:</strong> 3.9.14</li>
 <li><strong>Python:</strong> 3.10 or newer; CI tests Python
 3.10–3.14</li>
 <li><strong>License:</strong> MIT</li>
@@ -383,15 +383,15 @@ class="sourceCode bash"><code class="sourceCode bash"><span id="cb1-1"><a href="
 <p>From a checkout of the repository on a build machine:</p>
 <div class="sourceCode" id="cb2"><pre
 class="sourceCode bash"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> install build</span>
-<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> <span class="at">-m</span> build          <span class="co"># produces dist/mirror_url-3.9.13-py3-none-any.whl</span></span></code></pre></div>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> <span class="at">-m</span> build          <span class="co"># produces dist/mirror_url-3.9.14-py3-none-any.whl</span></span></code></pre></div>
 <p>Copy the wheel to the target server and install it:</p>
 <div class="sourceCode" id="cb3"><pre
 class="sourceCode bash"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="ex">python3</span> <span class="at">-m</span> venv /opt/mirror-url</span>
-<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="ex">/opt/mirror-url/bin/pip</span> install /tmp/mirror_url-3.9.13-py3-none-any.whl</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="ex">/opt/mirror-url/bin/pip</span> install /tmp/mirror_url-3.9.14-py3-none-any.whl</span>
 <span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="ex">/opt/mirror-url/bin/mirror-url</span> <span class="at">--help</span></span></code></pre></div>
 <p>To include the optional speed extras:</p>
 <div class="sourceCode" id="cb4"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="ex">/opt/mirror-url/bin/pip</span> install <span class="st">&quot;/tmp/mirror_url-3.9.13-py3-none-any.whl[fast]&quot;</span></span></code></pre></div>
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="ex">/opt/mirror-url/bin/pip</span> install <span class="st">&quot;/tmp/mirror_url-3.9.14-py3-none-any.whl[fast]&quot;</span></span></code></pre></div>
 <p>Available extras: <code>fast</code> (stringzilla + lxml),
 <code>monitor</code> (psutil), <code>all</code> (everything),
 <code>dev</code> (test/lint toolchain). The <code>progress</code> and
@@ -399,18 +399,18 @@ class="sourceCode bash"><code class="sourceCode bash"><span id="cb4-1"><a href="
 both HTTPX and aiohttp backends are installed with the base package.</p>
 <h3 id="from-a-git-repository">From a Git repository</h3>
 <div class="sourceCode" id="cb5"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> install <span class="st">&quot;git+https://github.com/bpodlipnik/mirror-url.git@v3.9.13&quot;</span></span>
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> install <span class="st">&quot;git+https://github.com/bpodlipnik/mirror-url.git@v3.9.14&quot;</span></span>
 <span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="co"># private repo over SSH:</span></span>
-<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> install <span class="st">&quot;git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.9.13&quot;</span></span></code></pre></div>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> install <span class="st">&quot;git+ssh://git@github.com/bpodlipnik/mirror-url.git@v3.9.14&quot;</span></span></code></pre></div>
 <h3 id="as-an-isolated-cli-with-pipx">As an isolated CLI with pipx</h3>
 <div class="sourceCode" id="cb6"><pre
-class="sourceCode bash"><code class="sourceCode bash"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pipx</span> install /tmp/mirror_url-3.9.13-py3-none-any.whl</span>
-<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="co"># or:  pipx install &quot;git+https://github.com/bpodlipnik/mirror-url.git@v3.9.13&quot;</span></span></code></pre></div>
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pipx</span> install /tmp/mirror_url-3.9.14-py3-none-any.whl</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="co"># or:  pipx install &quot;git+https://github.com/bpodlipnik/mirror-url.git@v3.9.14&quot;</span></span></code></pre></div>
 <h3 id="with-docker">With Docker</h3>
 <div class="sourceCode" id="cb7"><pre
 class="sourceCode dockerfile"><code class="sourceCode dockerfile"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="kw">FROM</span> python:3.12-slim</span>
-<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="kw">COPY</span> dist/mirror_url-3.9.13-py3-none-any.whl /tmp/</span>
-<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a><span class="kw">RUN</span> <span class="ex">pip</span> install <span class="at">--no-cache-dir</span> <span class="st">&quot;/tmp/mirror_url-3.9.13-py3-none-any.whl[fast]&quot;</span></span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="kw">COPY</span> dist/mirror_url-3.9.14-py3-none-any.whl /tmp/</span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a><span class="kw">RUN</span> <span class="ex">pip</span> install <span class="at">--no-cache-dir</span> <span class="st">&quot;/tmp/mirror_url-3.9.14-py3-none-any.whl[fast]&quot;</span></span>
 <span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a><span class="kw">ENTRYPOINT</span> [<span class="st">&quot;mirror-url&quot;</span>]</span></code></pre></div>
 <h3 id="verify-the-install">Verify the install</h3>
 <div class="sourceCode" id="cb8"><pre
@@ -1514,6 +1514,10 @@ matching declared length; a chunk transfer requires every validated
 range before assembly or publication. When the server omits the length,
 the backend must report a clean stream end; SHA-256 records local bytes,
 not proof of a remote reference digest.</p>
+<p>The aiohttp mirror backend shares this transfer retry policy after
+discovery and freshness checks. HTTPX mirror requests retain their
+existing transient status retries; switching backends can therefore
+change recovery from HTTP 503.</p>
 <p>Owned temporary work is removed after success, failure or cooperative
 cancellation. Unknown state and pre-existing partial downloads are
 preserved. Receipts for published files are saved at the end of the run,
@@ -2260,6 +2264,10 @@ checks, failed HTTP responses and checks with <code>--no-etag</code>. A
 conditional HTTP 304 can reuse a saved ETag without returning that
 header, so it does not increase this count. ETag counters describe
 metadata responses, rather than all file outcomes.</p>
+<p>Whole-file downloads retain both weak and strong ETags for later
+freshness comparisons. Resume and parallel byte ranges require strong
+ETags; a weak validator alone cannot establish byte-for-byte range
+identity.</p>
 <p>Discovery, metadata, download preparation, downloads and cleanup have
 separate elapsed times. <strong>Download throughput</strong> divides
 newly transferred bytes by the download phase's wall-clock duration,
@@ -2319,9 +2327,19 @@ report structure; unrelated files, symlinks and hardlinks are preserved
 with a warning. Reports are limited to 16 MiB. Export failures log a
 warning; the Python <code>export_json()</code> helper returns
 <code>False</code>. On POSIX, new reports are readable only by their
-owner; replacement preserves an existing report's mode bits. Its
-<code>metrics.run</code> object contains the per-job outcomes, result,
-phase timings, <code>discovery_mode</code>,
+owner; replacement preserves an existing report's mode bits. Some legacy
+fields remain compatibility placeholders and are not measured by the
+current workflow: <code>content_hash_verifications</code>,
+<code>http2_connections</code>, <code>http11_fallbacks</code>,
+<code>adaptive_async_enabled</code>, <code>bandwidth_limited</code>,
+<code>connection_pool_hits</code>, <code>connection_pool_misses</code>,
+<code>connection_pool_evictions</code>, <code>fs_cache_hits</code>,
+<code>fs_cache_misses</code>, <code>rate_limit_delays</code> and
+<code>peak_memory_mb</code>. Their default zero/false values do not
+establish absence of that activity. Use
+<code>metrics.run.sha256_hashes_recorded</code> for published SHA-256
+counts. Its <code>metrics.run</code> object contains the per-job
+outcomes, result, phase timings, <code>discovery_mode</code>,
 <code>discovery_workers</code>, <code>directories_examined</code>,
 <code>discovery_throughput</code> and <code>download_throughput</code>
 (throughputs are <code>null</code> when unavailable). Examined
@@ -2359,13 +2377,26 @@ connected with fewer than 10 failed files, otherwise HTTP 503 with
 <li><code>GET /metrics</code> → JSON counters (files
 downloaded/failed/skipped, bytes, elapsed).</li>
 </ul>
+<p>Slow clients have a two-second socket inactivity timeout. At most 16
+client workers are admitted concurrently; excess connections close
+immediately. An incomplete request does not block other probes or mirror
+shutdown. Shutdown closes accepted clients as well as the listening
+socket.</p>
 <div class="sourceCode" id="cb44"><pre
 class="sourceCode bash"><code class="sourceCode bash"><span id="cb44-1"><a href="#cb44-1" aria-hidden="true" tabindex="-1"></a><span class="ex">curl</span> http://localhost:8080/health</span>
 <span id="cb44-2"><a href="#cb44-2" aria-hidden="true" tabindex="-1"></a><span class="ex">curl</span> http://localhost:8080/metrics</span></code></pre></div></li>
 <li><p><strong>Logging.</strong> Each run writes a timestamped log under
 <code>--log-path</code>. Use <code>--verbose</code>/<code>--debug</code>
 for more detail, <code>--quiet</code> for less, and
-<code>--print-logs</code> to also echo to the console.</p></li>
+<code>--print-logs</code> to also echo to the console. Both
+<code>--verbose</code> and <code>--debug</code> enable DEBUG records in
+the file and enabled console handlers. MirrorURL's formatters redact URL
+credentials, query strings and fragments, including URLs embedded in
+exception tracebacks. Metrics error messages and download failure
+details use the same redaction. Library callers supplying their own
+logging handlers should use
+<code>mirror_url.utils.SafeLogFormatter</code> to protect their rendered
+logs too.</p></li>
 </ul>
 <hr />
 <h2 id="using-mirrorurl-from-python">Using MirrorURL from Python</h2>

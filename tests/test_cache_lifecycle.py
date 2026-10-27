@@ -139,25 +139,24 @@ def test_corruption_without_valid_backup_is_preserved_for_diagnosis(cache):
 @pytest.mark.parametrize("deny_delete", [False, True])
 def test_corruption_recovery_handles_read_only_backup_directory(cache, monkeypatch, deny_delete):
     cache.cache_file.write_text("{broken")
-    rename = Path.rename
+    replace = Path.replace
     unlink = Path.unlink
 
-    def fail_rename(path, target):
+    def fail_replace(path, target):
         if path == cache.cache_file:
             raise PermissionError("backup directory unavailable")
-        return rename(path, target)
+        return replace(path, target)
 
     def maybe_unlink(path, *args, **kwargs):
         if path == cache.cache_file and deny_delete:
             raise PermissionError("read only")
         return unlink(path, *args, **kwargs)
 
-    monkeypatch.setattr(Path, "rename", fail_rename)
+    monkeypatch.setattr(Path, "replace", fail_replace)
     monkeypatch.setattr(Path, "unlink", maybe_unlink)
     assert cache.load() == (False, None)
-    assert cache.cache_file.exists() is deny_delete
-    if deny_delete:
-        assert cache.cache_file.read_text() == "{broken"
+    assert cache.cache_file.read_text() == "{broken"
+    assert not list(cache.cache_file.parent.glob("*.corrupted.*"))
 
 
 def test_restore_failure_preserves_valid_backup(cache, monkeypatch):

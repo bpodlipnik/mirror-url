@@ -26,7 +26,13 @@ from .filename_mapping import FilenameMap, _stat_identity
 from .head_recovery import HEAD_RECOVERY_METRICS
 from .run_report import TRANSFER_STAGES, RunReport
 from .security import PathSafety
-from .utils import format_bytes, format_duration, sanitize_command_line, sanitize_url_for_log
+from .utils import (
+    format_bytes,
+    format_duration,
+    sanitize_command_line,
+    sanitize_log_text,
+    sanitize_url_for_log,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, avoids an import cycle
     from .config import MirrorConfig
@@ -249,7 +255,11 @@ class MetricsCollector:
         self.increment("errors_recorded")
         with self._times_lock:
             self._errors.append(
-                {"timestamp": datetime.now().isoformat(), "type": error_type, "message": error}
+                {
+                    "timestamp": datetime.now().isoformat(),
+                    "type": sanitize_log_text(error_type),
+                    "message": sanitize_log_text(error),
+                }
             )
 
     def add_request_time(self, duration: float) -> None:
