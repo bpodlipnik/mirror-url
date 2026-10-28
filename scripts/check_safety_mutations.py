@@ -206,9 +206,16 @@ MUTATIONS = (
     (
         "whole-file concurrent destination change",
         "download_integrity.py",
-        "if not PathSafety.same_resolved_path(checked, local) or file_identity(local) != original:",
-        "if False:",
+        "or file_identity(local, allow_symlink=True) != original",
+        "or False",
         "tests/test_transfer_backends.py::test_destination_changed_during_transfer_is_preserved[httpx]",
+    ),
+    (
+        "symlink replacement never follows its target",
+        "download_integrity.py",
+        "os.replace(staging, local)",
+        "os.replace(staging, local.resolve())",
+        "tests/test_local_symlink_replacement.py::test_single_transfer_removes_link_and_preserves_target[relative]",
     ),
     (
         "mixed DNS",

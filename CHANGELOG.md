@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Replace existing local file symlinks with downloaded regular files instead of
+  aborting the mirror job. Log each successful replacement, preserve the linked
+  target, and leave the original link intact if the transfer fails. Apply the
+  same behavior with `--missing-files` and both transfer backends; destination
+  roots and intermediate directories still cannot be symlinks.
+
 ## [3.9.15] - 2026-10-27
 
 ### Fixed

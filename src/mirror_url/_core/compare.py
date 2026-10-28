@@ -271,6 +271,11 @@ class CompareMixin(MirrorHost):
         start_time = time.time()
         current = False
         try:
+            if local_path.is_symlink():
+                self._record_check(
+                    remote_url, "changed", "local symlink will be replaced with a regular file"
+                )
+                return False
             if not local_path.is_file():
                 self._record_check(remote_url, "missing", "local file is absent")
                 return False
@@ -539,6 +544,11 @@ class CompareMixin(MirrorHost):
                 return await sync_fallback(local_path, remote_url)
 
         async def check_one(local_path: Path, remote_url: str, mgr) -> bool:
+            if local_path.is_symlink():
+                self._record_check(
+                    remote_url, "changed", "local symlink will be replaced with a regular file"
+                )
+                return False
             if not local_path.is_file():
                 self._record_check(remote_url, "missing", "local file is absent")
                 return False

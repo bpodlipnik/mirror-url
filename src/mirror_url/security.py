@@ -417,6 +417,7 @@ class PathSafety:
         max_depth: int = MAX_DIRECTORY_DEPTH,
         max_filename_len: int = MAX_FILENAME_LENGTH,
         create_base: bool = True,
+        allow_leaf_symlink: bool = False,
     ) -> Optional[Path]:
         """
         Safely join path components with security checks.
@@ -432,6 +433,9 @@ class PathSafety:
                 e.g. dry-run path resolution -- should pass False; the path
                 is still safely resolved and validated via
                 ``resolve(strict=False)``, just without creating anything.
+            allow_leaf_symlink: Retain a final symlink's pathname for atomic
+                replacement, without resolving its target. Parent symlinks
+                remain forbidden. Download destinations opt in explicitly.
 
         Returns:
             Safe joined path or None if unsafe
@@ -476,6 +480,8 @@ class PathSafety:
             for component in full_path.relative_to(base).parts:
                 candidate = candidate / component
                 if candidate.is_symlink():
+                    if allow_leaf_symlink and candidate == full_path:
+                        return base_resolved.joinpath(*full_path.relative_to(base).parts)
                     logging.warning("Local symlink blocks destination: %s", candidate)
                     return None
             try:

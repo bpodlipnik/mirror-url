@@ -179,6 +179,8 @@ def test_stable_home_directory_ignores_temporary_directory_settings(tmp_path, mo
 @pytest.mark.parametrize("fault", ["descriptor_type", "named_type", "links", "identity", "fdopen"])
 def test_unsafe_lock_file_or_failed_stream_wrapper_closes_descriptor(tmp_path, monkeypatch, fault):
     path = tmp_path / "resource.lock"
+    unrelated = tmp_path / "unrelated"
+    unrelated.write_bytes(b"preserve")
     original_fstat, original_lstat = os.fstat, Path.lstat
     closed = []
     original_close = os.close
@@ -195,11 +197,22 @@ def test_unsafe_lock_file_or_failed_stream_wrapper_closes_descriptor(tmp_path, m
             st_ino=info.st_ino + (fault == "identity" and source == "named"),
         )
 
-    monkeypatch.setattr(os, "close", close)
-    monkeypatch.setattr(os, "fstat", lambda fd: modified(original_fstat(fd), "descriptor"))
-    monkeypatch.setattr(Path, "lstat", lambda self: modified(original_lstat(self), "named"))
+    # Inject faults only into the lock code. Process-wide stat/fd mocks also
+    # affect pytest and its plugins while they enter/leave test contexts.
+    monkeypatch.setattr(locks, "os", SimpleNamespace(**vars(os)))
+    monkeypatch.setattr(locks.os, "close", close)
+    monkeypatch.setattr(locks.os, "fstat", lambda fd: modified(original_fstat(fd), "descriptor"))
+    monkeypatch.setattr(
+        Path,
+        "lstat",
+        lambda self: (
+            modified(original_lstat(self), "named") if self == path else original_lstat(self)
+        ),
+    )
     if fault == "fdopen":
-        monkeypatch.setattr(os, "fdopen", Mock(side_effect=OSError("cannot wrap descriptor")))
+        monkeypatch.setattr(locks.os, "fdopen", Mock(side_effect=OSError("cannot wrap descriptor")))
+    with unrelated.open("rb") as handle:
+        assert os.fstat(handle.fileno()).st_size == unrelated.lstat().st_size == 8
     with pytest.raises(OSError):
         locks._open_lock(path)
     assert len(closed) == 1

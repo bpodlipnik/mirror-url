@@ -1261,14 +1261,17 @@ All resolved URLs and redirect hops must stay below the selected base URL, on it
 origin. One optional `--dir` narrows that scope and appends the suffix
 to the destination. Nested file paths are retained. The full list is checked
 for filename collisions before any GET. Direct IP URLs, private DNS answers,
-unsafe paths, symlinks, hard links and reserved-state collisions are rejected.
+unsafe paths, symlinked roots or intermediate directories, hard links and
+reserved-state collisions are rejected.
 TLS certificates remain verified, and proxy environment variables are ignored.
 `--trusted-server` and the legacy security toggle do not remove these checks.
 
 An existing file is redownloaded only when its identity matches the receipt
 from this mode, or `--overwrite` explicitly permits replacement. With
 `--verify-content`, its saved SHA-256 must match too. Failed transfers leave
-the original bytes intact. Connection and payload interruptions have bounded
+the original bytes intact. A leaf symlink can be replaced under the same
+overwrite policy; publication removes the link and installs a regular file
+without modifying its linked target. Connection and payload interruptions have bounded
 whole-file retries, or retries of the affected range in chunk modes;
 `--max-retries` bounds retries per range without a second recovery budget.
 HTTP and range-validation failures are reported without status retries. A
@@ -1863,10 +1866,19 @@ paths fail the run and suppress obsolete-file cleanup. DNS checks reject a
 response containing any non-public address, including a mix of public and
 link-local answers.
 
-Local symlinks in a selected destination root are rejected before managers
-start; leaf and descendant symlinks block file mapping. The fixed macOS `/var`,
+Symlinked destination roots and intermediate directories are rejected. An
+existing symlink at a remote file's destination is replaced with a regular file
+after a successful download, including with `--missing-files`. MirrorURL never
+writes through that link: the linked target is left untouched, and the link
+itself is removed by atomic replacement. The log records `Replaced local symlink
+with downloaded file`. Failed transfers preserve the original link; dry runs
+report the planned download without changing it. This also handles broken
+links and links to targets outside the destination. The fixed macOS `/var`,
 `/tmp` and `/etc` system aliases are accepted. Local path checks do not protect
 against another process changing the destination tree during a run.
+
+Download mode retains its existing ownership-receipt and `--overwrite`
+requirements when replacing an existing destination, including a symlink.
 
 Symlink handling is off by default; see [Symlink handling](#symlink-handling)
 below for how it works and how to use it. Remote directory-duplicate handling

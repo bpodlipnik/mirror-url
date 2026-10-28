@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
 import stat
@@ -13,16 +14,17 @@ from typing import BinaryIO, Optional, Tuple
 
 from .filename_mapping import _stat_identity
 from .security import PathSafety
+from .utils import sanitize_log_text
 
 
-def file_identity(path: Path) -> Optional[Tuple[int, ...]]:
-    """Snapshot an owned regular file without accepting symlinks or hardlinks."""
+def file_identity(path: Path, *, allow_symlink: bool = False) -> Optional[Tuple[int, ...]]:
+    """Snapshot an owned entry without following links; staging must be regular."""
     try:
         info = path.lstat()
     except FileNotFoundError:
         return None
     if (
-        not stat.S_ISREG(info.st_mode)
+        not (stat.S_ISREG(info.st_mode) or (allow_symlink and stat.S_ISLNK(info.st_mode)))
         or info.st_nlink != 1
         or (hasattr(os, "getuid") and info.st_uid != os.getuid())
     ):
@@ -71,12 +73,22 @@ def replace_verified_file(
         create_base=False,
         max_depth=max_depth,
         max_filename_len=max_filename_len,
+        allow_leaf_symlink=True,
     )
-    if not PathSafety.same_resolved_path(checked, local) or file_identity(local) != original:
+    replaced_symlink = local.is_symlink()
+    if (
+        not PathSafety.same_resolved_path(checked, local)
+        or file_identity(local, allow_symlink=True) != original
+    ):
         raise ValueError("Destination changed during transfer; preserving existing entry")
     if cancelled is not None and cancelled.is_set():
         raise ValueError("Chunk transfer cancelled before publication")
     os.replace(staging, local)
+    if replaced_symlink:
+        logging.info(
+            "Replaced local symlink with downloaded file: %s",
+            sanitize_log_text(str(local).replace("\n", "\\n").replace("\r", "\\r")),
+        )
 
 
 def file_sha256(path: Path, enabled: bool = True) -> Optional[str]:

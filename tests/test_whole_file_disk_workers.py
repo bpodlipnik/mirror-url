@@ -317,8 +317,9 @@ def test_publication_accepts_equivalent_resolved_windows_spellings(
     monkeypatch.setattr(
         download_integrity,
         "file_identity",
-        lambda path: None if path is planned else original_identity(path),
+        lambda path, **kwargs: None if path is planned else original_identity(path, **kwargs),
     )
+    monkeypatch.setattr(PureWindowsPath, "is_symlink", lambda path: False, raising=False)
     monkeypatch.setattr(transfers.PathSafety, "safe_join", lambda *args, **kwargs: checked)
     replacements = []
     monkeypatch.setattr(transfers.os, "replace", lambda *paths: replacements.append(paths))
