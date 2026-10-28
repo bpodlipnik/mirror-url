@@ -639,7 +639,12 @@ These invariants are part of the current implementation:
 - **Local paths:** construction validates the selected destination before
   starting managers or resolving local symlinks away. The fixed macOS `/var`,
   `/tmp` and `/etc` aliases are accepted; user destination/suffix symlinks are
-  rejected, and descendant/leaf symlinks block mapping. Remote-path preflight
+  rejected, as are symlinks in intermediate directories. Leaf symlinks retain
+  their own destination pathname and always require a download, even with
+  `--missing-files`. Successful publication atomically replaces the link with
+  a regular file and logs the replacement without modifying the linked target;
+  failed transfers and dry runs preserve it. Partial-state keys use the leaf's
+  filename rather than the link target. Remote-path preflight
   rejects truncation, control-character removal and reserved-name rewriting
   before downloads. Cooperative locks coordinate participating MirrorURL
   processes; local path checks do not isolate the filesystem from external

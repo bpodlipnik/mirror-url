@@ -1496,24 +1496,26 @@ positionally or as an encoded absolute URL in the list.</p>
 URL, on its exact origin. One optional <code>--dir</code> narrows that
 scope and appends the suffix to the destination. Nested file paths are
 retained. The full list is checked for filename collisions before any
-GET. Direct IP URLs, private DNS answers, unsafe paths, symlinks, hard
-links and reserved-state collisions are rejected. TLS certificates
-remain verified, and proxy environment variables are ignored.
-<code>--trusted-server</code> and the legacy security toggle do not
-remove these checks.</p>
+GET. Direct IP URLs, private DNS answers, unsafe paths, symlinked roots
+or intermediate directories, hard links and reserved-state collisions
+are rejected. TLS certificates remain verified, and proxy environment
+variables are ignored. <code>--trusted-server</code> and the legacy
+security toggle do not remove these checks.</p>
 <p>An existing file is redownloaded only when its identity matches the
 receipt from this mode, or <code>--overwrite</code> explicitly permits
 replacement. With <code>--verify-content</code>, its saved SHA-256 must
-match too. Failed transfers leave the original bytes intact. Connection
-and payload interruptions have bounded whole-file retries, or retries of
-the affected range in chunk modes; <code>--max-retries</code> bounds
-retries per range without a second recovery budget. HTTP and
-range-validation failures are reported without status retries. A
-whole-file transfer requires a complete HTTP 200 response with a
-matching declared length; a chunk transfer requires every validated
-range before assembly or publication. When the server omits the length,
-the backend must report a clean stream end; SHA-256 records local bytes,
-not proof of a remote reference digest.</p>
+match too. Failed transfers leave the original bytes intact. A leaf
+symlink can be replaced under the same overwrite policy; publication
+removes the link and installs a regular file without modifying its
+linked target. Connection and payload interruptions have bounded
+whole-file retries, or retries of the affected range in chunk modes;
+<code>--max-retries</code> bounds retries per range without a second
+recovery budget. HTTP and range-validation failures are reported without
+status retries. A whole-file transfer requires a complete HTTP 200
+response with a matching declared length; a chunk transfer requires
+every validated range before assembly or publication. When the server
+omits the length, the backend must report a clean stream end; SHA-256
+records local bytes, not proof of a remote reference digest.</p>
 <p>The aiohttp mirror backend shares this transfer retry policy after
 discovery and freshness checks. HTTPX mirror requests retain their
 existing transient status retries; switching backends can therefore
@@ -2123,11 +2125,22 @@ parameters do not turn directory links into files. Invalid URL decoding
 or unsafe expected paths fail the run and suppress obsolete-file
 cleanup. DNS checks reject a response containing any non-public address,
 including a mix of public and link-local answers.</p>
-<p>Local symlinks in a selected destination root are rejected before
-managers start; leaf and descendant symlinks block file mapping. The
-fixed macOS <code>/var</code>, <code>/tmp</code> and <code>/etc</code>
-system aliases are accepted. Local path checks do not protect against
-another process changing the destination tree during a run.</p>
+<p>Symlinked destination roots and intermediate directories are
+rejected. An existing symlink at a remote file's destination is replaced
+with a regular file after a successful download, including with
+<code>--missing-files</code>. MirrorURL never writes through that link:
+the linked target is left untouched, and the link itself is removed by
+atomic replacement. The log records
+<code>Replaced local symlink with downloaded file</code>. Failed
+transfers preserve the original link; dry runs report the planned
+download without changing it. This also handles broken links and links
+to targets outside the destination. The fixed macOS <code>/var</code>,
+<code>/tmp</code> and <code>/etc</code> system aliases are accepted.
+Local path checks do not protect against another process changing the
+destination tree during a run.</p>
+<p>Download mode retains its existing ownership-receipt and
+<code>--overwrite</code> requirements when replacing an existing
+destination, including a symlink.</p>
 <p>Symlink handling is off by default; see <a
 href="#symlink-handling">Symlink handling</a> below for how it works and
 how to use it. Remote directory-duplicate handling does not permit

@@ -70,16 +70,15 @@ def test_normalization_preserves_literal_percent_filename():
     assert normalized == original
 
 
-def test_internal_symlink_blocks_download_to_unrelated_local_file(build, monkeypatch):
+def test_internal_symlink_maps_to_its_own_name_without_following_target(build):
     mirror = build()
     real = mirror.target_dir / "unrelated.txt"
     real.write_bytes(b"old")
     link = mirror.target_dir / "remote.txt"
     link.symlink_to(real.name)
     url = mirror.target_base_url + "remote.txt"
-    with pytest.raises(ValueError, match="unsafe"):
-        mirror._validate_remote_paths([url])
-    assert mirror._get_local_path_from_url(url) is None
+    mirror._validate_remote_paths([url])
+    assert mirror._get_local_path_from_url(url) == link
     assert real.read_bytes() == b"old"
     assert link.is_symlink()
 

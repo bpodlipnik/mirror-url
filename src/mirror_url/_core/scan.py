@@ -1062,12 +1062,14 @@ class ScanMixin(MirrorHost):
                 max_depth=self.config.max_depth + 1,
                 max_filename_len=self.config.max_filename_len,
                 create_base=not self.config.dry_run,
+                allow_leaf_symlink=True,
             )
 
             if local_path is None:
                 return None
 
-            if not PathSafety.is_subpath(self._target_dir_path, local_path):
+            # Validate the containing directory without following a leaf alias.
+            if not PathSafety.is_subpath(self._target_dir_path, local_path.parent):
                 logging.warning(f"Security check failed: {local_path} outside {self.target_dir}")
                 return None
 

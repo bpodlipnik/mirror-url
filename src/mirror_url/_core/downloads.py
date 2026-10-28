@@ -77,7 +77,8 @@ class DownloadMixin(MirrorHost):
                         try:
                             destination_changed = (
                                 download.identity_captured
-                                and file_identity(local_path) != download.original_identity
+                                and file_identity(local_path, allow_symlink=True)
+                                != download.original_identity
                             )
                         except (OSError, ValueError):
                             destination_changed = True
@@ -128,7 +129,7 @@ class DownloadMixin(MirrorHost):
 
         partial_path = None
         try:
-            original_destination = file_identity(local_path)
+            original_destination = file_identity(local_path, allow_symlink=True)
             partial_path = partial_manager.register_partial(local_path, remote_url)
             original_partial = file_identity(partial_path)
         except (OSError, ValueError) as error:

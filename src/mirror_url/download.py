@@ -1259,7 +1259,7 @@ class ParallelDownloadManager:
     @staticmethod
     def _capture_destination(download: ParallelFileDownload) -> None:
         if not download.identity_captured:
-            download.original_identity = file_identity(download.final_path)
+            download.original_identity = file_identity(download.final_path, allow_symlink=True)
             download.identity_captured = True
 
     def _restore_server_timestamp(self, download: ParallelFileDownload) -> None:
@@ -1676,7 +1676,14 @@ class PartialDownloadManager:
         """
         if self.download_dir is None:
             raise ValueError("Partial download directory is unavailable")
-        relative = PathSafety.resolved_relative_to(final_path, self.download_dir)
+        if final_path.is_symlink():
+            # Resume state belongs to the remote filename, never its old target.
+            relative = (
+                PathSafety.resolved_relative_to(final_path.parent, self.download_dir)
+                / final_path.name
+            )
+        else:
+            relative = PathSafety.resolved_relative_to(final_path, self.download_dir)
         if not relative.parts:
             raise ValueError("Partial download path must name a file below the destination")
         if relative.parts[0].casefold() == self.STATE_DIRECTORY:

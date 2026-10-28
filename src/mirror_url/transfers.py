@@ -142,6 +142,7 @@ def plan_targets(
             max_depth=config.max_depth,
             max_filename_len=config.max_filename_len,
             create_base=False,
+            allow_leaf_symlink=True,
         )
         if local is None:
             raise ValueError("Unsafe download destination")
@@ -660,13 +661,14 @@ class AsyncTransfers:
         return TransferResult(url, local, True, size, etag, digest, mtime)
 
     async def _one_chunked(self, manager, connection, backend, url, local, published):
-        original = _identity(local)
+        original = _identity(local, allow_symlink=True)
         checked = PathSafety.safe_join(
             self.target,
             *local.relative_to(self.target).parts,
             create_base=False,
             max_depth=self.config.max_depth,
             max_filename_len=self.config.max_filename_len,
+            allow_leaf_symlink=True,
         )
         if not PathSafety.same_resolved_path(checked, local):
             raise ValueError("Destination path changed before transfer")
@@ -782,7 +784,7 @@ class AsyncTransfers:
 
         def prepare():
             nonlocal staging
-            original = _identity(local)
+            original = _identity(local, allow_symlink=True)
             relative = local.relative_to(self.target)
             if not PathSafety.same_resolved_path(
                 PathSafety.safe_join(
@@ -791,6 +793,7 @@ class AsyncTransfers:
                     create_base=False,
                     max_depth=self.config.max_depth,
                     max_filename_len=self.config.max_filename_len,
+                    allow_leaf_symlink=True,
                 ),
                 local,
             ):
@@ -1133,7 +1136,7 @@ def download_url_list(
                     raise ValueError("Unrecognized URL-list receipt file; preserving it")
                 receipts = previous
             for url, local in items:
-                identity = _identity(local)
+                identity = _identity(local, allow_symlink=True)
                 report.record_check(url, "missing" if identity is None else "unclassified")
                 if identity is not None and not config.overwrite:
                     old = receipts["files"].get(str(local))

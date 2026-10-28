@@ -350,8 +350,9 @@ def test_publication_accepts_equivalent_observed_windows_namespaces(
     local, target = PureWindowsPath(local_name), PureWindowsPath(target_name)
     monkeypatch.setattr(
         "mirror_url.download_integrity.file_identity",
-        lambda path: staged if path == staging else original,
+        lambda path, **kwargs: staged if path == staging else original,
     )
+    monkeypatch.setattr(PureWindowsPath, "is_symlink", lambda path: False, raising=False)
     joined = Mock(return_value=PathSafety._normalize_resolved_path(local))
     monkeypatch.setattr(PathSafety, "safe_join", joined)
     replace = Mock()
@@ -366,6 +367,6 @@ def test_publication_accepts_equivalent_observed_windows_namespaces(
         max_filename_len=255,
     )
     joined.assert_called_once_with(
-        target, "a", create_base=False, max_depth=2, max_filename_len=255
+        target, "a", create_base=False, max_depth=2, max_filename_len=255, allow_leaf_symlink=True
     )
     replace.assert_called_once_with(staging, local)

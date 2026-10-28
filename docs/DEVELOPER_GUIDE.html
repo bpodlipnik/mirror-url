@@ -1009,11 +1009,17 @@ query strings. URL decode errors reject the request.</li>
 destination before starting managers or resolving local symlinks away.
 The fixed macOS <code>/var</code>, <code>/tmp</code> and
 <code>/etc</code> aliases are accepted; user destination/suffix symlinks
-are rejected, and descendant/leaf symlinks block mapping. Remote-path
-preflight rejects truncation, control-character removal and
-reserved-name rewriting before downloads. Cooperative locks coordinate
-participating MirrorURL processes; local path checks do not isolate the
-filesystem from external writers changing the tree.</li>
+are rejected, as are symlinks in intermediate directories. Leaf symlinks
+retain their own destination pathname and always require a download,
+even with <code>--missing-files</code>. Successful publication
+atomically replaces the link with a regular file and logs the
+replacement without modifying the linked target; failed transfers and
+dry runs preserve it. Partial-state keys use the leaf's filename rather
+than the link target. Remote-path preflight rejects truncation,
+control-character removal and reserved-name rewriting before downloads.
+Cooperative locks coordinate participating MirrorURL processes; local
+path checks do not isolate the filesystem from external writers changing
+the tree.</li>
 <li><strong>Publication:</strong> whole-file partials use an owned
 <code>.mirror-url-state/</code> below the target directory; final
 assembly and streaming staging stay on the destination filesystem.
