@@ -19,9 +19,11 @@ from functools import wraps
 from pathlib import Path
 from threading import RLock
 from typing import BinaryIO, Callable, Dict, Iterable, Iterator, List, Optional
+from uuid import uuid4
 
 import portalocker
 
+from .constants import MAX_FILENAME_LENGTH
 from .exceptions import DestinationLockError
 
 
@@ -36,6 +38,7 @@ class MirrorFileHandler(logging.FileHandler):
     # Python 3.9's logging.Handler has no _closed attribute. Keep our own
     # immutable class default, replaced with an instance flag when closing.
     _mirror_closed = False
+    configuration_logged = False
 
     def emit(self, record: logging.LogRecord) -> None:
         if not self._mirror_closed:
@@ -212,6 +215,42 @@ _RUN_LOCK: ContextVar[Optional[DestinationLock]] = ContextVar("mirror_url_run_lo
 
 def current_run_lock() -> Optional[DestinationLock]:
     return _RUN_LOCK.get()
+
+
+def create_run_log(
+    path: Path,
+    handler_factory: Callable[..., MirrorFileHandler] = MirrorFileHandler,
+    *,
+    guard: Optional[DestinationLock] = None,
+) -> tuple[Path, MirrorFileHandler]:
+    """Exclusively create a run's log, retaining ownership until run cleanup.
+
+    Existing names (including symlinks) and names owned by another process get
+    a fresh identifier. Never append another invocation to an existing log.
+    """
+    guard = guard if guard is not None else current_run_lock()
+    for attempt in range(10):
+        tail = f"_{uuid4().hex[:12]}.log" if attempt else ".log"
+        stem = path.stem
+        budget = MAX_FILENAME_LENGTH - len(tail)
+        if len(stem.encode("utf-8")) > budget:
+            digest = "_" + hashlib.sha256(stem.encode("utf-8")).hexdigest()[:8]
+            stem = stem.encode("utf-8")[: budget - len(digest)].decode("utf-8", "ignore") + digest
+        candidate = path.with_name(stem + tail)
+        try:
+            if guard is not None:
+                guard.add_paths([candidate])
+        except DestinationLockError:
+            if attempt == 9:
+                raise
+            continue
+        candidate.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            handler = handler_factory(str(candidate), mode="x", encoding="utf-8")
+        except FileExistsError:
+            continue
+        return candidate, handler
+    raise FileExistsError(f"Cannot reserve a unique log filename for {path}")
 
 
 @contextmanager

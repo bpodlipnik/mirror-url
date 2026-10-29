@@ -927,18 +927,36 @@ files</h3>
 </tbody>
 </table>
 
-<p>Without <code>--log-file</code>, each <code>--dir</code> gets its own
-log file named
-<code>mirror_url_&lt;suffix&gt;_&lt;timestamp&gt;.log</code>. With
-<code>--log-file NAME</code>, the filename normally follows
+<p>Each mirror command writes one log containing every selected
+directory. Without <code>--log-file</code>, a single <code>--dir</code>
+retains the existing
+<code>mirror_url_&lt;suffix&gt;_&lt;timestamp&gt;.log</code> format,
+with slashes replaced by underscores. For multiple directories the name
+is
+<code>mirror_url_&lt;first&gt;--&lt;last&gt;_&lt;timestamp&gt;.log</code>,
+with slashes in the first and last directory names replaced by hyphens.
+For example:</p>
+<ul>
+<li><code>mirror_url_packages-findstuff--packages-helioviewer_20261029_010000.log</code></li>
+<li><code>mirror_url_packages-hydro--packages-nlfff_20261029_010000.log</code></li>
+</ul>
+<p>The endpoints follow the selected processing order; they do not imply
+that all intermediate directory names are selected. The header lists the
+complete selection, and each job has an <code>[i/n]</code> label and its
+destination. The command's startup header and common settings appear
+once, followed by each directory's progress and result, and one final
+summary. Cache paths and traversal limits are reported per directory
+because they can differ.</p>
+<p>With <code>--log-file NAME</code>, the filename normally follows
 <code>NAME_&lt;suffix&gt;_&lt;timestamp&gt;.log</code> — where
 <code>&lt;suffix&gt;</code> is every <code>--dir</code> value joined
 with underscores (or <code>all</code> if none were given), and
-<code>&lt;timestamp&gt;</code> is <code>YYYYMMDD_HHMMSS</code>. With
-more than one <code>--dir</code>, all of them share this single log file
-rather than each getting a separate one. Unsafe characters in the
-combined name are replaced with underscores, and long names are
-shortened with a digest to fit the filename limit. This is handy for
+<code>&lt;timestamp&gt;</code> is <code>YYYYMMDD_HHMMSS</code>. Unsafe
+characters are replaced with underscores, and long names are shortened
+with a digest to fit the filename limit. Files are created exclusively:
+an existing filename or one owned by another run gets an additional
+identifier, preserving the existing file. This also protects
+simultaneous commands with identical endpoints. This is handy for
 wrapper scripts that invoke <code>mirror-url</code> once per date/target
 and want a recognizable, greppable filename prefix — e.g.
 <code>--log-file mirror_url_lasco_ql_nrl</code> on a run with
@@ -1412,9 +1430,10 @@ command, selected suffix, remote root, destination path, log file,
 backend and SHA-256 setting. The fields have the same labels and order
 in per-job and shared logs. Mirror's discovery/cache configuration
 follows the header; download mode omits those inactive subsystems.
-Shared mirror logs record configuration once per suffix. Configured
-limits are in debug output (<code>--verbose</code>). The transfer phase
-reports the actual selected-file/worker count as
+Multi-directory mirror commands record common configuration once per
+command and label each directory transition with its destination.
+Configured limits are in debug output (<code>--verbose</code>). The
+transfer phase reports the actual selected-file/worker count as
 <code>File download plan: … files; … file workers</code> and each
 eligible file's chunk plan. When a file uses a whole-file GET, the log
 explains the reason: its size permits only one chunk, a configured limit

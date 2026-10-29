@@ -682,15 +682,32 @@ The most commonly used options:
 </tbody>
 </table>
 
-Without `--log-file`, each `--dir` gets its own log file named
-`mirror_url_<suffix>_<timestamp>.log`. With `--log-file NAME`, the filename
+Each mirror command writes one log containing every selected directory.
+Without `--log-file`, a single `--dir` retains the existing
+`mirror_url_<suffix>_<timestamp>.log` format, with slashes replaced by underscores.
+For multiple directories the name is
+`mirror_url_<first>--<last>_<timestamp>.log`, with slashes in the first and last
+directory names replaced by hyphens. For example:
+
+- `mirror_url_packages-findstuff--packages-helioviewer_20261029_010000.log`
+- `mirror_url_packages-hydro--packages-nlfff_20261029_010000.log`
+
+The endpoints follow the selected processing order; they do not imply that all
+intermediate directory names are selected. The header lists the complete
+selection, and each job has an `[i/n]` label and its destination. The command's
+startup header and common settings appear once, followed by each directory's
+progress and result, and one final summary. Cache paths and traversal limits
+are reported per directory because they can differ.
+
+With `--log-file NAME`, the filename
 normally follows `NAME_<suffix>_<timestamp>.log` — where `<suffix>` is
 every `--dir` value joined with underscores (or `all` if none were
-given), and `<timestamp>` is `YYYYMMDD_HHMMSS`. With more than one
-`--dir`, all of them share this single log file rather than each
-getting a separate one. Unsafe characters in the combined name are replaced
+given), and `<timestamp>` is `YYYYMMDD_HHMMSS`. Unsafe characters are replaced
 with underscores, and long names are shortened with a digest to fit the
-filename limit. This is handy for wrapper scripts that invoke
+filename limit. Files are created exclusively: an existing filename or one
+owned by another run gets an additional identifier, preserving the existing
+file. This also protects simultaneous commands with identical endpoints.
+This is handy for wrapper scripts that invoke
 `mirror-url` once per date/target and want a recognizable, greppable
 filename prefix — e.g. `--log-file mirror_url_lasco_ql_nrl` on a run with
 `--dir 260727` produces
@@ -1173,7 +1190,8 @@ or `mode: download`, followed by job start time, sanitized command, selected
 suffix, remote root, destination path, log file, backend and SHA-256 setting.
 The fields have the same labels and order in per-job and shared logs. Mirror's
 discovery/cache configuration follows the header; download mode omits those
-inactive subsystems. Shared mirror logs record configuration once per suffix.
+inactive subsystems. Multi-directory mirror commands record common configuration
+once per command and label each directory transition with its destination.
 Configured limits are in debug output (`--verbose`). The transfer phase reports
 the actual selected-file/worker count as `File download plan: … files; … file
 workers` and each eligible file's chunk plan.

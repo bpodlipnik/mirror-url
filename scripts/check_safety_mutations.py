@@ -15,6 +15,13 @@ from pathlib import Path
 
 MUTATIONS = (
     (
+        "exclusive run log creation",
+        "destination_lock.py",
+        'handler_factory(str(candidate), mode="x", encoding="utf-8")',
+        'handler_factory(str(candidate), mode="a", encoding="utf-8")',
+        "tests/test_command_logging.py::test_run_logs_preserve_existing_entries_and_do_not_append",
+    ),
+    (
         "corrupt-cache backup name isolation",
         "cache.py",
         "self.cache_file.replace(backup_path)",

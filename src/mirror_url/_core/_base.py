@@ -31,7 +31,7 @@ from ..compat import LXML_AVAILABLE, PSUTIL_AVAILABLE, TQDM_AVAILABLE
 from ..concurrency import UnifiedConcurrencyManager
 from ..connection import ConnectionManager
 from ..constants import ADAPTIVE_MAX_CONCURRENCY
-from ..destination_lock import DestinationLock, MirrorFileHandler, current_run_lock
+from ..destination_lock import DestinationLock, MirrorFileHandler, create_run_log, current_run_lock
 from ..download import ParallelDownloadManager, PartialDownloadManager
 from ..download_integrity import content_length
 from ..enums import CleanupPolicy
@@ -148,7 +148,14 @@ class _MirrorBase(MirrorHost):
             )
             sys.exit(1)
 
-    def __init__(self, config: MirrorConfig, suffix_index: int = 0, total_suffixes: int = 1):
+    def __init__(
+        self,
+        config: MirrorConfig,
+        suffix_index: int = 0,
+        total_suffixes: int = 1,
+        *,
+        log_configuration: bool = True,
+    ):
         """
         Initialize MirrorURL instance with proper attribute initialization and error handling.
 
@@ -156,12 +163,14 @@ class _MirrorBase(MirrorHost):
             config: MirrorConfig instance with all settings
             suffix_index: Current suffix index (for multi-suffix operations)
             total_suffixes: Total number of suffixes being processed
+            log_configuration: Emit common settings (disabled for selection-only discovery)
         """
 
         # ============================================================================
         # 1. BASIC CONFIGURATION - Initialize all attributes with safe defaults
         # ============================================================================
         self.config = config
+        self._log_configuration = log_configuration
         if config.mode != "mirror":
             raise ValueError("Use download_url_list() for mode=download")
         if config.backend == "aiohttp":
@@ -370,7 +379,7 @@ class _MirrorBase(MirrorHost):
             # Configure root logger level
             logging.root.setLevel(log_level)
 
-            self.setup_logging()
+        self.setup_logging()
 
         # ============================================================================
         # 16. CACHE MANAGER
@@ -480,142 +489,12 @@ class _MirrorBase(MirrorHost):
         # ============================================================================
         # 24. LOG INITIAL CONFIGURATION (partial)
         # ============================================================================
-        self._log_cleanup_policy()
+        self._log_initial_configuration()
         prefix = self._get_prefix()
-        logging.debug(
-            "%sConfigured discovery/metadata worker capacity: %s; max retries: %s",
-            prefix,
-            config.workers,
-            config.max_retries,
-        )
-
-        # Log cache settings
-        if config.no_cache:
-            logging.info(f"{prefix}Cache disabled by --no-cache")
-        elif config.refresh_cache:
-            logging.info(f"{prefix}Cache refresh forced by --refresh-cache")
-        else:
-            logging.info(f"{prefix}Cache max age: {config.cache_max_age} days")
-
-        # Log scan mode
-        logging.info(f"{prefix}Scan mode: {config.scan_mode.value}")
-
-        # Log rate limiting
-        delay_ms = config.effective_request_interval * 1000
-        logging.info(
-            f"{prefix}Rate limiting: {delay_ms:.1f}ms effective spacing{' (trusted server)' if config.trusted_server else ''}"
-        )
-
-        # Log async settings
-        if config.cache_html:
-            logging.info(f"{prefix}📦 HTML caching enabled ({config.html_cache_max_age}h)")
-
-        if config.adaptive_async and config.async_metadata:
-            logging.info(
-                f"{prefix}🔄 Adaptive async: start={config.adaptive_start_concurrency}, "
-                f"max={ADAPTIVE_MAX_CONCURRENCY}, error_threshold={config.adaptive_error_threshold:.1%}"
-            )
-
-        # Log bandwidth limit
-        if config.bandwidth_limit:
-            logging.info(f"{prefix}⏱️ Bandwidth limit: {config.bandwidth_limit} MiB/s")
-
-        # Log resume capability
-        if config.enable_resume:
-            logging.info(f"{prefix}↩️ Resume capability enabled")
-
-        # Log async scanning
-        if config.async_metadata:
-            logging.info(f"{prefix}⚡ Async metadata checks: ENABLED")
-        else:
-            logging.info(f"{prefix}⚡ Async metadata checks: DISABLED (sync mode)")
-
-        # Log symlink handling
-        if config.handle_symlinks:
-            logging.info(f"{prefix}🔗 Symlink handling: ENABLED (mode: {config.symlink_mode})")
-
-        # Log monitoring
-        if PSUTIL_AVAILABLE:
-            logging.info(f"{prefix}📊 Memory monitoring: ENABLED")
-        if config.security_validation:
-            logging.info(f"{prefix}🔒 Per-IP rate limiting: ENABLED")
-
-        # Log parallel download settings
-        if config.parallel_downloads and self.parallel_manager:
-            logging.debug(
-                f"{prefix}Configured chunk limits: {config.max_chunks_per_file} chunks per file, "
-                f"minimum size {config.min_chunk_size_mb} MiB"
-            )
-
-        # Log cache file
         logging.info(f"{prefix}Cache file: {self.cache_file}")
-
-        # Log content hash setting
-        if config.content_hash_small_files:
-            logging.debug(
-                f"{prefix}Content-hash compatibility setting does not change file freshness checks"
-            )
-
-        # Log parser availability
-        if LXML_AVAILABLE:
-            logging.info(f"{prefix}Parser: lxml.html + fast fallback")
-        else:
-            logging.info(
-                f"{prefix}Parser: fast parser with HTMLParser fallback (lxml not available)"
-            )
-
-        # Log HTTP/2 setting
-        logging.info(
-            f"{prefix}Listing/metadata HTTP/2 setting: {'ENABLED' if config.http2 else 'DISABLED'}"
-        )
-
-        # Log ETag support
-        logging.info(f"{prefix}ETag support: {'ENABLED' if not config.no_etag else 'DISABLED'}")
-
-        if config.missing_files:
-            if config.check_files:
-                logging.info(
-                    "%s--missing-files: checking %d selected remote paths; "
-                    "skipping freshness checks for other existing files",
-                    prefix,
-                    len(config.check_files),
-                )
-            else:
-                logging.info(
-                    f"{prefix}⏭️ --missing-files: skipping freshness checks for existing files "
-                    f"(will not detect in-place changes to already-downloaded files)"
-                )
-        elif config.check_files:
-            logging.info(
-                "%s--check-files: normal freshness checks apply to all files "
-                "without --missing-files",
-                prefix,
-            )
-
-        # Log security settings
-        if config.safe_urls:
-            logging.info(f"{prefix}🔒 URL sanitization enabled")
         logging.info(
             f"{prefix}🛡️ Path safety: max_depth={config.max_depth}, max_filename_len={config.max_filename_len}"
         )
-
-        # Log progress bar
-        if config.progress_bar and TQDM_AVAILABLE:
-            logging.info(f"{prefix}📈 Progress bar enabled")
-
-        # Log adaptive batch processing
-        if config.adaptive_batch_processing:
-            logging.info(
-                f"{prefix}Compatibility batch setting (inactive in sync): initial={config.initial_batch_size}"
-            )
-
-        # Log fast parsing fallback
-        if config.fast_parsing_fallback:
-            logging.info(f"{prefix}⚡ Fast parsing fallback enabled")
-
-        # Log connection pool pre-warming
-        if config.connection_pool_prewarm:
-            logging.info(f"{prefix}🔥 Connection pool pre-warming enabled")
 
         # ============================================================================
         # 25. HEALTH CHECK SERVER
@@ -739,6 +618,159 @@ class _MirrorBase(MirrorHost):
             f"{prefix}Initialization complete: target_dir={self.target_dir}, "
             f"cache_file={self.cache_file}, connection_ok={self.connection_ok}"
         )
+
+    def _log_initial_configuration(self) -> None:
+        """Keep common settings once in the current run's file and console."""
+        if not self._log_configuration:
+            return
+        config = self.config
+        shared_handler = (
+            next(
+                (
+                    handler
+                    for handler in logging.root.handlers
+                    if isinstance(handler, MirrorFileHandler)
+                ),
+                None,
+            )
+            if config.use_shared_log
+            else None
+        )
+        if shared_handler is not None and shared_handler.configuration_logged:
+            return
+        self._log_cleanup_policy()
+        prefix = self._get_prefix()
+        logging.debug(
+            "%sConfigured discovery/metadata worker capacity: %s; max retries: %s",
+            prefix,
+            config.workers,
+            config.max_retries,
+        )
+
+        # Log cache settings
+        if config.no_cache:
+            logging.info(f"{prefix}Cache disabled by --no-cache")
+        elif config.refresh_cache:
+            logging.info(f"{prefix}Cache refresh forced by --refresh-cache")
+        else:
+            logging.info(f"{prefix}Cache max age: {config.cache_max_age} days")
+
+        # Log scan mode
+        logging.info(f"{prefix}Scan mode: {config.scan_mode.value}")
+
+        # Log rate limiting
+        delay_ms = config.effective_request_interval * 1000
+        logging.info(
+            f"{prefix}Rate limiting: {delay_ms:.1f}ms effective spacing{' (trusted server)' if config.trusted_server else ''}"
+        )
+
+        # Log async settings
+        if config.cache_html:
+            logging.info(f"{prefix}📦 HTML caching enabled ({config.html_cache_max_age}h)")
+
+        if config.adaptive_async and config.async_metadata:
+            logging.info(
+                f"{prefix}🔄 Adaptive async: start={config.adaptive_start_concurrency}, "
+                f"max={ADAPTIVE_MAX_CONCURRENCY}, error_threshold={config.adaptive_error_threshold:.1%}"
+            )
+
+        # Log bandwidth limit
+        if config.bandwidth_limit:
+            logging.info(f"{prefix}⏱️ Bandwidth limit: {config.bandwidth_limit} MiB/s")
+
+        # Log resume capability
+        if config.enable_resume:
+            logging.info(f"{prefix}↩️ Resume capability enabled")
+
+        # Log async scanning
+        if config.async_metadata:
+            logging.info(f"{prefix}⚡ Async metadata checks: ENABLED")
+        else:
+            logging.info(f"{prefix}⚡ Async metadata checks: DISABLED (sync mode)")
+
+        # Log symlink handling
+        if config.handle_symlinks:
+            logging.info(f"{prefix}🔗 Symlink handling: ENABLED (mode: {config.symlink_mode})")
+
+        # Log monitoring
+        if PSUTIL_AVAILABLE:
+            logging.info(f"{prefix}📊 Memory monitoring: ENABLED")
+        if config.security_validation:
+            logging.info(f"{prefix}🔒 Per-IP rate limiting: ENABLED")
+
+        # Log parallel download settings
+        if config.parallel_downloads and self.parallel_manager:
+            logging.debug(
+                f"{prefix}Configured chunk limits: {config.max_chunks_per_file} chunks per file, "
+                f"minimum size {config.min_chunk_size_mb} MiB"
+            )
+
+        # Log content hash setting
+        if config.content_hash_small_files:
+            logging.debug(
+                f"{prefix}Content-hash compatibility setting does not change file freshness checks"
+            )
+
+        # Log parser availability
+        if LXML_AVAILABLE:
+            logging.info(f"{prefix}Parser: lxml.html + fast fallback")
+        else:
+            logging.info(
+                f"{prefix}Parser: fast parser with HTMLParser fallback (lxml not available)"
+            )
+
+        # Log HTTP/2 setting
+        logging.info(
+            f"{prefix}Listing/metadata HTTP/2 setting: {'ENABLED' if config.http2 else 'DISABLED'}"
+        )
+
+        # Log ETag support
+        logging.info(f"{prefix}ETag support: {'ENABLED' if not config.no_etag else 'DISABLED'}")
+
+        if config.missing_files:
+            if config.check_files:
+                logging.info(
+                    "%s--missing-files: checking %d selected remote paths; "
+                    "skipping freshness checks for other existing files",
+                    prefix,
+                    len(config.check_files),
+                )
+            else:
+                logging.info(
+                    f"{prefix}⏭️ --missing-files: skipping freshness checks for existing files "
+                    f"(will not detect in-place changes to already-downloaded files)"
+                )
+        elif config.check_files:
+            logging.info(
+                "%s--check-files: normal freshness checks apply to all files "
+                "without --missing-files",
+                prefix,
+            )
+
+        # Log security settings
+        if config.safe_urls:
+            logging.info(f"{prefix}🔒 URL sanitization enabled")
+
+        # Log progress bar
+        if config.progress_bar and TQDM_AVAILABLE:
+            logging.info(f"{prefix}📈 Progress bar enabled")
+
+        # Log adaptive batch processing
+        if config.adaptive_batch_processing:
+            logging.info(
+                f"{prefix}Compatibility batch setting (inactive in sync): initial={config.initial_batch_size}"
+            )
+
+        # Log fast parsing fallback
+        if config.fast_parsing_fallback:
+            logging.info(f"{prefix}⚡ Fast parsing fallback enabled")
+
+        # Log connection pool pre-warming
+        if config.connection_pool_prewarm:
+            logging.info(f"{prefix}🔥 Connection pool pre-warming enabled")
+
+        if shared_handler is not None:
+            shared_handler.configuration_logged = True
 
     def _initialize_auto_tuner(self) -> None:
         """Initialize tuning after either explicit or automatic mode selection."""
@@ -1014,6 +1046,7 @@ class _MirrorBase(MirrorHost):
                 logging.info(
                     f"[{self.suffix_index}/{self.total_suffixes}] Processing directory suffix: '{suffix_display}'"
                 )
+                logging.info(f"{self._get_prefix()}Destination path: {self._computed_target_path}")
             return
 
         # Create log filename (MOVED UP before directory creation)
@@ -1027,8 +1060,6 @@ class _MirrorBase(MirrorHost):
         log_filepath = self.log_path / log_filename
 
         guard = getattr(self, "_destination_lock", None)
-        if guard is not None:
-            guard.add_paths([log_filepath])
 
         # FIX: Ensure log directory exists BEFORE creating FileHandler
         if not self.config.dry_run:
@@ -1037,8 +1068,6 @@ class _MirrorBase(MirrorHost):
             except Exception:
                 # Fallback to system temp if we can't create the log path
                 temp_log_dir = Path(tempfile.gettempdir()) / f"mirrorurl_logs_{os.getpid()}"
-                if guard is not None:
-                    guard.add_paths([temp_log_dir / log_filename])
                 temp_log_dir.mkdir(parents=True, exist_ok=True)
                 log_filepath = temp_log_dir / log_filename
                 # Store the fallback path for later use
@@ -1083,7 +1112,9 @@ class _MirrorBase(MirrorHost):
 
         # File handler (always add)
         try:
-            file_handler = MirrorFileHandler(str(log_filepath), mode="a", encoding="utf-8")
+            log_filepath, file_handler = create_run_log(
+                log_filepath, MirrorFileHandler, guard=guard
+            )
             file_handler.setLevel(
                 logging.DEBUG if self.config.debug or self.config.verbose else logging.INFO
             )

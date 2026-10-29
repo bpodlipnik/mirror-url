@@ -62,7 +62,7 @@ from .constants import (
     TARGET_BATCH_TIME_SECONDS,
 )
 from .core import MirrorURL
-from .destination_lock import MirrorFileHandler, current_run_lock, run_ownership
+from .destination_lock import MirrorFileHandler, create_run_log, run_ownership
 from .directory_selection import compile_directory_patterns, resolve_directory_selection
 from .enums import CleanupPolicy, ScanMode
 from .exceptions import (
@@ -98,7 +98,14 @@ def setup_shared_logging(
     started_epoch = time.time()
     started_at = datetime.fromtimestamp(started_epoch)
     timestamp = time.strftime("%Y%m%d_%H%M%S", time.localtime(started_epoch))
-    raw = f"{args.log_file}_{'_'.join(args.dir_suffix) if args.dir_suffix else 'all'}"
+    if args.log_file:
+        raw = f"{args.log_file}_{'_'.join(args.dir_suffix) if args.dir_suffix else 'all'}"
+    else:
+        first, last = (
+            suffix.strip("/").replace("/", "-")
+            for suffix in (args.dir_suffix[0], args.dir_suffix[-1])
+        )
+        raw = f"mirror_url_{first}--{last}"
     safe = re.sub(r"[^\w.-]", "_", raw)
     # Bound bytes, not characters, including a digest when shortening.
     budget = MAX_FILENAME_LENGTH - len(f"_{timestamp}.log".encode())
@@ -106,20 +113,15 @@ def setup_shared_logging(
         digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:8]
         preview = re.sub(r"[^\w.-]", "_", "_".join(args.dir_suffix[:3]))
         summary = f"_plus{max(0, len(args.dir_suffix) - 3)}more_{digest}"
-        prefix = re.sub(r"[^\w.-]", "_", args.log_file) + "_" + preview
+        prefix = re.sub(r"[^\w.-]", "_", args.log_file or "mirror_url") + "_" + preview
         safe = (
             prefix.encode("utf-8")[: budget - len(summary)].decode("utf-8", errors="ignore")
             + summary
         )
     log_filename = f"{safe}_{timestamp}.log"
     log_path = Path(args.log_path) / log_filename
-    guard = current_run_lock()
-    if guard is not None:
-        guard.add_paths([log_path])
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-
     # Create file handler (always)
-    file_handler = MirrorFileHandler(str(log_path), mode="a", encoding="utf-8")
+    log_path, file_handler = create_run_log(log_path, MirrorFileHandler)
     file_handler.setLevel(logging.DEBUG if args.debug or args.verbose else logging.INFO)
     file_handler.setFormatter(
         SafeLogFormatter("[%(asctime)s] [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
@@ -158,7 +160,7 @@ def setup_shared_logging(
     # Log header information. Describe the settings the run will actually use
     # (CLI > --config file > default), not the raw parser defaults.
     eff = effective if effective is not None else args
-    suffixes = eff.dir_suffix or [""]
+    suffixes = args.dir_suffix or [""]
     destination = getattr(eff, "dest_path", None)
     if destination is not None:
         destination = Path(destination)
@@ -177,7 +179,7 @@ def setup_shared_logging(
         started_at=started_at,
     )
 
-    # Mirror's lifecycle logs its effective configuration once per suffix.
+    # Mirror's lifecycle logs the common configuration once per run.
     # Repeating it here produced two configuration summaries in shared logs.
     if getattr(eff, "mode", "mirror") != "download":
         return
@@ -1011,7 +1013,7 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
         "--log-file",
         metavar="NAME",
         help=(
-            "Custom log prefix: NAME_SUFFIX_TIMESTAMP.log, with suffixes joined by underscores (or all) and YYYYMMDD_HHMMSS. Unsafe characters are replaced and long names are shortened. Multiple suffixes share one log file"
+            "Custom log prefix: NAME_SUFFIX_TIMESTAMP.log, with suffixes joined by underscores (or all) and YYYYMMDD_HHMMSS. By default, multiple directories share mirror_url_FIRST--LAST_TIMESTAMP.log. Unsafe characters are replaced, long names are shortened, and collisions get a unique identifier"
         ),
     )
     logging_grp.add_argument("--quiet", action="store_true", help="Quiet mode (WARNING+ only)")
@@ -1456,8 +1458,8 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
         print(f"Destination ownership error: {error}", file=sys.stderr)
         sys.exit(1)
 
-    # Setup shared logging if requested
-    if args.log_file:
+    # Multiple directory jobs belong to one invocation and one complete log.
+    if args.log_file or (len(args.dir_suffix) > 1 and not args.benchmark):
         setup_shared_logging(args, effective)
         ownership.callback(_close_run_handlers, list(logging.root.handlers))
         use_shared = True
@@ -1555,6 +1557,10 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
                     logging.root.removeHandler(quiet_handler)
                     quiet_handler.close()
             args.dir_suffix = list(directory_depths)
+            if not use_shared and len(args.dir_suffix) > 1:
+                setup_shared_logging(args, effective)
+                ownership.callback(_close_run_handlers, list(logging.root.handlers))
+                use_shared = True
             logging.getLogger(__name__).info(
                 "Directory selection resolved %s directories", len(args.dir_suffix)
             )
@@ -1740,14 +1746,14 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
                 # Start from *every* field of the file's config (a hand-copied subset
                 # used to drop health_check_port, parallel_optimization_mode, ...),
                 # then layer on only the options that were typed on the command line.
-                config_dict = {
+                suffix_values = {
                     name: getattr(base_config, name) for name in MirrorConfig.model_fields
                 }
-                config_dict["dir_suffix"] = suf
-                config_dict["use_shared_log"] = use_shared
-                config_dict.update(_cli_overrides(args, explicit_dests))
+                suffix_values["dir_suffix"] = suf
+                suffix_values["use_shared_log"] = use_shared
+                suffix_values.update(_cli_overrides(args, explicit_dests))
 
-                suffix_config = MirrorConfig.from_dict(config_dict, silent=use_shared)
+                suffix_config = MirrorConfig.from_dict(suffix_values, silent=use_shared)
             else:
                 suffix_config = MirrorConfig(
                     base_url=args.url.rstrip("/"),
@@ -1861,16 +1867,16 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
                 )
 
         except ConfigError as e:
-            if args.print_logs and args.log_file:
-                logging.critical(f"Configuration error for {suf or 'ROOT'}: {e}")
-            else:
+            if use_shared:
+                logging.critical(f"[{i}/{total}] Configuration error for {suf or 'ROOT'}: {e}")
+            if not (use_shared and args.print_logs):
                 print(f"Configuration error for {suf or 'ROOT'}: {e}", file=sys.stderr)
             failed.append(suf or "ROOT")
             continue
         except Exception as e:
-            if args.print_logs and args.log_file:
-                logging.critical(f"Error creating config for {suf or 'ROOT'}: {e}")
-            else:
+            if use_shared:
+                logging.critical(f"[{i}/{total}] Error creating config for {suf or 'ROOT'}: {e}")
+            if not (use_shared and args.print_logs):
                 print(f"Error creating config for {suf or 'ROOT'}: {e}", file=sys.stderr)
             failed.append(suf or "ROOT")
             continue

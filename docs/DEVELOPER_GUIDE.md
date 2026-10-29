@@ -910,8 +910,22 @@ path marks an interrupted batch completed. All whole-file, assembled and streami
 `metrics.log_run_start` supplies the same ordered startup fields to the CLI's
 shared logger and `_MirrorBase.setup_logging`: explicit mode, start time,
 sanitized command, suffix, root, destination, log path, backend and hashing
-setting. The CLI logs no duplicate mirror configuration; the mirror lifecycle
-owns that block once per suffix. `metrics.log_file_download_plan` supplies one
+setting. Multiple selected directories automatically use one shared CLI log;
+default filenames use the selected first and last paths separated by `--`.
+Single-directory names and explicit `--log-file` prefixes retain their formats.
+`destination_lock.create_run_log` reserves each candidate under run ownership
+and opens it exclusively. Existing names and busy candidates get a fresh
+identifier, with bounded retries and a UTF-8 byte limit; logs never append
+records from another invocation.
+The CLI logs no duplicate mirror configuration; `_MirrorBase` marks the current
+shared `MirrorFileHandler` after emitting its common configuration, so later
+jobs omit it even when an earlier job failed. Each instance still logs its
+suffix, destination, cache path and traversal limits. The marker belongs to the
+handler, so a subsequent invocation gets a fresh configuration block.
+Selection-only regex discovery passes `log_configuration=False`, leaving the
+common configuration marker for the actual mirror jobs rather than recording
+the discovery helper's temporary safe/no-cache settings as the run's settings.
+`metrics.log_file_download_plan` supplies one
 selected-file/worker message to synchronous and async transfer paths.
 Both logging setup paths install `SafeLogFormatter`, which sanitizes the final
 rendered text including chained exception tracebacks. `MetricsCollector.add_error`
@@ -1354,14 +1368,14 @@ and can use a separately mounted case-sensitive APFS test image through
 different contents and separate receipts through all modes and repeat syncs;
 insensitive filesystem tests require failure before any selected file payload.
 Additional tests preserve preexisting aliases and replaced/shared probe entries.
-The mutation check temporarily weakens thirty guards, including:
+The mutation check temporarily weakens forty-six guards, including:
 mixed DNS rejection, archive collision rejection, incomplete-scan cleanup,
 same-origin scope, address pinning, lossy filename preflight and content receipt
 verification, the long-hash deadline policy, destination locking and retention
 of abandoned-worker ownership, scratch manifest ownership, live work leases and
 late chunk writer cleanup, case-insensitive filename collision rejection,
 probe inode/metadata identity, timestamp file-handle identity and preservation
-of existing filename aliases. Each selected
+of existing filename aliases and exclusive run-log creation. Each selected
 test must first pass against the original source and then fail an assertion
 against the mutation. Collection or environment errors do not count as success.
 These checks improve evidence of correctness; neither 100% coverage nor this
