@@ -63,7 +63,7 @@ def resolve_directory_selection(
     )
     roots: dict[str, int] = {}
     matches = 0
-    with mirror_factory(selection) as mirror, ExitStack() as operations:
+    with mirror_factory(selection, log_configuration=False) as mirror, ExitStack() as operations:
         guard = mirror._destination_lock
         if guard is None:
             raise ConfigError("Directory selection requires destination ownership")

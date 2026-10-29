@@ -199,10 +199,9 @@ def test_no_dir_suffix_falls_back_to_all(monkeypatch, tmp_path):
     assert log_files[0].name.startswith("mirror_url_lasco_ql_nrl_all_")
 
 
-def test_without_log_file_uses_default_per_suffix_naming(monkeypatch, tmp_path):
-    """Backward compatibility: omitting --log-file must not change
-    anything about the existing default naming scheme, and must not
-    trigger setup_shared_logging() at all."""
+def test_single_directory_without_log_file_uses_existing_default_naming(monkeypatch, tmp_path):
+    """A single directory keeps its existing default filename and creates
+    its logger in MirrorURL rather than the CLI's shared logging setup."""
     dest = tmp_path / "dest"
     logs = tmp_path / "logs"
     logs.mkdir()
@@ -221,8 +220,8 @@ def test_without_log_file_uses_default_per_suffix_naming(monkeypatch, tmp_path):
         ],
     )
 
-    # setup_shared_logging() only runs when --log-file is given, so no log
-    # file should exist yet at this point in the (stubbed-out) run.
+    # Single-directory setup still belongs to MirrorURL, so its stub has
+    # not created a log file at this point.
     assert list(logs.glob("*.log")) == []
     config = _CapturingMirrorStub.captured_configs[0]
     assert config.use_shared_log is False

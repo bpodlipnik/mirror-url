@@ -151,16 +151,20 @@ def test_independent_cli_processes_can_share_a_log_directory(
 
 
 @pytest.mark.parametrize("shared_log", [False, True])
-def test_cli_log_file_collision_is_rejected_before_http_and_released_on_exit(
-    remote, config, tmp_path, shared_log
+@pytest.mark.parametrize("multiple", [False, True])
+def test_cli_log_file_collision_allocates_a_separate_file_and_preserves_each_run(
+    remote, config, tmp_path, shared_log, multiple
 ):
     remote.files = {"first/a/one.txt": b"alpha", "second/a/two.txt": b"bravo"}
+    if multiple:
+        remote.files.update({"first/z/one.txt": b"charlie", "second/z/two.txt": b"delta"})
     first_data = json.loads(config.model_dump_json())
     first_data.update(base_url=remote.url + "first/", dest_path=str(tmp_path / "first"))
     second_data = dict(
         first_data, base_url=remote.url + "second/", dest_path=str(tmp_path / "second")
     )
-    args = ("--dir", "a") + (("--log-file", "same") if shared_log else ())
+    args = ("--dir", "a") + (("z",) if multiple else ())
+    args += ("--log-file", "same") if shared_log else ()
     first, ready = launch(tmp_path, "first-cli", first_data, mode="cli-hold", extra=args)
     try:
         wait_ready(first, ready)
@@ -171,20 +175,35 @@ def test_cli_log_file_collision_is_rejected_before_http_and_released_on_exit(
         second, _ = launch(tmp_path, "second-cli", second_data, mode="cli-once", extra=args)
         try:
             output = second.communicate(timeout=15)[0]
-            assert second.returncode == 1, output
-            assert "Destination ownership error" in output
-            assert len(remote.requests) == request_count
+            assert second.returncode == 0, output
+            assert first.poll() is None
+            assert len(remote.requests) > request_count
             assert logs[0].read_bytes() == before
-            assert not (tmp_path / "second").exists()
+            assert (tmp_path / "second/a/two.txt").read_bytes() == b"bravo"
+            if multiple:
+                assert (tmp_path / "second/z/two.txt").read_bytes() == b"delta"
+            separate = list(set(config.log_path.glob("*.log")) - set(logs))
+            assert len(separate) == 1
+            text = separate[0].read_text(encoding="utf-8")
+            assert second_data["base_url"].rstrip("/") in text
+            assert first_data["base_url"].rstrip("/") not in text
+            assert "Sync completed successfully" in text
         finally:
             stop(second)
         output = first.communicate("release\n", timeout=15)[0]
         assert first.returncode == 0, output
+        assert (tmp_path / "first/a/one.txt").read_bytes() == b"alpha"
+        if multiple:
+            assert (tmp_path / "first/z/one.txt").read_bytes() == b"charlie"
+        completed_logs = {path: path.read_bytes() for path in config.log_path.glob("*.log")}
+        assert len(completed_logs) == 2
         retry, _ = launch(tmp_path, "retry-cli", second_data, mode="cli-once", extra=args)
         try:
             output = retry.communicate(timeout=15)[0]
             assert retry.returncode == 0, output
             assert (tmp_path / "second/a/two.txt").read_bytes() == b"bravo"
+            assert len(list(config.log_path.glob("*.log"))) == 3
+            assert all(path.read_bytes() == content for path, content in completed_logs.items())
         finally:
             stop(retry)
     finally:

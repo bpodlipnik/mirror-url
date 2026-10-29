@@ -4,6 +4,24 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Keep all selected directories from one mirror command in one log. Default
+  multi-directory filenames use the first and last directory names separated
+  by `--`; single-directory names retain their existing format. Print the
+  startup header and common settings once, with labeled directory transitions
+  and one final summary. Exclusively create log files and add an identifier
+  on collisions so separate runs never append to the same log.
+  Retain the temporary-directory fallback when the configured log directory
+  is unavailable.
+
+### Fixed
+
+- Record per-directory configuration errors in shared logs and keep a failed
+  directory's configuration from leaking into subsequent jobs.
+
 ## [3.9.16] - 2026-10-28
 
 ### Fixed
