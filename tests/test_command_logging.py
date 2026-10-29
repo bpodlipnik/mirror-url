@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 import sys
 from concurrent.futures import ThreadPoolExecutor
@@ -181,6 +182,35 @@ def test_configuration_errors_are_in_the_run_log(remote, invoke, monkeypatch, co
     assert "[2/2] ✅ Successfully processed: b" in text
     assert text.count("Rate limiting:") == 1
     assert output.err.count("invalid config") == 1
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("custom", [False, True])
+def test_shared_log_directory_fallback_preserves_the_run_and_blocking_file(
+    remote, config, invoke, tmp_path, monkeypatch, custom
+):
+    remote.files.update({"a/one.txt": b"a", "b/one.txt": b"b"})
+    blocked = tmp_path / "not-a-directory"
+    blocked.write_bytes(b"preserve this file")
+    config.log_path = blocked / "logs"
+    fallback = tmp_path / "fallback"
+    monkeypatch.setattr(cli.tempfile, "gettempdir", lambda: str(fallback))
+    code, _, output = invoke(
+        ["a", "b"], console=True, extra=["--log-file", "custom"] if custom else []
+    )
+    assert code == 0
+    paths = list((fallback / f"mirrorurl_logs_{os.getpid()}").glob("*.log"))
+    assert len(paths) == 1
+    text = paths[0].read_text(encoding="utf-8")
+    assert "[1/2] ✅ Successfully processed: a" in text
+    assert "[2/2] ✅ Successfully processed: b" in text
+    assert text.count("Cannot create log at") == 1
+    assert text.count("Rate limiting:") == 1
+    assert "DOWNLOADED: 2" in text
+    assert "using fallback:" in output.err
+    assert blocked.read_bytes() == b"preserve this file"
+    assert (config.dest_path / "a/one.txt").read_bytes() == b"a"
+    assert (config.dest_path / "b/one.txt").read_bytes() == b"b"
 
 
 @pytest.mark.integration

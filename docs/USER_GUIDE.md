@@ -707,6 +707,9 @@ with underscores, and long names are shortened with a digest to fit the
 filename limit. Files are created exclusively: an existing filename or one
 owned by another run gets an additional identifier, preserving the existing
 file. This also protects simultaneous commands with identical endpoints.
+If the configured log directory is unavailable, the command uses a temporary
+log directory and records the fallback path in its log and, with `--print-logs`,
+on the console.
 This is handy for wrapper scripts that invoke
 `mirror-url` once per date/target and want a recognizable, greppable
 filename prefix — e.g. `--log-file mirror_url_lasco_ql_nrl` on a run with

@@ -13,6 +13,7 @@ import copy
 import hashlib
 import json
 import logging
+import os
 import re
 import sys
 import tempfile
@@ -124,7 +125,13 @@ def setup_shared_logging(
     log_filename = f"{safe}_{timestamp}.log"
     log_path = Path(args.log_path) / log_filename
     # Create file handler (always)
-    log_path, file_handler = create_run_log(log_path, MirrorFileHandler)
+    fallback_from = None
+    try:
+        log_path, file_handler = create_run_log(log_path, MirrorFileHandler)
+    except OSError:
+        fallback_from = log_path
+        log_path = Path(tempfile.gettempdir()) / f"mirrorurl_logs_{os.getpid()}" / log_filename
+        log_path, file_handler = create_run_log(log_path, MirrorFileHandler)
     file_handler.setLevel(logging.DEBUG if args.debug or args.verbose else logging.INFO)
     file_handler.setFormatter(
         SafeLogFormatter("[%(asctime)s] [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
@@ -181,6 +188,8 @@ def setup_shared_logging(
         suffixes=suffixes,
         started_at=started_at,
     )
+    if fallback_from is not None:
+        logging.warning("Cannot create log at %s; using fallback: %s", fallback_from, log_path)
 
     # Mirror's lifecycle logs the common configuration once per run.
     # Repeating it here produced two configuration summaries in shared logs.

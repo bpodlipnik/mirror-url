@@ -917,6 +917,9 @@ Single-directory names and explicit `--log-file` prefixes retain their formats.
 and opens it exclusively. Existing names and busy candidates get a fresh
 identifier, with bounded retries and a UTF-8 byte limit; logs never append
 records from another invocation.
+CLI startup retains the per-process temporary log directory fallback for an
+unavailable configured log directory, using the same exclusive creation and
+ownership for the fallback file.
 The CLI logs no duplicate mirror configuration; `_MirrorBase` marks the current
 shared `MirrorFileHandler` after emitting its common configuration, so later
 jobs omit it even when an earlier job failed. Each instance still logs its

@@ -1325,17 +1325,20 @@ separated by <code>--</code>. Single-directory names and explicit
 <code>destination_lock.create_run_log</code> reserves each candidate
 under run ownership and opens it exclusively. Existing names and busy
 candidates get a fresh identifier, with bounded retries and a UTF-8 byte
-limit; logs never append records from another invocation. The CLI logs
-no duplicate mirror configuration; <code>_MirrorBase</code> marks the
-current shared <code>MirrorFileHandler</code> after emitting its common
-configuration, so later jobs omit it even when an earlier job failed.
-Each instance still logs its suffix, destination, cache path and
-traversal limits. The marker belongs to the handler, so a subsequent
-invocation gets a fresh configuration block. Selection-only regex
-discovery passes <code>log_configuration=False</code>, leaving the
-common configuration marker for the actual mirror jobs rather than
-recording the discovery helper's temporary safe/no-cache settings as the
-run's settings. <code>metrics.log_file_download_plan</code> supplies one
+limit; logs never append records from another invocation. CLI startup
+retains the per-process temporary log directory fallback for an
+unavailable configured log directory, using the same exclusive creation
+and ownership for the fallback file. The CLI logs no duplicate mirror
+configuration; <code>_MirrorBase</code> marks the current shared
+<code>MirrorFileHandler</code> after emitting its common configuration,
+so later jobs omit it even when an earlier job failed. Each instance
+still logs its suffix, destination, cache path and traversal limits. The
+marker belongs to the handler, so a subsequent invocation gets a fresh
+configuration block. Selection-only regex discovery passes
+<code>log_configuration=False</code>, leaving the common configuration
+marker for the actual mirror jobs rather than recording the discovery
+helper's temporary safe/no-cache settings as the run's settings.
+<code>metrics.log_file_download_plan</code> supplies one
 selected-file/worker message to synchronous and async transfer paths.
 Both logging setup paths install <code>SafeLogFormatter</code>, which
 sanitizes the final rendered text including chained exception

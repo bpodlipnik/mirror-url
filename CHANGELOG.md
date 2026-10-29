@@ -14,6 +14,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   startup header and common settings once, with labeled directory transitions
   and one final summary. Exclusively create log files and add an identifier
   on collisions so separate runs never append to the same log.
+  Retain the temporary-directory fallback when the configured log directory
+  is unavailable.
 
 ### Fixed
 
