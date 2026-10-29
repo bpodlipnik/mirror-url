@@ -878,7 +878,7 @@ mirror-url --config mirror.yaml --missing-files --check-files @checks.txt</code>
 <li><strong>Transport IP restrictions:</strong> private, loopback, link-local, and direct-IP targets are rejected. Resolved addresses are validated before connection.</li>
 <li><strong>URL scope:</strong> discovery and redirects are checked against the configured host and path.</li>
 <li><strong>Filesystem protection:</strong> traversal rejection, filename sanitization, reserved-name handling, and checks for ambiguous local-path mappings. Distinct case-only names are preserved on confirmed case-sensitive destinations and rejected before downloads on case-insensitive destinations.</li>
-<li><strong>Cooperative ownership:</strong> overlapping destination trees and shared log/cache/state paths reject competing runs. OS locks are released on process termination; external writers and network filesystems require separate coordination.</li>
+<li><strong>Cooperative ownership:</strong> overlapping destination trees and shared cache/state paths reject competing runs. Each run reserves a separate log file. OS locks are released on process termination; external writers and network filesystems require separate coordination.</li>
 <li><strong>Transfer consistency:</strong> eligible byte ranges are verified before atomic publication; no remote cryptographic digest comparison is performed.</li>
 <li><strong>Resilience:</strong> request pacing, retry backoff, and circuit breakers handle failing or overloaded services.</li>
 </ul>
