@@ -15,6 +15,7 @@ from mirror_url import cli
 from mirror_url import destination_lock as locks
 from mirror_url.exceptions import ConfigError, DestinationLockError
 from test_directory_selection import directory_archive as directory_archive
+from test_directory_selection import parser as parser
 from test_http_mirror_workflows import config as config
 from test_http_mirror_workflows import remote as remote
 
@@ -79,6 +80,22 @@ def invoke(config, directory_archive, monkeypatch, capsys):
         return stopped.value.code, sorted(config.log_path.glob("*.log")), captured
 
     return run
+
+
+@pytest.mark.parametrize(
+    "suffixes, prefix",
+    [([], "mirror_url_all_"), (["packages/helioviewer"], "mirror_url_packages_helioviewer_")],
+)
+def test_default_shared_helper_handles_empty_and_single_selections(
+    tmp_path, parser, suffixes, prefix
+):
+    args = ["--url", "https://example.com/", "--log-path", str(tmp_path)]
+    if suffixes:
+        args += ["--dir", *suffixes]
+    cli.setup_shared_logging(parser.parse_args(args))
+    paths = list(tmp_path.glob("*.log"))
+    assert len(paths) == 1 and paths[0].name.startswith(prefix)
+    assert paths[0].read_text(encoding="utf-8").count("Starting MirrorURL") == 1
 
 
 @pytest.mark.integration

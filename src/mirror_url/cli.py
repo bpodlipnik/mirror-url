@@ -100,12 +100,15 @@ def setup_shared_logging(
     timestamp = time.strftime("%Y%m%d_%H%M%S", time.localtime(started_epoch))
     if args.log_file:
         raw = f"{args.log_file}_{'_'.join(args.dir_suffix) if args.dir_suffix else 'all'}"
-    else:
+    elif len(args.dir_suffix) > 1:
         first, last = (
             suffix.strip("/").replace("/", "-")
             for suffix in (args.dir_suffix[0], args.dir_suffix[-1])
         )
         raw = f"mirror_url_{first}--{last}"
+    else:
+        suffix = args.dir_suffix[0].strip("/").replace("/", "_") if args.dir_suffix else "all"
+        raw = f"mirror_url_{suffix}"
     safe = re.sub(r"[^\w.-]", "_", raw)
     # Bound bytes, not characters, including a digest when shortening.
     budget = MAX_FILENAME_LENGTH - len(f"_{timestamp}.log".encode())
