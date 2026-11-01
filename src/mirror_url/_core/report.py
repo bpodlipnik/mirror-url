@@ -514,7 +514,9 @@ class ReportMixin(MirrorHost):
                     raise ValueError("Destination is unavailable for capacity admission")
                 self._capacity_budget = CapacityBudget(
                     self.target_dir,
-                    self.config.max_concurrent_downloads,
+                    1
+                    if self.config.sequential_downloads
+                    else min(self.config.max_concurrent_downloads, len(to_download)),
                     total_hint=total_size if not unknown_sizes else None,
                 )
 

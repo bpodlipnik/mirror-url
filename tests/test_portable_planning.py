@@ -12,6 +12,7 @@ from mirror_url.capacity import CapacityError
 from mirror_url.download_integrity import save_resume_metadata
 from mirror_url.enums import DownloadMethod
 from mirror_url.planning import SizeHint, listing_size_hints, parse_listing_size
+from test_capacity_budget import private_home as private_home
 from test_download_failure_contract import manager as manager
 from test_http_mirror_workflows import remote as remote
 from test_immediate_audit_fixes import mirror as mirror
@@ -194,3 +195,30 @@ def test_rounded_large_hint_never_becomes_a_range_length(tmp_path, remote, scope
         assert not any(
             "Range" in headers for method, name, headers in remote.requests if name in remote.files
         )
+
+
+@pytest.mark.integration
+def test_sequential_admission_uses_one_worker_headroom(private_home, remote, scope, monkeypatch):
+    from types import SimpleNamespace
+
+    remote.files = {"a": b"x" * (80 * 1024**2)}
+    monkeypatch.setattr(
+        "mirror_url.capacity.shutil.disk_usage",
+        lambda _: SimpleNamespace(free=128 * 1024**2, total=1024**3, used=896 * 1024**2),
+    )
+    config = MirrorConfig(
+        base_url=scope,
+        dest_path=private_home / "mirror",
+        log_path=private_home / "logs",
+        sequential_downloads=True,
+        max_concurrent_downloads=50,
+        missing_files=True,
+        security_validation=False,
+        connection_pool_prewarm=False,
+        request_delay=0,
+        requests_per_second=0,
+        max_retries=0,
+    )
+    with MirrorURL(config) as mirror:
+        assert mirror.sync(), mirror.metrics.get_summary()
+        assert (config.dest_path / "a").read_bytes() == remote.files["a"]
