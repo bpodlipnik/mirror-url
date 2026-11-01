@@ -47,6 +47,7 @@ from urllib.parse import urlparse
 
 import httpx
 
+from .capacity import CapacityBudget, CapacityError, is_capacity_error
 from .circuit_breaker import ChunkCircuitBreaker
 from .concurrency import UnifiedConcurrencyManager
 from .constants import (
@@ -121,6 +122,7 @@ class ParallelDownloadManager:
         scratch: Optional[OwnedScratch] = None,
         progress: Optional[DownloadProgress] = None,
         record_stage: Optional[Callable[[str, float], None]] = None,
+        capacity: Optional[CapacityBudget] = None,
     ):
         """Initialize parallel download manager."""
         self.config = config
@@ -133,6 +135,7 @@ class ParallelDownloadManager:
         self.scratch = scratch
         self.progress = progress
         self.record_stage = record_stage
+        self.capacity = capacity
         if scratch is not None:
             self._destination_lock = scratch._destination_lock
 
@@ -310,6 +313,27 @@ class ParallelDownloadManager:
             target=self._periodic_cleanup, daemon=True, name=f"pdm_cleanup_{id(self)}"
         )
         self._cleanup_thread.start()
+
+    def _capacity_budget(self) -> Optional[CapacityBudget]:
+        if self.capacity is not None:
+            return self.capacity
+        return getattr(self.mirror, "_capacity_budget", None)
+
+    def _check_capacity(self, local: Optional[Path] = None) -> None:
+        budget = self._capacity_budget()
+        if budget is not None:
+            if local is None:
+                budget.check()
+            else:
+                budget.ensure(local, 0)
+
+    def _record_capacity_error(self, error: BaseException) -> bool:
+        if not is_capacity_error(error):
+            return False
+        budget = self._capacity_budget()
+        if budget is not None:
+            budget.fail(error)
+        return True
 
     def _periodic_cleanup(self) -> None:
         """Periodically clean up stale resources to prevent memory leaks.
@@ -514,11 +538,14 @@ class ParallelDownloadManager:
                         f.truncate(file_size)
                 download.status = "streaming"
             except OSError as e:
+                capacity_failed = self._record_capacity_error(e)
                 if download.staging_path:
                     download.staging_path.unlink(missing_ok=True)
                     if self.scratch is not None:
                         self.scratch.release(download.staging_path.parent)
                     download.staging_path = None
+                if capacity_failed:
+                    raise
                 logging.warning(f"Streaming pre-allocation failed, using chunk files: {e}")
         names = [f"chunk_{i:04d}_{secrets.token_hex(8)}.part" for i in range(chunk_count)]
         if download.staging_path is None:
@@ -606,6 +633,7 @@ class ParallelDownloadManager:
                 response = None
                 progress.received_chunk(chunk.progress_path, chunk.chunk_id, 0, chunk.file_size)
                 try:
+                    self._check_capacity()
                     # Both modes share scope checks, manual redirects, retry
                     # headers and circuit breaking through ConnectionManager.
                     with self.metrics.run_report.transfer_stage("transfer"):
@@ -635,6 +663,7 @@ class ParallelDownloadManager:
                             for data in response.iter_bytes(STREAMING_WRITE_BUFFER_SIZE):
                                 if downloaded + len(data) > chunk.size:
                                     raise ChunkDownloadError("Response exceeds chunk boundary")
+                                self._check_capacity(chunk.progress_path or chunk.final_path)
                                 f.write(data)
                                 downloaded += len(data)
                                 progress.received_chunk(
@@ -660,6 +689,9 @@ class ParallelDownloadManager:
                         self.circuit_breaker.record_chunk_success(chunk.file_url, parsed.netloc)
                     return True
                 except (httpx.RequestError, OSError) as e:
+                    if self._record_capacity_error(e):
+                        chunk.capacity_failed = True
+                        raise
                     chunk.retries += 1
                     limit = self.config.max_retries if self.config.mode == "download" else 2
                     if attempt == limit:
@@ -780,6 +812,10 @@ class ParallelDownloadManager:
             return False
 
         if failed > 0:
+            if any(chunk.capacity_failed for chunk in download.chunks):
+                download.status = "failed"
+                self.cleanup_chunks(download)
+                return False
             # Try to recover failed chunks
             if self.config.mode != "download" and failed <= len(download.chunks) // 2:
                 logging.warning(f"Retrying {failed} failed chunks for {download.final_path.name}")
@@ -807,6 +843,7 @@ class ParallelDownloadManager:
             if download.staging_path.stat().st_size != download.file_size:
                 raise ChunkAssemblyError("Streaming size mismatch")
             progress.stage(download.final_path, "flushing file")
+            self._check_capacity(download.final_path)
             with open(download.staging_path, "r+b") as f:
                 with self._measure_flush():
                     os.fsync(f.fileno())
@@ -838,6 +875,7 @@ class ParallelDownloadManager:
             logging.info(f"✅ Streaming complete: {download.final_path.name}")
             return True
         except (OSError, ValueError, ChunkAssemblyError) as e:
+            self._record_capacity_error(e)
             logging.error(f"Streaming completion failed: {e}")
             download.status = "failed"
             return False
@@ -941,6 +979,12 @@ class ParallelDownloadManager:
 
     def _retry_failed_chunks(self, download: ParallelFileDownload) -> bool:
         """Retry failed chunks sequentially to avoid deadlocks."""
+        try:
+            self._check_capacity()
+        except CapacityError:
+            download.status = "failed"
+            self.cleanup_chunks(download)
+            return False
         max_retries = 3
         for chunk in download.chunks:
             if chunk.status == "failed":
@@ -1026,6 +1070,7 @@ class ParallelDownloadManager:
 
         try:
             download.publication_failed = True
+            self._check_capacity(download.final_path)
             self._capture_destination(download)
             download.final_path.parent.mkdir(parents=True, exist_ok=True)
             if self.scratch is not None:
@@ -1081,6 +1126,7 @@ class ParallelDownloadManager:
                                 expected_size = chunk.end_byte - chunk.start_byte + 1
                                 written = 0
                                 for data in self._read_chunk_data(chunk.temp_path):
+                                    self._check_capacity(download.final_path)
                                     if written + len(data) > expected_size:
                                         raise ChunkAssemblyError(
                                             f"Chunk {chunk.chunk_id} exceeds {expected_size} bytes"
@@ -1198,6 +1244,7 @@ class ParallelDownloadManager:
                 download.status = "failed"
             return False
         except Exception as e:
+            self._record_capacity_error(e)
             logging.error(
                 f"Unexpected assembly error for {download.final_path.name}: {type(e).__name__}: {e}",
                 exc_info=True,

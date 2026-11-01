@@ -169,6 +169,7 @@ class ChunkInfo:
     direct_write: bool = False  # Write into the shared staging file
     file_size: Optional[int] = None
     progress_path: Optional[Path] = None  # Published name, independent of chunk staging
+    capacity_failed: bool = False  # Terminal storage errors must not retry the range
 
 
 @dataclass
