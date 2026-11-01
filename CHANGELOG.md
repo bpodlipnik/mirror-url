@@ -22,6 +22,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Fail write admission when destination capacity cannot be determined. Preserve
   validated HTTPX resumable prefixes on capacity exhaustion.
+- Preserve the positional callback contract for downloader overrides and restore
+  automatically selected mode flags after each sync, so repeated runs retain
+  automatic strategy selection and do not reintroduce blanket size probes.
 
 ## [3.9.17] - 2026-10-29
 

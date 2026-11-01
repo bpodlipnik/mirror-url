@@ -165,6 +165,8 @@ class ReportMixin(MirrorHost):
                 self.metrics.metrics[key] = 0
 
         progress = None
+        auto_selected = False
+        original_parallel_mode: Optional[Tuple[bool, bool]] = None
         try:
             if self.config.quick:
                 logging.info(f"{prefix}Quick mode - updating cache timestamp")
@@ -462,6 +464,12 @@ class ReportMixin(MirrorHost):
                     and not self.config.streaming_parallel
                     and not self.config.sequential_downloads
                 ):
+                    auto_selected = True
+                    if self.parallel_manager is not None:
+                        original_parallel_mode = (
+                            self.parallel_manager.enabled,
+                            self.parallel_manager.use_streaming,
+                        )
                     sample_urls = [url for url, _ in to_download[:10]]
                     if self.parallel_manager:
                         method = self.parallel_manager.auto_select_method(
@@ -860,6 +868,16 @@ class ReportMixin(MirrorHost):
             return False
         finally:
             self._planned_size_probes = {}
+            if auto_selected:
+                # Auto-selection is a runtime decision, not a user request for
+                # chunk metadata in subsequent sync() calls on this instance.
+                self.config.parallel_downloads = False
+                self.config.streaming_parallel = False
+                self.config.sequential_downloads = False
+            if original_parallel_mode is not None and self.parallel_manager is not None:
+                self.parallel_manager.enabled, self.parallel_manager.use_streaming = (
+                    original_parallel_mode
+                )
             if progress is not None:
                 progress.close()
             if run.finished is None:

@@ -1080,6 +1080,8 @@ remaining resume bytes instead of rejecting the job solely on that estimate.
 Explicit chunk modes may still request HEAD metadata, as do prospective large
 chunk candidates. Freshness checks for existing files retain their configured
 behavior. Cached listings without size information remain usable.
+Automatic strategy settings apply only to the current sync. Reusing a MirrorURL
+instance does not turn an earlier automatic choice into an explicit chunk request.
 
 Failure to determine destination capacity stops further write admission. Write
 and flush failures still prevent publication. Native physical allocation and

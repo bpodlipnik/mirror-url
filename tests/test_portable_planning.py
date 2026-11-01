@@ -265,3 +265,41 @@ def test_oversized_listing_hint_does_not_refuse_a_get_that_fits(
         assert mirror.sync(), mirror.metrics.get_summary()
         assert (config.dest_path / "a").read_bytes() == remote.files["a"]
         assert not any(method == "HEAD" and name == "a" for method, name, _ in remote.requests)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("initial_count", [1, 4])
+def test_repeated_auto_sync_does_not_turn_into_explicit_chunking(
+    private_home, remote, scope, initial_count
+):
+    remote.files = {f"initial-{index}": b"initial" for index in range(initial_count)}
+    config = MirrorConfig(
+        base_url=scope,
+        dest_path=private_home / "mirror",
+        log_path=private_home / "logs",
+        missing_files=True,
+        no_cache=True,
+        async_metadata=False,
+        security_validation=False,
+        connection_pool_prewarm=False,
+        request_delay=0,
+        requests_per_second=0,
+        max_retries=0,
+    )
+    with MirrorURL(config) as mirror:
+        manager = mirror.parallel_manager
+        original_mode = (manager.enabled, manager.use_streaming)
+        assert mirror.sync(), mirror.metrics.get_summary()
+        assert not mirror.config.parallel_downloads
+        assert not mirror.config.sequential_downloads
+        assert (manager.enabled, manager.use_streaming) == original_mode
+        remote.files.update({f"new-{index}": b"new" for index in range(3)})
+        remote.requests.clear()
+        assert mirror.sync(), mirror.metrics.get_summary()
+        assert mirror.files_processed.value() == 3
+        assert not any(
+            method == "HEAD" and name in remote.files for method, name, _ in remote.requests
+        )
+        assert not mirror.config.parallel_downloads
+        assert not mirror.config.sequential_downloads
+        assert (manager.enabled, manager.use_streaming) == original_mode
