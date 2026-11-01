@@ -360,8 +360,9 @@ async def test_new_run_gets_a_fresh_capacity_budget(engine, private_home, monkey
 @pytest.mark.asyncio
 @pytest.mark.parametrize("backend", ["httpx", "aiohttp"])
 @pytest.mark.parametrize("code", [errno.ENOSPC, errno.EDQUOT])
+@pytest.mark.parametrize("order", [("a", "b", "c"), ("b", "a", "c")])
 async def test_active_funded_peer_stops_and_pending_file_never_opens(
-    engine, private_home, monkeypatch, backend, code
+    engine, private_home, monkeypatch, backend, code, order
 ):
     budget = CapacityBudget(engine.target, 2)
     engine.capacity, engine._owns_capacity = budget, False
@@ -395,13 +396,14 @@ async def test_active_funded_peer_stops_and_pending_file_never_opens(
     monkeypatch.setattr(budget, "fail", fail)
     monkeypatch.setattr(transfers._HTTPXBackend, "open", opened)
     monkeypatch.setattr(transfers._AIOHTTPBackend, "open", opened)
-    items = [(engine.scope + name, engine.target / name) for name in ("a", "b", "c")]
+    items = [(engine.scope + name, engine.target / name) for name in order]
     for _, local in items:
         local.write_bytes(ORIGINAL)
     try:
         results = await asyncio.wait_for(engine.run(items), 10)
         assert len(results) == 3 and all(not result.success for result in results)
-        assert opened_urls == [engine.scope + "a", engine.scope + "b"]
+        assert len(opened_urls) == 2
+        assert set(opened_urls) == {engine.scope + "a", engine.scope + "b"}
         assert all(local.read_bytes() == ORIGINAL for _, local in items)
         assert not engine.scratch._active
     finally:
