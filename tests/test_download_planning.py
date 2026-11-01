@@ -173,7 +173,7 @@ def test_selection_work_and_capability_head_have_separate_timings(manager, monke
 @pytest.mark.integration
 @pytest.mark.parametrize("backend", ["httpx", "aiohttp"])
 @pytest.mark.parametrize("sequential", [False, True])
-def test_real_small_file_mirror_reports_planning_heads_and_only_whole_file_gets(
+def test_real_small_file_mirror_uses_get_headers_without_planning_heads(
     tmp_path, remote, scope, backend, sequential
 ):
     remote.files = {f"c2/{i}.fts": bytes([i]) * 1024 for i in range(10)}
@@ -194,9 +194,9 @@ def test_real_small_file_mirror_reports_planning_heads_and_only_whole_file_gets(
     with MirrorURL(config) as mirror:
         assert mirror.sync(), _sync_failure_details(mirror, remote)
         run = mirror.metrics.get_summary()["run"]
-        assert run["transfer_stage_operations"]["range_metadata"] == 11
+        assert run["transfer_stage_operations"].get("range_metadata", 0) == 0
         assert "method_selection" not in run["transfer_stage_seconds"]
-        assert "Transfer metadata probes (sum): not performed" not in mirror.metrics.report()
+        assert "Transfer metadata probes (sum): not performed" in mirror.metrics.report()
         assert "Automatic selection work (sum): not performed" in mirror.metrics.report()
         assert run["missing_files_downloaded"] == 11
         assert run["sha256_hashes_recorded"] == 0
@@ -207,7 +207,7 @@ def test_real_small_file_mirror_reports_planning_heads_and_only_whole_file_gets(
             for method, name, headers in remote.requests
             if name in remote.files
         ]
-        assert sum(method == "HEAD" for method, _, _ in requests) == 11
+        assert sum(method == "HEAD" for method, _, _ in requests) == 0
         assert sum(method == "GET" for method, _, _ in requests) == 11
         assert all(headers["Accept-Encoding"] == "identity" for _, _, headers in requests)
         assert all("Range" not in headers for _, _, headers in requests)

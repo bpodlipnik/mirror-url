@@ -47,7 +47,9 @@ def test_completion_and_unchanged_sync_do_not_require_destination_size(
         monkeypatch.setattr(mirror, "check_disk_space", preflight)
         monkeypatch.setattr(mirror, "get_directory_size", inaccessible_destination_size)
         assert mirror.sync(), mirror.metrics.get_summary()
-        assert checks == [100 * 1024 * 1024, sum(map(len, remote.files.values()))]
+        # This fixture's listing contains links only. GET headers admit each
+        # payload without treating an unknown planning size as exact zero.
+        assert checks == [100 * 1024 * 1024, 0]
         for path, content in remote.files.items():
             assert (mirror.target_dir / path).read_bytes() == content
         assert mirror.files_processed.value() == 3
@@ -88,7 +90,7 @@ def test_failed_batch_disk_preflight_prevents_all_payload_downloads(
 
         monkeypatch.setattr(mirror, "check_disk_space", space_became_unavailable)
         assert not mirror.sync()
-        assert checks == [100 * 1024 * 1024, sum(map(len, remote.files.values()))]
+        assert checks == [100 * 1024 * 1024, 0]
         assert not any(
             method == "GET" and path in remote.files for method, path, _ in remote.requests
         )
@@ -137,7 +139,7 @@ def test_aiohttp_sync_requires_preflight_but_not_destination_size(
         monkeypatch.setattr(mirror, "check_disk_space", preflight)
         monkeypatch.setattr(mirror, "get_directory_size", inaccessible_destination_size)
         assert mirror.sync() is space_available
-        assert checks == [100 * 1024 * 1024, len(content)]
+        assert checks == [100 * 1024 * 1024, 0]
         if space_available:
             assert (mirror.target_dir / "a").read_bytes() == content
             assert mirror.files_processed.value() == 1

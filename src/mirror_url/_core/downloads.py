@@ -7,9 +7,11 @@ Originally extracted from the original ``MirrorURL`` class
 
 from __future__ import annotations
 
+import errno
 import logging
 import os
 import time
+from concurrent.futures import wait
 from contextlib import nullcontext
 from email.utils import parsedate_to_datetime
 from pathlib import Path
@@ -17,6 +19,7 @@ from typing import TYPE_CHECKING, Optional
 
 import httpx
 
+from ..capacity import CapacityError
 from ..constants import DOWNLOAD_CHUNK_SIZE
 from ..destination_lock import destination_operation
 from ..download_integrity import (
@@ -46,7 +49,12 @@ else:
 class DownloadMixin(MirrorHost):
     @destination_operation
     def download_file_with_resume(
-        self, remote_url: str, local_path: Path, file_size: Optional[int] = None
+        self,
+        remote_url: str,
+        local_path: Path,
+        file_size: Optional[int] = None,
+        *,
+        probe_size: bool = True,
     ) -> bool:
         """
         Enhanced download method with parallel chunk support.
@@ -57,20 +65,51 @@ class DownloadMixin(MirrorHost):
         progress.begin(local_path, "waiting for response")
         success = False
         try:
+            if file_size is None and not probe_size:
+                # Whole-file transfer was selected deliberately, without a
+                # chunk attempt. Its GET supplies size and progress metadata.
+                success = self._download_file_single(remote_url, local_path)
+                return success
             # Check if we should use parallel download
             if self.parallel_manager and self.parallel_manager.enabled:
                 # Use passed size or fetch it
                 current_size = file_size
-                if current_size is None:
+                if current_size is None and probe_size:
                     current_size = self._get_file_size(remote_url)
                 if current_size and self.parallel_manager.should_use_parallel(current_size):
-                    # Create parallel download
-                    download = self.parallel_manager.create_chunks(
-                        remote_url, local_path, current_size
-                    )
+                    capacity = getattr(self, "_capacity_budget", None)
+                    charge = current_size * (1 if self.parallel_manager.use_streaming else 2)
+                    download = None
+                    try:
+                        if capacity is not None:
+                            capacity.reserve(local_path, charge)
+                        download = self.parallel_manager.create_chunks(
+                            remote_url, local_path, current_size
+                        )
+                        if download:
+                            success = self.parallel_manager.download_parallel(download)
+                    except OSError as error:
+                        logging.error("Chunk capacity admission failed: %s", error)
+                        self.files_failed.increment(1)
+                        self.metrics.increment("files_failed")
+                        return False
+                    finally:
+                        if capacity is not None:
+                            retained = current_size if success else 0
+                            if download is not None:
+                                wait(download.futures)
+                                self.parallel_manager.cleanup_chunks(download)
+                                workspaces = (
+                                    download.temp_dir,
+                                    download.staging_path.parent if download.staging_path else None,
+                                    download.assembly_path.parent
+                                    if download.assembly_path
+                                    else None,
+                                )
+                                if any(work is not None and work.exists() for work in workspaces):
+                                    retained = charge
+                            capacity.release(local_path, retained)
                     if download:
-                        # Download chunks in parallel
-                        success = self.parallel_manager.download_parallel(download)
                         if success:
                             return True
 
@@ -155,6 +194,9 @@ class DownloadMixin(MirrorHost):
 
             for attempt in range(self.config.max_retries + 1):
                 r = None
+                budget = None
+                budget_offset = 0
+                published_bytes = None
                 try:
                     progress.begin(local_path, "waiting for response")
                     headers = {"Accept-Encoding": "identity"}
@@ -228,6 +270,15 @@ class DownloadMixin(MirrorHost):
                         expected_size = content_length(r.headers)
 
                     size = bytes_already
+                    budget = getattr(self, "_capacity_budget", None)
+                    budget_offset = bytes_already
+                    if budget is not None:
+                        budget.reserve(
+                            local_path,
+                            max(0, expected_size - bytes_already)
+                            if expected_size is not None
+                            else 0,
+                        )
                     progress.resume(local_path, bytes_already, expected_size)
                     with open_owned_partial(partial_path, expected_partial) as f:
                         opened = os.fstat(f.fileno())
@@ -254,6 +305,8 @@ class DownloadMixin(MirrorHost):
                                         and size + len(chunk) > expected_size
                                     ):
                                         raise ValueError("Download exceeds expected length")
+                                    if budget is not None:
+                                        budget.ensure(local_path, size + len(chunk) - bytes_already)
                                     f.write(chunk)
                                     size += len(chunk)
                                     progress.received(local_path, size, expected_size)
@@ -299,6 +352,7 @@ class DownloadMixin(MirrorHost):
                         max_depth=self.config.max_depth + 1,
                         max_filename_len=self.config.max_filename_len,
                     )
+                    published_bytes = size - bytes_already
                     try:
                         clear_resume_metadata(partial_path)
                     except OSError as error:
@@ -408,6 +462,14 @@ class DownloadMixin(MirrorHost):
                 finally:
                     if r is not None:
                         r.close()
+                    if budget is not None:
+                        retained = published_bytes
+                        if retained is None:
+                            try:
+                                retained = max(0, partial_path.stat().st_size - budget_offset)
+                            except FileNotFoundError:
+                                retained = 0
+                        budget.release(local_path, retained)
 
         except Exception as e:
             logging.error(f"Download failed: {e}")
@@ -425,6 +487,13 @@ class DownloadMixin(MirrorHost):
                         httpx.ReadError,
                         httpx.RemoteProtocolError,
                     ),
+                )
+                and not (
+                    (
+                        isinstance(e, CapacityError)
+                        or (isinstance(e, OSError) and e.errno in (errno.ENOSPC, errno.EDQUOT))
+                    )
+                    and load_resume_metadata(partial_path, remote_url) is not None
                 )
                 and partial_path.exists()
             ):

@@ -27,6 +27,7 @@ import httpx
 
 from ..async_connection import AdaptiveAsyncManager, AsyncConnectionManager, AsyncTaskManager
 from ..cache import CacheManager, NullCacheManager
+from ..capacity import CapacityBudget
 from ..compat import LXML_AVAILABLE, PSUTIL_AVAILABLE, TQDM_AVAILABLE
 from ..concurrency import UnifiedConcurrencyManager
 from ..connection import ConnectionManager
@@ -425,6 +426,7 @@ class _MirrorBase(MirrorHost):
         self.scratch_manager: Optional[OwnedScratch] = None
         self.health_checker = HealthChecker(self)
         self._download_progress: Optional[DownloadProgress] = None
+        self._capacity_budget: Optional[CapacityBudget] = None
         self.per_ip_limiter = PerIPRateLimiter(
             requests_per_second=config.requests_per_second, delay=config.request_delay
         )

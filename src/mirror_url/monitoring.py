@@ -193,7 +193,7 @@ class DiskSpaceManager:
             return True, None
         except Exception as e:
             logging.warning(f"Failed to check disk space: {e}")
-            return True, None
+            return False, f"Cannot determine destination capacity: {e}"
 
     def get_usage_stats(self) -> Dict[str, float]:
         """

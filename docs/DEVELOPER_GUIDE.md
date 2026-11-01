@@ -92,7 +92,7 @@ changes — most review feedback traces back to one of these.
 
 ```
 mirror-url/
-├── src/mirror_url/          # the package (51 Python files including private helpers)
+├── src/mirror_url/          # the package (53 Python files including private helpers)
 │   ├── __init__.py          # public API re-exports
 │   ├── __main__.py          # `python -m mirror_url`
 │   ├── _version.py          # __version__, __author__  (one of two version sources)
@@ -507,13 +507,40 @@ clears both maps for the next run, and snapshots copy them independently.
 Instrument actual request/receive/write, copy, payload flush and staged-payload
 hash operations, rather than whole methods containing other timed stages.
 The existing `range_metadata` JSON key is retained, with the display label
-**Transfer metadata probes**: it includes mirror size-prefetch HEADs and
-range-capability HEADs, measured once at their request sites. The fallback
+**Transfer metadata probes**: it includes prospective chunk-size HEADs and
+range-capability HEADs, measured once at their request sites. Whole-file
+planning no longer prefetches HEADs for every selected URL. The fallback
 caller does not wrap `_get_file_size()` again. **Automatic selection work**
 (`method_selection`) measures disk detection and sampled network-speed work
 separately from the capability HEAD; sample bytes do not receive payload credit.
-These preparation measurements remain inside the preparation elapsed phase and
-are not added to it or to the total duration.
+Each stage remains inside the elapsed phase in which it runs: chunk metadata
+can be requested during downloads, while automatic selection runs during
+preparation. Stage sums are not added to phase times or total duration.
+
+`planning.py` extracts conservative `SizeHint` bounds from recognized listing
+rows. Scanner hints are attached only to links accepted by the existing URL
+scope and filter policy. Refetching a directory replaces its hints; cached
+listings without hints simply use GET headers. The parser and scanner each cap
+hint retention at `MAX_IN_MEMORY_CACHE_SIZE`; this never truncates discovery.
+Hints feed admission and method
+selection, never chunk boundaries or representation validation. Unknown sizes
+are `None`, not zero. `download_file_with_resume(..., probe_size=False)` bypasses
+the compatibility lazy HEAD for ordinary transfers. Explicit chunk strategies
+and sufficiently large hints retain range metadata probes.
+
+`capacity.py` supplies the shared `CapacityBudget` to the mirror mixin and
+`AsyncTransfers`. In-memory credit covers writes; additional shared credit is
+funded in windows. Each per-user/local-filesystem registry epoch starts with a
+free-space sample. Published bytes and abandoned claims stay charged until all
+epoch leases finish, avoiding reuse or double counting against later samples.
+Kernel locks, not PID reuse or a timeout, establish whether a claim is active.
+Registry updates are atomic and corrupt state fails closed. Temporary space is
+credited only after owned cleanup. Chunk workers must drain before the claim is
+retired. Known-length transfers also trigger periodic capacity checks while
+writing; sampling failures close admission. The registry is cooperative, not a
+physical allocator or multi-host/shared-pool coordinator. It must never be
+reported as a native space guarantee. Filesystem-native reservation providers
+are outside this portable policy; no ZFS property is modified.
 Streaming writes count under transfer, without a separate assembly operation.
 Disabled SHA-256 calls are not measured as hashing. Freshness checks and receipt
 hash validation retain their existing coordinator accounting. These worker
