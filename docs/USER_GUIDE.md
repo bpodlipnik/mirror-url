@@ -1075,6 +1075,8 @@ blanket size-HEAD phase before whole-file downloads: each payload GET supplies
 its own authoritative headers. A changed size acquires additional budget before
 writing, and a response without Content-Length streams within the budget.
 Listing estimates never determine byte ranges, resume offsets or completion.
+When an estimate exceeds available capacity, admission uses GET lengths and
+remaining resume bytes instead of rejecting the job solely on that estimate.
 Explicit chunk modes may still request HEAD metadata, as do prospective large
 chunk candidates. Freshness checks for existing files retain their configured
 behavior. Cached listings without size information remain usable.

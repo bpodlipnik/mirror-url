@@ -525,7 +525,9 @@ hint retention at `MAX_IN_MEMORY_CACHE_SIZE`; this never truncates discovery.
 Hints feed admission and method
 selection, never chunk boundaries or representation validation. Unknown sizes
 are `None`, not zero. `download_file_with_resume(..., probe_size=False)` bypasses
-the compatibility lazy HEAD for ordinary transfers. Explicit chunk strategies
+the compatibility lazy HEAD for ordinary transfers. The coordinator supplies
+its per-run probe policy through instance state, preserving the existing
+positional call contract for custom downloader overrides. Explicit chunk strategies
 and sufficiently large hints retain range metadata probes.
 
 `capacity.py` supplies the shared `CapacityBudget` to the mirror mixin and

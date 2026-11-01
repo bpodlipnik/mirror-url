@@ -146,6 +146,17 @@ def test_lazy_probe_can_be_explicitly_bypassed(manager, mirror):
     )
 
 
+def test_planned_probe_policy_preserves_positional_call_contract(manager, mirror):
+    url = "https://example.com/root/a"
+    mirror.parallel_manager = manager
+    manager.enabled = True
+    mirror._planned_size_probes = {url: False}
+    mirror._get_file_size = Mock(side_effect=AssertionError("unnecessary HEAD"))
+    mirror._download_file_single = Mock(return_value=True)
+    assert mirror.download_file_with_resume(url, mirror.target_dir / "a", None)
+    mirror._get_file_size.assert_not_called()
+
+
 def test_capacity_failure_preserves_validated_resume_prefix(mirror):
     url = "https://example.com/root/a"
     final = mirror.target_dir / "a"
@@ -222,3 +233,35 @@ def test_sequential_admission_uses_one_worker_headroom(private_home, remote, sco
     with MirrorURL(config) as mirror:
         assert mirror.sync(), mirror.metrics.get_summary()
         assert (config.dest_path / "a").read_bytes() == remote.files["a"]
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("backend", ["httpx", "aiohttp"])
+def test_oversized_listing_hint_does_not_refuse_a_get_that_fits(
+    private_home, remote, scope, monkeypatch, backend
+):
+    from types import SimpleNamespace
+
+    remote.files = {"a": b"actual small payload"}
+    remote.listings[""] = "<table>" + row("a", "10G") + "</table>"
+    monkeypatch.setattr(
+        "mirror_url.capacity.shutil.disk_usage",
+        lambda _: SimpleNamespace(free=128 * 1024**2, total=1024**3, used=896 * 1024**2),
+    )
+    config = MirrorConfig(
+        base_url=scope,
+        dest_path=private_home / "mirror",
+        log_path=private_home / "logs",
+        backend=backend,
+        sequential_downloads=True,
+        missing_files=True,
+        security_validation=False,
+        connection_pool_prewarm=False,
+        request_delay=0,
+        requests_per_second=0,
+        max_retries=0,
+    )
+    with MirrorURL(config) as mirror:
+        assert mirror.sync(), mirror.metrics.get_summary()
+        assert (config.dest_path / "a").read_bytes() == remote.files["a"]
+        assert not any(method == "HEAD" and name == "a" for method, name, _ in remote.requests)

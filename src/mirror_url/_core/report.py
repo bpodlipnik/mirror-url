@@ -37,6 +37,7 @@ else:
 
 class ReportMixin(MirrorHost):
     _capacity_budget: Optional[CapacityBudget]
+    _planned_size_probes: Dict[str, bool]
     adaptive_async_manager: Optional[AdaptiveAsyncManager]
     async_connection_manager: Optional[AsyncConnectionManager]
     async_task_manager: Optional[AsyncTaskManager]
@@ -506,7 +507,9 @@ class ReportMixin(MirrorHost):
                 }
 
                 # ========== FIX 3: CHECK DISK SPACE ==========
-                if not self.check_disk_space(total_size):
+                # A stale upper bound is not grounds to reject a smaller GET
+                # or an almost-complete resume. Exact writes are admitted below.
+                if not self.check_disk_space(0):
                     logging.error(f"{prefix}Insufficient disk space for downloads")
                     return False
 
@@ -531,6 +534,7 @@ class ReportMixin(MirrorHost):
 
                 run.end_phase()
                 run.begin_phase("downloads")
+                self._planned_size_probes = probe_sizes
                 with DownloadProgress(
                     self.config.print_logs and not self.config.quiet, self.config
                 ) as transfer_progress:
@@ -601,10 +605,8 @@ class ReportMixin(MirrorHost):
                             log_file_download_plan(len(to_download), 1, prefix=prefix)
                             # Sequential mode: simple loop
                             for url, path in to_download:
-                                # FIX: Pass pre-fetched size to avoid redundant HEAD request
-                                self.download_file_with_resume(
-                                    url, path, probe_size=probe_sizes[url]
-                                )
+                                # Keep the established positional callback contract.
+                                self.download_file_with_resume(url, path, None)
 
                         elif self.config.parallel_downloads or self.config.streaming_parallel:
                             # Parallel mode: ThreadPoolExecutor with size pass-through
@@ -649,7 +651,7 @@ class ReportMixin(MirrorHost):
                                             self.download_file_with_resume,
                                             url,
                                             path,
-                                            probe_size=probe_sizes[url],
+                                            None,
                                         )
                                         future_to_file[future] = item
                                     if not future_to_file:
@@ -751,6 +753,7 @@ class ReportMixin(MirrorHost):
                             )
                     finally:
                         self._download_progress = None
+                        self._planned_size_probes = {}
                         if self._capacity_budget is not None:
                             self._capacity_budget.close()
                             self._capacity_budget = None
@@ -856,6 +859,7 @@ class ReportMixin(MirrorHost):
                 self.metrics.log_report(prefix, include_metrics=self.config.metrics)
             return False
         finally:
+            self._planned_size_probes = {}
             if progress is not None:
                 progress.close()
             if run.finished is None:

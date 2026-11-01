@@ -112,7 +112,7 @@ def test_auto_mode_without_parallel_manager_falls_back_to_download(mirror):
     mirror.download_file_with_resume = Mock()
     assert mirror.sync() is True
     mirror.download_file_with_resume.assert_called_once_with(
-        BASE + "a", mirror.target_dir / "a", probe_size=False
+        BASE + "a", mirror.target_dir / "a", None
     )
     mirror._get_file_size.assert_not_called()
     assert not (mirror.target_dir / "a").exists()
@@ -154,7 +154,7 @@ def test_real_parallel_initialization_failure_falls_back_without_thread_leak(tmp
             m.download_file_with_resume = Mock()
             assert m.sync() is True
             m.download_file_with_resume.assert_called_once_with(
-                BASE + "a", m.target_dir / "a", probe_size=False
+                BASE + "a", m.target_dir / "a", None
             )
             m._get_file_size.assert_not_called()
             assert not (m.target_dir / "a").exists()

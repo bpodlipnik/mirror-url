@@ -177,9 +177,12 @@ class CapacityBudget:
                 self._claim = _CapacityClaim(self.target)
             first = self._funded == 0
             minimum += self.headroom if first else 0
-            preferred = max(
-                minimum, (self.total_hint or self.WINDOW) + self.headroom if first else self.WINDOW
+            window = (
+                self.total_hint
+                if self.total_hint is not None and self.total_hint <= self._free
+                else self.WINDOW
             )
+            preferred = max(minimum, window + self.headroom if first else self.WINDOW)
             amount = self._claim.add(minimum, preferred, self._free)
             self._funded += amount
             self._remaining += amount - (self.headroom if first else 0)

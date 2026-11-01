@@ -88,6 +88,7 @@ if TYPE_CHECKING:  # pragma: no cover - declarations have no runtime implementat
         health_checker: HealthChecker
         _download_progress: Optional[DownloadProgress]
         _capacity_budget: Optional[CapacityBudget]
+        _planned_size_probes: Dict[str, bool]
         per_ip_limiter: PerIPRateLimiter
         health_server: Optional[HealthCheckServer]
         async_connection_manager: Optional[AsyncConnectionManager]

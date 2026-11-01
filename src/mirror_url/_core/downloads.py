@@ -65,6 +65,9 @@ class DownloadMixin(MirrorHost):
         progress.begin(local_path, "waiting for response")
         success = False
         try:
+            probe_size = probe_size and getattr(self, "_planned_size_probes", {}).get(
+                remote_url, True
+            )
             if file_size is None and not probe_size:
                 # Whole-file transfer was selected deliberately, without a
                 # chunk attempt. Its GET supplies size and progress metadata.

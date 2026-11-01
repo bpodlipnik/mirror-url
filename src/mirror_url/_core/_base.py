@@ -427,6 +427,7 @@ class _MirrorBase(MirrorHost):
         self.health_checker = HealthChecker(self)
         self._download_progress: Optional[DownloadProgress] = None
         self._capacity_budget: Optional[CapacityBudget] = None
+        self._planned_size_probes: Dict[str, bool] = {}
         self.per_ip_limiter = PerIPRateLimiter(
             requests_per_second=config.requests_per_second, delay=config.request_delay
         )
