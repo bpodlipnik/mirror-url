@@ -11,18 +11,20 @@ import asyncio
 import logging
 import threading
 import time
-from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, as_completed, wait
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from itertools import islice
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
 
 from ..async_connection import AdaptiveAsyncManager, AsyncConnectionManager, AsyncTaskManager
+from ..capacity import CapacityBudget
 from ..compat import TQDM_AVAILABLE
 from ..constants import ADAPTIVE_START_CONCURRENCY, AUTO_CONCURRENCY_SAMPLES
 from ..decorators import log_performance
 from ..destination_lock import destination_operation
 from ..enums import CleanupPolicy, DownloadMethod
 from ..metrics import log_file_download_plan, log_file_downloads_completed, log_run_completion
+from ..planning import SizeHint
 from ..progress import DownloadProgress, ProgressTracker
 from ..transfers import AsyncTransfers, TransferResult
 from ..utils import format_bytes, format_duration, sanitize_url_for_log
@@ -34,6 +36,8 @@ else:
 
 
 class ReportMixin(MirrorHost):
+    _capacity_budget: Optional[CapacityBudget]
+    _planned_size_probes: Dict[str, bool]
     adaptive_async_manager: Optional[AdaptiveAsyncManager]
     async_connection_manager: Optional[AsyncConnectionManager]
     async_task_manager: Optional[AsyncTaskManager]
@@ -161,6 +165,8 @@ class ReportMixin(MirrorHost):
                 self.metrics.metrics[key] = 0
 
         progress = None
+        auto_selected = False
+        original_parallel_mode: Optional[Tuple[bool, bool]] = None
         try:
             if self.config.quick:
                 logging.info(f"{prefix}Quick mode - updating cache timestamp")
@@ -433,35 +439,22 @@ class ReportMixin(MirrorHost):
 
             if to_download:
                 run.begin_phase("download preparation")
-                # ========== FIX 1: PARALLELIZE SIZE FETCHING ==========
-                # Avoid sequential HEAD request bottleneck by fetching sizes concurrently
-                total_size = 0
-                file_sizes = []
-                size_map = {}  # url -> size mapping to avoid redundant HEAD requests
-
-                max_workers = min(20, len(to_download))
-                with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                    # Submit all size checks concurrently
-                    future_to_url = {
-                        executor.submit(self._get_file_size, url): url for url, _ in to_download
-                    }
-
-                    # Collect results with robust error handling
-                    for future in as_completed(future_to_url):
-                        url = future_to_url[future]
-                        try:
-                            size = future.result()
-                            # FIX: Explicitly store 0 on None to prevent type errors downstream
-                            size_map[url] = size if size else 0
-                            if size:
-                                total_size += size
-                                file_sizes.append(size)
-                            else:
-                                file_sizes.append(0)
-                        except Exception:
-                            # FIX: Always store a value to prevent KeyError later
-                            size_map[url] = 0
-                            file_sizes.append(0)
+                # Listings are planning hints, not lengths for byte ranges or
+                # integrity. Missing hints are discovered by the payload GET.
+                available_hints = getattr(self.scanner, "size_hints", {})
+                hints = {
+                    url: hint
+                    for url, _ in to_download
+                    if isinstance(available_hints, dict)
+                    and isinstance((hint := available_hints.get(url)), SizeHint)
+                }
+                file_sizes = [hints[url].upper if url in hints else None for url, _ in to_download]
+                total_size = sum(size for size in file_sizes if size is not None)
+                unknown_sizes = sum(size is None for size in file_sizes)
+                rounded_sizes = sum(hint.rounded for hint in hints.values())
+                explicit_chunks = self.config.parallel_downloads or self.config.streaming_parallel
+                # Probe only prospective chunk candidates. In particular, None
+                # must not trigger download_file_with_resume's compatibility HEAD.
 
                 # ========== FIX 2: AUTO-SELECT DOWNLOAD METHOD (FULL IMPLEMENTATION) ==========
                 # Only auto-select if user didn't explicitly enable a download mode
@@ -471,6 +464,12 @@ class ReportMixin(MirrorHost):
                     and not self.config.streaming_parallel
                     and not self.config.sequential_downloads
                 ):
+                    auto_selected = True
+                    if self.parallel_manager is not None:
+                        original_parallel_mode = (
+                            self.parallel_manager.enabled,
+                            self.parallel_manager.use_streaming,
+                        )
                     sample_urls = [url for url, _ in to_download[:10]]
                     if self.parallel_manager:
                         method = self.parallel_manager.auto_select_method(
@@ -505,18 +504,45 @@ class ReportMixin(MirrorHost):
                             self.parallel_manager.use_streaming = False
 
                 self._initialize_auto_tuner()
+                probe_sizes = {
+                    url: (url not in hints and explicit_chunks)
+                    or (
+                        url in hints
+                        and self.parallel_manager is not None
+                        and self.parallel_manager.should_use_parallel(hints[url].upper)
+                    )
+                    for url, _ in to_download
+                }
 
                 # ========== FIX 3: CHECK DISK SPACE ==========
-                if not self.check_disk_space(total_size):
+                # A stale upper bound is not grounds to reject a smaller GET
+                # or an almost-complete resume. Exact writes are admitted below.
+                if not self.check_disk_space(0):
                     logging.error(f"{prefix}Insufficient disk space for downloads")
                     return False
 
+                if self.target_dir is None:
+                    raise ValueError("Destination is unavailable for capacity admission")
+                self._capacity_budget = CapacityBudget(
+                    self.target_dir,
+                    1
+                    if self.config.sequential_downloads
+                    else min(self.config.max_concurrent_downloads, len(to_download)),
+                    total_hint=total_size if not unknown_sizes else None,
+                )
+
                 logging.info(
-                    f"{prefix}Downloading {len(to_download)} files (approx {format_bytes(total_size)})"
+                    "%sDownloading %d files (listing estimate: %s; rounded sizes: %d; unknown sizes: %d; space policy: cooperative budget)",
+                    prefix,
+                    len(to_download),
+                    format_bytes(total_size),
+                    rounded_sizes,
+                    unknown_sizes,
                 )
 
                 run.end_phase()
                 run.begin_phase("downloads")
+                self._planned_size_probes = probe_sizes
                 with DownloadProgress(
                     self.config.print_logs and not self.config.quiet, self.config
                 ) as transfer_progress:
@@ -546,6 +572,8 @@ class ReportMixin(MirrorHost):
                                 self.scratch_manager,
                                 transfer_progress,
                                 metrics=self.metrics,
+                                capacity=self._capacity_budget,
+                                size_hints=hints,
                             )
 
                             def published(result: TransferResult) -> None:
@@ -585,9 +613,8 @@ class ReportMixin(MirrorHost):
                             log_file_download_plan(len(to_download), 1, prefix=prefix)
                             # Sequential mode: simple loop
                             for url, path in to_download:
-                                # FIX: Pass pre-fetched size to avoid redundant HEAD request
-                                pre_fetched_size = size_map.get(url, 0)
-                                self.download_file_with_resume(url, path, pre_fetched_size)
+                                # Keep the established positional callback contract.
+                                self.download_file_with_resume(url, path, None)
 
                         elif self.config.parallel_downloads or self.config.streaming_parallel:
                             # Parallel mode: ThreadPoolExecutor with size pass-through
@@ -632,7 +659,7 @@ class ReportMixin(MirrorHost):
                                             self.download_file_with_resume,
                                             url,
                                             path,
-                                            size_map.get(url, 0),
+                                            None,
                                         )
                                         future_to_file[future] = item
                                     if not future_to_file:
@@ -734,6 +761,10 @@ class ReportMixin(MirrorHost):
                             )
                     finally:
                         self._download_progress = None
+                        self._planned_size_probes = {}
+                        if self._capacity_budget is not None:
+                            self._capacity_budget.close()
+                            self._capacity_budget = None
 
             run.end_phase()
 
@@ -836,6 +867,17 @@ class ReportMixin(MirrorHost):
                 self.metrics.log_report(prefix, include_metrics=self.config.metrics)
             return False
         finally:
+            self._planned_size_probes = {}
+            if auto_selected:
+                # Auto-selection is a runtime decision, not a user request for
+                # chunk metadata in subsequent sync() calls on this instance.
+                self.config.parallel_downloads = False
+                self.config.streaming_parallel = False
+                self.config.sequential_downloads = False
+            if original_parallel_mode is not None and self.parallel_manager is not None:
+                self.parallel_manager.enabled, self.parallel_manager.use_streaming = (
+                    original_parallel_mode
+                )
             if progress is not None:
                 progress.close()
             if run.finished is None:

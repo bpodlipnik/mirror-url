@@ -31,7 +31,18 @@ from contextlib import contextmanager, nullcontext
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 from threading import RLock, Semaphore
-from typing import TYPE_CHECKING, Any, Callable, Dict, Iterator, List, Mapping, Optional, Protocol
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Dict,
+    Iterator,
+    List,
+    Mapping,
+    Optional,
+    Protocol,
+    cast,
+)
 from urllib.parse import urlparse
 
 import httpx
@@ -1428,7 +1439,7 @@ class ParallelDownloadManager:
             logging.debug(f"ParallelDownloadManager __del__ shutdown error: {e}")
 
     def auto_select_method(
-        self, file_sizes: List[int], total_files: int, remote_urls: List[str]
+        self, file_sizes: List[Optional[int]], total_files: int, remote_urls: List[str]
     ) -> DownloadMethod:
         """
         Automatically select optimal download method based on runtime conditions.
@@ -1450,17 +1461,22 @@ class ParallelDownloadManager:
             logging.info("📊 Auto-selected: SEQUENTIAL (single file detected)")
             return DownloadMethod.SEQUENTIAL
 
+        if any(size is None for size in file_sizes):
+            logging.info("📊 Auto-selected: TRADITIONAL_PARALLEL (GET discovers unknown sizes)")
+            return DownloadMethod.TRADITIONAL_PARALLEL
+
         # This choice depends only on the known sizes. Avoid disk detection,
         # a sampled GET and a range-capability HEAD that cannot change it.
-        small_files_count = sum(1 for s in file_sizes if s < 10 * 1024 * 1024)
-        if small_files_count > total_files * 0.7 and total_files >= 3:
+        known_sizes = cast(List[int], file_sizes)
+        small_files_count = sum(1 for s in known_sizes if s < 10 * 1024 * 1024)
+        if small_files_count > total_files * 0.7:
             logging.info(
                 f"📊 Auto-selected: TRADITIONAL_PARALLEL ({small_files_count} small files detected)"
             )
             return DownloadMethod.TRADITIONAL_PARALLEL
 
         # Calculate average file size
-        avg_file_size = sum(file_sizes) / total_files if file_sizes else 0
+        avg_file_size = sum(known_sizes) / total_files if known_sizes else 0
         avg_file_size_mb = avg_file_size / (1024 * 1024)
 
         # Keep heuristic disk/speed work separate from metadata HEAD requests

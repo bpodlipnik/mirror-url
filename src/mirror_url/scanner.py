@@ -18,6 +18,7 @@ from .constants import MAX_IN_MEMORY_CACHE_SIZE
 from .decorators import log_performance
 from .exceptions import ParsingError
 from .parsing import AdaptiveBatchProcessor, decode_html, extract_links_fast, should_use_fast_parser
+from .planning import SizeHint, listing_size_hints
 from .primitives import LRUCache
 from .utils import sanitize_url_for_log, trim_url, url_within_scope
 
@@ -72,6 +73,8 @@ class DirectoryScanner:
         # Headerless listings retain only their configured content digest,
         # never the full HTML. These proofs have the same discovery lifetime.
         self.fresh_listing_content_signatures: Dict[str, str] = {}
+        self.size_hints: Dict[str, SizeHint] = {}
+        self._hint_urls: Dict[str, set[str]] = {}
 
     def _maybe_cleanup_cache(self) -> None:
         """Periodically clean up cache"""
@@ -209,6 +212,8 @@ class DirectoryScanner:
             )
             charset = charset_match.group(1).strip(" \"'") if charset_match else None
             document = decode_html(response.content, charset)
+            hints = listing_size_hints(document)
+            accepted_hints = {}
 
             if should_use_fast_parser(content_length, self.config):
                 links = extract_links_fast(document)
@@ -282,6 +287,8 @@ class DirectoryScanner:
                 else:
                     if self.mirror.matches_filter(full_url):
                         files.append(full_url)
+                        if href in hints:
+                            accepted_hints[full_url] = hints[href]
 
             self.metrics.increment("directories_processed")
             self.metrics.increment(
@@ -297,6 +304,19 @@ class DirectoryScanner:
                 ).hexdigest()
                 self.fresh_listing_content_signatures[url] = f"content:{content_hash}"
             self.fresh_listing_headers[url] = self.dir_response_headers[url]
+            with self._state_lock:
+                for old_url in self._hint_urls.pop(url, set()):
+                    self.size_hints.pop(old_url, None)
+                current_hints = set()
+                for file_url, hint in accepted_hints.items():
+                    if (
+                        file_url not in self.size_hints
+                        and len(self.size_hints) < MAX_IN_MEMORY_CACHE_SIZE
+                    ):
+                        self.size_hints[file_url] = hint
+                        current_hints.add(file_url)
+                if current_hints:
+                    self._hint_urls[url] = current_hints
             return files, subdirs
 
         except ParsingError:

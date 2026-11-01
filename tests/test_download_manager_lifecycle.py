@@ -244,7 +244,7 @@ def test_explicit_download_method_skips_runtime_probes(manager, flag, method):
         ([100] * 3, True, 200, True, DownloadMethod.SEQUENTIAL),
         ([200] * 4, True, 100, True, DownloadMethod.SEQUENTIAL),
         ([200] * 4, True, 200, False, DownloadMethod.SEQUENTIAL),
-        ([1, 1], True, 200, True, DownloadMethod.SEQUENTIAL),
+        ([1, 1], True, 200, True, DownloadMethod.TRADITIONAL_PARALLEL),
         ([], True, 100, False, DownloadMethod.SEQUENTIAL),
     ],
 )
@@ -259,7 +259,7 @@ def test_auto_selection_decision_matrix(manager, sizes, ssd, speed, ranges, meth
     assert (
         manager.auto_select_method([size * 1024**2 for size in sizes], len(sizes), urls) == method
     )
-    small_batch = len(sizes) >= 3 and sum(size < 10 for size in sizes) > len(sizes) * 0.7
+    small_batch = sum(size < 10 for size in sizes) > len(sizes) * 0.7
     if len(sizes) == 1 or small_batch:
         manager._detect_ssd.assert_not_called()
         manager._estimate_network_speed.assert_not_called()

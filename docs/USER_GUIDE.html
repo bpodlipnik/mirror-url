@@ -1279,18 +1279,48 @@ active chunks per IP. Both HTTPX and aiohttp use this same range
 validation, disk budget, progress and publication policy. aiohttp
 performs its requests on its session's event loop while the shared chunk
 workers read and write bounded blocks.</p>
-<p>Known-URL downloads sample destination free space once per batch,
-before the first payload write. A shared budget reserves each declared
-file length and charges unknown-length responses as bytes arrive, while
-keeping write headroom. Traditional chunks reserve twice the file size
+<p>Mirror and known-URL downloads use the same cooperative capacity
+budget. Destination free space is sampled before the first payload
+write, with periodic checks during long transfers rather than a
+filesystem query for every block. The budget charges each declared file
+length and unknown-length responses as bytes arrive, while keeping write
+headroom. Additional capacity is acquired in coarse windows. Jobs
+running as the same user on the same host and filesystem coordinate
+through kernel-locked claims in <code>~/.mirror-url/locks-v1/</code>.
+They must share a local home directory; this is not coordination between
+hosts, different users, separate ZFS datasets sharing a pool, or
+unrelated applications. Traditional chunks reserve twice the file size
 for chunks plus assembly; streaming chunks reserve one file size. Chunk
 scratch remains inside the destination;
 <code>--chunk-assembly-dir</code> is rejected in download mode.
 Published files remain charged; removing a failed attempt's owned
-staging returns its reservation. This is internal accounting, not a
-filesystem allocation. If another program consumes the space, write or
-flush errors still fail the transfer and preserve the existing
-destination file.</p>
+staging returns its credit. An abandoned process's claim is recovered
+using its kernel lease, without expiring a slow active writer. This is
+internal accounting, not a filesystem allocation. If another program
+consumes the space, write or flush errors still fail the transfer and
+preserve the existing destination file.</p>
+<p>Mirror mode uses recognized directory-listing sizes as planning
+estimates, including conservative bounds for rounded Apache-style sizes.
+Missing or ambiguous sizes remain unknown; zero-byte files remain
+distinct. There is no blanket size-HEAD phase before whole-file
+downloads: each payload GET supplies its own authoritative headers. A
+changed size acquires additional budget before writing, and a response
+without Content-Length streams within the budget. Listing estimates
+never determine byte ranges, resume offsets or completion. When an
+estimate exceeds available capacity, admission uses GET lengths and
+remaining resume bytes instead of rejecting the job solely on that
+estimate. Explicit chunk modes may still request HEAD metadata, as do
+prospective large chunk candidates. Freshness checks for existing files
+retain their configured behavior. Cached listings without size
+information remain usable. Automatic strategy settings apply only to the
+current sync. Reusing a MirrorURL instance does not turn an earlier
+automatic choice into an explicit chunk request.</p>
+<p>Failure to determine destination capacity stops further write
+admission. Write and flush failures still prevent publication. Native
+physical allocation and administrator-managed dataset reservations are
+separate storage facilities; MirrorURL does not claim a guaranteed
+whole-job reservation or change filesystem properties. In particular,
+ZFS file preallocation is not such a guarantee.</p>
 <p>HTTPX downloads with one active worker use a synchronous network
 reader in a background thread, with small bounded byte batches. Multiple
 workers keep the asynchronous reader for concurrent files. Both paths
@@ -1398,14 +1428,14 @@ workers overlap, so the sums can exceed <strong>Downloads time</strong>
 and must not be added to <strong>Total duration</strong>. Transfer/write
 includes response waits and writes to staging; it is not pure network
 time. Transfer metadata probes include file-size and range-capability
-HEAD calls, including mirror's download preparation, separately from
-freshness <strong>Metadata time</strong>. Size probes request the same
+HEAD calls for chunk candidates, separately from freshness
+<strong>Metadata time</strong>. Size probes request the same
 uncompressed representation as downloads; an encoded response or invalid
 length is treated as an unknown size. Automatic selection work measures
 disk detection and the network-speed sample; sample bytes are not
-credited as downloaded files. Small-file batches choose parallel
-whole-file transfers without these automatic-selection probes. An
-explicit download strategy also bypasses automatic selection. Chunk
+credited as downloaded files. Small-file and unknown-size batches choose
+parallel whole-file transfers without these automatic-selection probes.
+An explicit download strategy also bypasses automatic selection. Chunk
 assembly measures copying temporary chunks; streaming writes directly
 into staging and normally reports assembly as
 <code>not performed</code>. Disk flushing measures payload
@@ -1419,9 +1449,10 @@ transfer-stage work.</p>
 output. <strong>Downloaded bytes</strong> counts files successfully
 published in this run; it is not the destination's total size or
 allocated disk space. Mirror mode checks filesystem free space before
-discovery and again for the planned downloads before starting transfers.
-Download mode reserves space from a shared batch budget. These checks do
-not enumerate unrelated destination files.</p>
+discovery and again for the planned downloads before starting transfers,
+using the available listing estimates. Both modes then admit writes
+through the shared capacity budget using GET response lengths. These
+checks do not enumerate unrelated destination files.</p>
 <p>The summary ends with the same cache and parser counters as mirror
 mode, followed by the separator, completion message, processed scope
 (<code>ROOT</code> for the direct shortcut) and connection-pool closure

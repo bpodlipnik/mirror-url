@@ -376,7 +376,7 @@ green after every change.</li>
 <hr />
 <h2 id="repository-layout">Repository layout</h2>
 <pre><code>mirror-url/
-├── src/mirror_url/          # the package (51 Python files including private helpers)
+├── src/mirror_url/          # the package (53 Python files including private helpers)
 │   ├── __init__.py          # public API re-exports
 │   ├── __main__.py          # `python -m mirror_url`
 │   ├── _version.py          # __version__, __author__  (one of two version sources)
@@ -859,15 +859,47 @@ copy them independently. Instrument actual request/receive/write, copy,
 payload flush and staged-payload hash operations, rather than whole
 methods containing other timed stages. The existing
 <code>range_metadata</code> JSON key is retained, with the display label
-<strong>Transfer metadata probes</strong>: it includes mirror
-size-prefetch HEADs and range-capability HEADs, measured once at their
-request sites. The fallback caller does not wrap
+<strong>Transfer metadata probes</strong>: it includes prospective
+chunk-size HEADs and range-capability HEADs, measured once at their
+request sites. Whole-file planning no longer prefetches HEADs for every
+selected URL. The fallback caller does not wrap
 <code>_get_file_size()</code> again. <strong>Automatic selection
 work</strong> (<code>method_selection</code>) measures disk detection
 and sampled network-speed work separately from the capability HEAD;
-sample bytes do not receive payload credit. These preparation
-measurements remain inside the preparation elapsed phase and are not
-added to it or to the total duration. Streaming writes count under
+sample bytes do not receive payload credit. Each stage remains inside
+the elapsed phase in which it runs: chunk metadata can be requested
+during downloads, while automatic selection runs during preparation.
+Stage sums are not added to phase times or total duration.</p>
+<p><code>planning.py</code> extracts conservative <code>SizeHint</code>
+bounds from recognized listing rows. Scanner hints are attached only to
+links accepted by the existing URL scope and filter policy. Refetching a
+directory replaces its hints; cached listings without hints simply use
+GET headers. The parser and scanner each cap hint retention at
+<code>MAX_IN_MEMORY_CACHE_SIZE</code>; this never truncates discovery.
+Hints feed admission and method selection, never chunk boundaries or
+representation validation. Unknown sizes are <code>None</code>, not
+zero. <code>download_file_with_resume(..., probe_size=False)</code>
+bypasses the compatibility lazy HEAD for ordinary transfers. The
+coordinator supplies its per-run probe policy through instance state,
+preserving the existing positional call contract for custom downloader
+overrides. Explicit chunk strategies and sufficiently large hints retain
+range metadata probes.</p>
+<p><code>capacity.py</code> supplies the shared
+<code>CapacityBudget</code> to the mirror mixin and
+<code>AsyncTransfers</code>. In-memory credit covers writes; additional
+shared credit is funded in windows. Each per-user/local-filesystem
+registry epoch starts with a free-space sample. Published bytes and
+abandoned claims stay charged until all epoch leases finish, avoiding
+reuse or double counting against later samples. Kernel locks, not PID
+reuse or a timeout, establish whether a claim is active. Registry
+updates are atomic and corrupt state fails closed. Temporary space is
+credited only after owned cleanup. Chunk workers must drain before the
+claim is retired. Known-length transfers also trigger periodic capacity
+checks while writing; sampling failures close admission. The registry is
+cooperative, not a physical allocator or multi-host/shared-pool
+coordinator. It must never be reported as a native space guarantee.
+Filesystem-native reservation providers are outside this portable
+policy; no ZFS property is modified. Streaming writes count under
 transfer, without a separate assembly operation. Disabled SHA-256 calls
 are not measured as hashing. Freshness checks and receipt hash
 validation retain their existing coordinator accounting. These worker

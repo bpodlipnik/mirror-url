@@ -106,12 +106,15 @@ def test_auto_mode_without_parallel_manager_falls_back_to_download(mirror):
     mirror.performance_monitor.get_summary.return_value = {"total_operations": 0}
     mirror.get_remote_files = Mock(return_value=[BASE + "a"])
     mirror._check_files_sync = Mock(return_value=[(BASE + "a", mirror.target_dir / "a")])
-    mirror._get_file_size = lambda _: 3
+    mirror._get_file_size = Mock(side_effect=AssertionError("whole-file fallback must not probe"))
     mirror.check_disk_space = lambda _: True
     mirror.clean_obsolete = Mock()
     mirror.download_file_with_resume = Mock()
     assert mirror.sync() is True
-    mirror.download_file_with_resume.assert_called_once_with(BASE + "a", mirror.target_dir / "a", 3)
+    mirror.download_file_with_resume.assert_called_once_with(
+        BASE + "a", mirror.target_dir / "a", None
+    )
+    mirror._get_file_size.assert_not_called()
     assert not (mirror.target_dir / "a").exists()
 
 
@@ -144,11 +147,16 @@ def test_real_parallel_initialization_failure_falls_back_without_thread_leak(tmp
             assert m.parallel_manager is None
             m.get_remote_files = Mock(return_value=[BASE + "a"])
             m._check_files_sync = Mock(return_value=[(BASE + "a", m.target_dir / "a")])
-            m._get_file_size = lambda _: 3
+            m._get_file_size = Mock(
+                side_effect=AssertionError("whole-file fallback must not probe")
+            )
             m.check_disk_space = lambda _: True
             m.download_file_with_resume = Mock()
             assert m.sync() is True
-            m.download_file_with_resume.assert_called_once_with(BASE + "a", m.target_dir / "a", 3)
+            m.download_file_with_resume.assert_called_once_with(
+                BASE + "a", m.target_dir / "a", None
+            )
+            m._get_file_size.assert_not_called()
             assert not (m.target_dir / "a").exists()
         assert allocated[0]._cleanup_thread is None
         assert allocated[0]._shutdown

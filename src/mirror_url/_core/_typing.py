@@ -20,6 +20,7 @@ if TYPE_CHECKING:  # pragma: no cover - declarations have no runtime implementat
 
     from ..async_connection import AdaptiveAsyncManager, AsyncConnectionManager, AsyncTaskManager
     from ..cache import CacheManager, NullCacheManager
+    from ..capacity import CapacityBudget
     from ..compat import Str
     from ..concurrency import UnifiedConcurrencyManager
     from ..config import MirrorConfig
@@ -86,6 +87,8 @@ if TYPE_CHECKING:  # pragma: no cover - declarations have no runtime implementat
         scratch_manager: Optional[OwnedScratch]
         health_checker: HealthChecker
         _download_progress: Optional[DownloadProgress]
+        _capacity_budget: Optional[CapacityBudget]
+        _planned_size_probes: Dict[str, bool]
         per_ip_limiter: PerIPRateLimiter
         health_server: Optional[HealthCheckServer]
         async_connection_manager: Optional[AsyncConnectionManager]
@@ -125,7 +128,12 @@ if TYPE_CHECKING:  # pragma: no cover - declarations have no runtime implementat
         def clean_obsolete(self, remote_files: Set[str]) -> None: ...
 
         def download_file_with_resume(
-            self, remote_url: str, local_path: Path, file_size: Optional[int] = ...
+            self,
+            remote_url: str,
+            local_path: Path,
+            file_size: Optional[int] = ...,
+            *,
+            probe_size: bool = ...,
         ) -> bool: ...
 
         def _download_file_single(self, remote_url: str, local_path: Path) -> bool: ...

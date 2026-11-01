@@ -29,6 +29,7 @@ from urllib.parse import quote, urljoin, urlsplit, urlunsplit
 
 import httpx
 
+from .capacity import CapacityBudget
 from .config import MirrorConfig, _root_relative_file_path
 from .destination_lock import DestinationLock, current_run_lock
 from .download import ParallelDownloadManager, PartialDownloadManager
@@ -44,6 +45,7 @@ from .metrics import (
     log_file_downloads_completed,
     log_whole_file_fallback,
 )
+from .planning import SizeHint
 from .progress import DownloadProgress
 from .run_report import RunReport
 from .scratch import OwnedScratch
@@ -573,13 +575,16 @@ class AsyncTransfers:
         progress: Optional[DownloadProgress] = None,
         *,
         metrics: Optional[MetricsCollector] = None,
+        capacity: Optional[CapacityBudget] = None,
+        size_hints: Optional[Dict[str, SizeHint]] = None,
     ):
         self.config, self.target, self.scope, self.scratch = config, target, scope, scratch
         self.concurrency = 1 if config.sequential_downloads else config.max_concurrent_downloads
         self.pacer = AsyncRequestPacer(config.effective_request_interval)
         self.bandwidth = AsyncBandwidthBudget(config.bandwidth_limit)
-        self._space_remaining: Optional[int] = None
-        self._space_reserved: Dict[Path, int] = {}
+        self.capacity = capacity
+        self._owns_capacity = capacity is None
+        self.size_hints = size_hints or {}
         self.stage_seconds = {"fsync": 0.0, "hash": 0.0}
         self._stage_lock = threading.Lock()
         self.progress = progress or DownloadProgress(False)
@@ -587,24 +592,13 @@ class AsyncTransfers:
         self.metrics = metrics or MetricsCollector()
 
     def _reserve_space(self, local: Path, size: int) -> None:
-        # One filesystem query per batch, before its first payload write.
-        # This is an internal budget, not an OS allocation: write/fsync errors
-        # still protect publication if another process consumes the free space.
-        if self._space_remaining is None:
-            # Leave the budget closed if the single filesystem query fails.
-            self._space_remaining = -self.concurrency * 1024 * 1024
-            self._space_remaining += shutil.disk_usage(self.target).free
-        if self._space_remaining < size:
-            raise OSError("Insufficient free space for active transfers and write headroom")
-        self._space_remaining -= size
-        self._space_reserved[local] = self._space_reserved.get(local, 0) + size
+        if self.capacity is None:
+            self.capacity = CapacityBudget(self.target, self.concurrency, sample=shutil.disk_usage)
+        self.capacity.reserve(local, size)
 
     def _release_space(self, local: Path, retained: int = 0) -> None:
-        reserved = self._space_reserved.pop(local, 0)
-        if self._space_remaining is not None:
-            # Published bytes remain charged for the rest of the batch. Only
-            # proven removal of owned staging returns a failed attempt's budget.
-            self._space_remaining += reserved - retained
+        if self.capacity is not None:
+            self.capacity.release(local, retained)
 
     def _record_stage(self, stage: str, started: float) -> None:
         elapsed = time.perf_counter() - started
@@ -934,8 +928,8 @@ class AsyncTransfers:
         if plan_targets([url for url, _ in items], self.scope, self.target, self.config) != items:
             raise ValueError("Caller-supplied local paths do not match scoped URL paths")
         require_backend(self.config.backend)
-        self._space_remaining = None
-        self._space_reserved.clear()
+        if self._owns_capacity:
+            self.capacity = None
         workers = min(self.concurrency, len(items))
         log_file_download_plan(len(items), workers)
         chunked = self.config.parallel_downloads or self.config.streaming_parallel
@@ -949,7 +943,10 @@ class AsyncTransfers:
             for url, local in iterator:
                 self.progress.begin(local)
                 try:
-                    if manager is not None:
+                    hint = self.size_hints.get(url)
+                    if manager is not None and (
+                        hint is None or manager.should_use_parallel(hint.upper)
+                    ):
                         result = await self._one_chunked(
                             manager, connection, backend, url, local, published
                         )
@@ -1001,7 +998,11 @@ class AsyncTransfers:
                     if manager is not None:
                         await _HTTPXBackend._thread_call(manager.shutdown)
                 finally:
-                    await _drain_operation(close_backend())
+                    try:
+                        await _drain_operation(close_backend())
+                    finally:
+                        if self._owns_capacity and self.capacity is not None:
+                            self.capacity.close()
         log_file_downloads_completed(
             sum(result.success for result in results), sum(not result.success for result in results)
         )

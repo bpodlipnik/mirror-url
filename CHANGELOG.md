@@ -4,6 +4,28 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Start whole-file transfers from GET headers instead of waiting for a HEAD
+  size probe for every file. Reuse conservative directory-listing size bounds
+  for planning, retain explicit unknown sizes, and keep range validation for
+  eligible chunk transfers. Small and unknown-size batches avoid synthetic
+  disk/network selection probes.
+- Share portable capacity accounting between transfer backends and cooperating
+  local jobs. Keep published and retained staging bytes charged, recover crashed
+  owners through kernel leases, and recheck capacity during long transfers.
+  This is software accounting, not physical allocation or a ZFS reservation.
+
+### Fixed
+
+- Fail write admission when destination capacity cannot be determined. Preserve
+  validated HTTPX resumable prefixes on capacity exhaustion.
+- Preserve the positional callback contract for downloader overrides and restore
+  automatically selected mode flags after each sync, so repeated runs retain
+  automatic strategy selection and do not reintroduce blanket size probes.
+
 ## [3.9.17] - 2026-10-29
 
 ### Changed

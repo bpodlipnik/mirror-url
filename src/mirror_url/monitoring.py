@@ -142,8 +142,8 @@ class DiskSpaceManager:
         """
         Check if enough disk space is available for *this operation*.
 
-        Returns False ONLY when there isn't enough free space to do the work
-        (either below the absolute floor or below ``required_bytes``).
+        Returns False when capacity cannot be determined or there isn't enough
+        free space (below the absolute floor or below ``required_bytes``).
         Overall disk-fullness percentages are warnings, not blockers — a host
         that happens to have a 96%-full disk can still legitimately download
         a few MB of data, and refusing to operate there made the library
@@ -193,7 +193,7 @@ class DiskSpaceManager:
             return True, None
         except Exception as e:
             logging.warning(f"Failed to check disk space: {e}")
-            return True, None
+            return False, f"Cannot determine destination capacity: {e}"
 
     def get_usage_stats(self) -> Dict[str, float]:
         """
