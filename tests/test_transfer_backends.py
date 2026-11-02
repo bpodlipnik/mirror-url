@@ -52,8 +52,11 @@ def backend(request):
 
 
 @pytest.fixture
-def origin(monkeypatch):
+def origin(monkeypatch, tmp_path):
     """Loopback is permitted only by this test's injected DNS validator."""
+    # Mocked free-space samples must not share a registry with unrelated jobs
+    # or another pytest process using the real filesystem's capacity.
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
     requests = []
     counts = Counter()
     routes = {}
@@ -537,12 +540,17 @@ def test_download_batch_does_not_reuse_published_space(
     monkeypatch.setattr("mirror_url.transfers.shutil.disk_usage", disk_usage)
     result = download_url_list(config)
     assert not result["success"]
-    assert result["files_downloaded"] == 1 and result["files_failed"] == 2
+    published = result["files_downloaded"]
+    # A concurrent admission failure can stop the already-funded writer
+    # before publication. Neither scheduling order may overcommit the budget.
+    assert published in ({1} if sequential else {0, 1})
+    assert result["files_failed"] == len(paths) - published
     assert len(calls) == 1
     contents = [(config.dest_path / name).read_bytes() for name in paths]
-    assert contents.count(payload) == 1 and contents.count(b"old") == 2
+    assert contents.count(payload) == published
+    assert contents.count(b"old") == len(paths) - published
     receipts = json.loads(Path(result["receipts"]).read_text())["files"]
-    assert len(receipts) == 1
+    assert len(receipts) == published
     assert_no_scratch(config.dest_path)
 
 

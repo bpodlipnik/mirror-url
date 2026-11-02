@@ -29,7 +29,7 @@ from urllib.parse import quote, urljoin, urlsplit, urlunsplit
 
 import httpx
 
-from .capacity import CapacityBudget
+from .capacity import CapacityBudget, is_capacity_error
 from .config import MirrorConfig, _root_relative_file_path
 from .destination_lock import DestinationLock, current_run_lock
 from .download import ParallelDownloadManager, PartialDownloadManager
@@ -673,14 +673,16 @@ class AsyncTransfers:
         def probe():
             for attempt in range(self.config.max_retries + 1):
                 try:
+                    if self.capacity is not None:
+                        self.capacity.check()
                     with self.metrics.run_report.transfer_stage("range_metadata"):
                         response = connection.request(
                             url, method="HEAD", headers={"Accept-Encoding": "identity"}
                         )
                     probe_response.append(response)
                     return response
-                except (httpx.RequestError, OSError):
-                    if attempt == self.config.max_retries:
+                except (httpx.RequestError, OSError) as error:
+                    if is_capacity_error(error) or attempt == self.config.max_retries:
                         raise
                     time.sleep(self.config.retry_delay * 2**attempt)
 
@@ -808,6 +810,8 @@ class AsyncTransfers:
                     for hop in range(11):
                         validate_url(current, self.scope)
                         await self.pacer.wait()
+                        if self.capacity is not None:
+                            self.capacity.check()
                         async with AsyncExitStack() as responses:
                             with self.metrics.run_report.transfer_stage("transfer"):
                                 code, headers, chunks = await responses.enter_async_context(
@@ -844,8 +848,8 @@ class AsyncTransfers:
                                         size += len(block)
                                         if expected is not None and size > expected:
                                             raise ValueError("Response exceeds Content-Length")
-                                        if expected is None:
-                                            self._reserve_space(local, len(block))
+                                        if self.capacity is not None:
+                                            self.capacity.ensure(local, size)
                                         file.write(block)
                                         self.progress.received(local, size, expected)
                                         await self.bandwidth.wait(len(block))
@@ -912,6 +916,11 @@ class AsyncTransfers:
                     self.progress.stage(local, "waiting to retry")
                     await asyncio.sleep(self.config.retry_delay * 2**attempt)
             raise RuntimeError("Transfer retry budget exhausted")
+        except Exception as error:
+            # Record storage exhaustion before cleanup can mask its errno.
+            if self.capacity is not None:
+                self.capacity.fail(error)
+            raise
         finally:
             if staging is not None and not await _drain_operation(
                 asyncio.to_thread(self.scratch.release, staging.parent)
@@ -929,7 +938,7 @@ class AsyncTransfers:
             raise ValueError("Caller-supplied local paths do not match scoped URL paths")
         require_backend(self.config.backend)
         if self._owns_capacity:
-            self.capacity = None
+            self.capacity = CapacityBudget(self.target, self.concurrency, sample=shutil.disk_usage)
         workers = min(self.concurrency, len(items))
         log_file_download_plan(len(items), workers)
         chunked = self.config.parallel_downloads or self.config.streaming_parallel
@@ -943,6 +952,8 @@ class AsyncTransfers:
             for url, local in iterator:
                 self.progress.begin(local)
                 try:
+                    if self.capacity is not None:
+                        self.capacity.check()
                     hint = self.size_hints.get(url)
                     if manager is not None and (
                         hint is None or manager.should_use_parallel(hint.upper)
@@ -953,6 +964,8 @@ class AsyncTransfers:
                     else:
                         result = await self._one(backend, url, local, published)
                 except Exception as error:
+                    if self.capacity is not None:
+                        self.capacity.fail(error)
                     result = TransferResult(url, local, False, error=sanitize_log_text(str(error)))
                     logging.error(
                         "Download failed for %s: %s", sanitize_url_for_log(url), result.error
@@ -980,6 +993,7 @@ class AsyncTransfers:
                     scratch=self.scratch,
                     progress=self.progress,
                     record_stage=self._record_stage,
+                    capacity=self.capacity,
                 )
             tasks = [asyncio.create_task(worker()) for _ in range(workers)]
             await asyncio.gather(*tasks)

@@ -23,6 +23,13 @@ class CapacityError(OSError):
     """Admission failed; preserve any validated resumable prefix."""
 
 
+def is_capacity_error(error: BaseException) -> bool:
+    """Space/quota exhaustion is terminal for the current transfer batch."""
+    return isinstance(error, CapacityError) or (
+        isinstance(error, OSError) and error.errno in (errno.ENOSPC, errno.EDQUOT)
+    )
+
+
 class _CapacityClaim:
     """Per-user, same-host filesystem claims with kernel-owned crash leases.
 
@@ -161,9 +168,26 @@ class CapacityBudget:
         self._funded = 0
         self._free: Optional[int] = None
         self._sampled = 0.0
-        self._failed: Optional[Exception] = None
+        self._failed: Optional[BaseException] = None
         self._closed = False
         self._reserved: Dict[Path, int] = {}
+
+    def check(self) -> None:
+        """Reject new work after a terminal error, without querying the filesystem."""
+        with self._lock:
+            if self._closed:
+                raise CapacityError("Capacity budget is closed")
+            if self._failed is not None:
+                raise CapacityError(f"Capacity admission unavailable: {self._failed}")
+
+    def fail(self, error: BaseException) -> bool:
+        """Share a terminal write/flush failure with every worker in this batch."""
+        if not is_capacity_error(error):
+            return False
+        with self._lock:
+            if self._failed is None:
+                self._failed = error
+        return True
 
     def _fund(self, minimum: int) -> None:
         if self._failed is not None:
@@ -194,10 +218,7 @@ class CapacityBudget:
         if size < 0:
             raise ValueError("Negative capacity request")
         with self._lock:
-            if self._closed:
-                raise CapacityError("Capacity budget is closed")
-            if self._failed is not None:
-                raise CapacityError(f"Capacity admission unavailable: {self._failed}")
+            self.check()
             if self._free is None or size > self._remaining:
                 self._fund(max(0, size - self._remaining))
             elif time.monotonic() - self._sampled >= 30:
@@ -217,8 +238,7 @@ class CapacityBudget:
 
     def ensure(self, local: Path, needed: int) -> None:
         with self._lock:
-            if self._closed:
-                raise CapacityError("Capacity budget is closed")
+            self.check()
             extra = needed - self._reserved.get(local, 0)
             if extra > 0:
                 # Local bookkeeping is cheap; shared funding occurs only when

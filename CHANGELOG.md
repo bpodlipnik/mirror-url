@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Recheck destination capacity during long whole-file streams with known
+  lengths in aiohttp mirrors and known-URL downloads with either backend.
+  Keep the existing sampling interval instead of querying the filesystem
+  for every payload block.
+- Stop subsequent file requests, chunk retries and whole-file fallbacks after
+  filesystem-full or quota errors. Share the failure across the current batch,
+  drain active writers, and preserve complete destinations and validated
+  HTTPX resumable partials. A new run can retry after space is freed.
+
 ## [3.9.18] - 2026-11-01
 
 ### Changed

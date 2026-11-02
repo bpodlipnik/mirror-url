@@ -1083,8 +1083,13 @@ behavior. Cached listings without size information remain usable.
 Automatic strategy settings apply only to the current sync. Reusing a MirrorURL
 instance does not turn an earlier automatic choice into an explicit chunk request.
 
-Failure to determine destination capacity stops further write admission. Write
-and flush failures still prevent publication. Native physical allocation and
+Failure to determine destination capacity stops further write admission. A
+filesystem-full or quota error also closes admission for the current batch:
+workers stop starting further file requests, chunk retries and fallback GETs
+once they observe the failure. Active operations drain and clean up their owned
+staging. Complete files remain available; validated HTTPX resumable partials
+are retained. Free space and start a new run to retry unfinished files.
+Write and flush failures still prevent publication. Native physical allocation and
 administrator-managed dataset reservations are separate storage facilities;
 MirrorURL does not claim a guaranteed whole-job reservation or change filesystem
 properties. In particular, ZFS file preallocation is not such a guarantee.

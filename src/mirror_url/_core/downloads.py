@@ -65,6 +65,9 @@ class DownloadMixin(MirrorHost):
         progress.begin(local_path, "waiting for response")
         success = False
         try:
+            capacity = getattr(self, "_capacity_budget", None)
+            if capacity is not None:
+                capacity.check()
             probe_size = probe_size and getattr(self, "_planned_size_probes", {}).get(
                 remote_url, True
             )
@@ -92,6 +95,8 @@ class DownloadMixin(MirrorHost):
                         if download:
                             success = self.parallel_manager.download_parallel(download)
                     except OSError as error:
+                        if capacity is not None:
+                            capacity.fail(error)
                         logging.error("Chunk capacity admission failed: %s", error)
                         self.files_failed.increment(1)
                         self.metrics.increment("files_failed")
@@ -115,6 +120,12 @@ class DownloadMixin(MirrorHost):
                     if download:
                         if success:
                             return True
+
+                        if any(chunk.capacity_failed for chunk in download.chunks):
+                            logging.error("Chunk transfer stopped after storage capacity failure")
+                            self.files_failed.increment(1)
+                            self.metrics.increment("files_failed")
+                            return False
 
                         try:
                             destination_changed = (
@@ -147,6 +158,11 @@ class DownloadMixin(MirrorHost):
             # Fallback for files that don't meet parallel criteria (too small, disabled, etc.)
             success = self._download_file_single(remote_url, local_path)
             return success
+        except CapacityError as error:
+            logging.error("Download not started: %s", error)
+            self.files_failed.increment(1)
+            self.metrics.increment("files_failed")
+            return False
         finally:
             progress.finish(local_path, success)
 
@@ -175,6 +191,9 @@ class DownloadMixin(MirrorHost):
             partial_path = partial_manager.register_partial(local_path, remote_url)
             original_partial = file_identity(partial_path)
         except (OSError, ValueError) as error:
+            capacity = getattr(self, "_capacity_budget", None)
+            if capacity is not None:
+                capacity.fail(error)
             if partial_path is not None:
                 partial_manager.complete_partial(partial_path)
             logging.error(f"Cannot create partial download: {error}")
@@ -201,6 +220,9 @@ class DownloadMixin(MirrorHost):
                 budget_offset = 0
                 published_bytes = None
                 try:
+                    capacity = getattr(self, "_capacity_budget", None)
+                    if capacity is not None:
+                        capacity.check()
                     progress.begin(local_path, "waiting for response")
                     headers = {"Accept-Encoding": "identity"}
                     expected_partial = file_identity(partial_path)
@@ -475,6 +497,9 @@ class DownloadMixin(MirrorHost):
                         budget.release(local_path, retained)
 
         except Exception as e:
+            capacity = getattr(self, "_capacity_budget", None)
+            if capacity is not None:
+                capacity.fail(e)
             logging.error(f"Download failed: {e}")
             self.files_failed.increment(1)  # Atomic
             self.metrics.increment("files_failed")

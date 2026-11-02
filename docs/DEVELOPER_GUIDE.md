@@ -539,7 +539,14 @@ Kernel locks, not PID reuse or a timeout, establish whether a claim is active.
 Registry updates are atomic and corrupt state fails closed. Temporary space is
 credited only after owned cleanup. Chunk workers must drain before the claim is
 retired. Known-length transfers also trigger periodic capacity checks while
-writing; sampling failures close admission. The registry is cooperative, not a
+writing; sampling failures close admission. `CapacityBudget.fail()` latches
+`ENOSPC`, `EDQUOT` and capacity-admission failures for the current batch.
+`check()` rejects new requests without a filesystem query; `ensure()` also
+checks this latch for already-funded writes and samples space at the existing
+interval. Both whole-file engines and the shared chunk engine use these guards.
+Terminal chunk errors cannot retry or fall back to a whole-file GET. Active
+writers drain before cleanup and claim retirement; fresh runs get fresh budgets.
+The registry is cooperative, not a
 physical allocator or multi-host/shared-pool coordinator. It must never be
 reported as a native space guarantee. Filesystem-native reservation providers
 are outside this portable policy; no ZFS property is modified.
