@@ -151,7 +151,8 @@ def test_storage_initialization_failure_preserves_files_and_releases_resources(
     ) as stopped:
         MirrorURL(config)
     assert stopped.value.__cause__ is error
-    assert str(failing_path) in str(stopped.value)
+    assert stopped.value.__cause__.filename == str(failing_path)
+    assert str(error) in str(stopped.value)
     assert keep.read_bytes() == b"existing file must survive initialization failure"
     assert not any(path in remote.files for _, path, _ in remote.requests)
     DestinationLock([target]).close()
@@ -246,7 +247,7 @@ def test_cli_reports_permission_error_without_secondary_traceback(
             else "Cannot initialize destination storage"
         ) in text
         assert "Permission denied" in text
-        assert str(failing_path) in text
+        assert str(error) in text
         assert ("Traceback" in text) is debug
         assert "FileNotFoundError" not in text
         assert "Connection failed for blocked" not in text

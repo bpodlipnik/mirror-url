@@ -6,7 +6,7 @@ import errno
 import logging
 import os
 import sys
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from unittest.mock import Mock
 
 import pytest
@@ -43,14 +43,20 @@ def startup(tmp_path, monkeypatch):
 @pytest.mark.parametrize("entrypoint", ["api", "cli"])
 @pytest.mark.parametrize("site", ["target", "state"])
 @pytest.mark.parametrize("error_number", [errno.EACCES, errno.ENOSPC])
+@pytest.mark.parametrize("path_style", ["native", "windows"])
 def test_unusable_destination_stops_startup(
-    startup, monkeypatch, capsys, entrypoint, site, error_number
+    startup, monkeypatch, capsys, entrypoint, site, error_number, path_style
 ):
     config = startup
     target = config.dest_path / config.dir_suffix
     failed_path = target if site == "target" else target / ".mirror-url-state"
     original = Path.mkdir
-    error = OSError(error_number, os.strerror(error_number), str(failed_path))
+    filename = (
+        str(failed_path)
+        if path_style == "native"
+        else str(PureWindowsPath("C:/archive") / failed_path.relative_to(config.dest_path))
+    )
+    error = OSError(error_number, os.strerror(error_number), filename)
 
     def mkdir(self, *args, **kwargs):
         if self == failed_path:
@@ -63,7 +69,8 @@ def test_unusable_destination_stops_startup(
         with pytest.raises(DestinationPathError) as stopped:
             MirrorURL(config)
         assert stopped.value.__cause__ is error
-        assert str(failed_path) in str(stopped.value)
+        assert stopped.value.__cause__.filename == filename
+        assert str(error) in str(stopped.value)
     else:
         monkeypatch.setattr(
             sys,
@@ -91,7 +98,7 @@ def test_unusable_destination_stops_startup(
         output = capsys.readouterr().err
         assert "Destination error for 261030" in output
         assert os.strerror(error_number) in output
-        assert str(failed_path) in output
+        assert str(error) in output
         assert "Traceback" not in output
         assert "FileNotFoundError" not in output
         assert "FAILED DIRECTORIES (1)" in output
