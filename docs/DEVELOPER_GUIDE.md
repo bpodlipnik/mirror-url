@@ -1397,6 +1397,12 @@ plus `utils.url_within_scope` and `utils._relative_url_path`.
 It uses exact missing counts and checks helper exclusions; unrelated uncovered
 utility functions do not get hidden or counted as covered.
 
+Basic destination-setup failures are covered by `test_destination_startup.py`
+in the fast Python-version matrix, without DNS or an HTTP server. The integration
+tests in `test_destination_initialization.py` also check both transfer backends,
+native directory permissions, resource cleanup, multi-directory continuation,
+and normal/debug error output.
+
 Hypothesis generates once-decoded path identities, origin boundaries and nested
 traversal encodings. Filesystem tests inject permission, resolution, listing and
 move failures, and assert preserved source and archive bytes. Local HTTP tests

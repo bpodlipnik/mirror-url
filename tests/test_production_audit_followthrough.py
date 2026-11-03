@@ -20,7 +20,7 @@ import pytest
 from mirror_url import MirrorConfig, MirrorURL, download_url_list
 from mirror_url.cache import CacheManager
 from mirror_url.domain_health import DomainHealthTracker
-from mirror_url.health import HealthCheckServer
+from mirror_url.health import HealthCheckServer, _MirrorHTTPServer
 from mirror_url.metrics import MetricsCollector
 from test_head_disconnect_recovery import configuration, request_with_mock
 from test_transfer_backends import origin as origin
@@ -376,7 +376,21 @@ def test_real_log_handlers_redact_tracebacks_and_honor_levels(
 
 
 @pytest.mark.parametrize("partial", [b"", b"GET /health HTTP/1.1\r\nHost: localhost\r\n"])
-def test_health_slow_clients_do_not_block_probes_or_shutdown(partial):
+def test_health_slow_clients_do_not_block_probes_or_shutdown(partial, monkeypatch):
+    accepted = threading.Event()
+    get_request = _MirrorHTTPServer.get_request
+
+    def accept_slow_client(self):
+        request, address = get_request(self)
+        if not accepted.is_set():
+            # Keep the first read blocked until cleanup. Otherwise its idle
+            # timeout can expire just before the probe's timeout, allowing a
+            # serial server to pass this worker-isolation regression.
+            request.settimeout(None)
+            accepted.set()
+        return request, address
+
+    monkeypatch.setattr(_MirrorHTTPServer, "get_request", accept_slow_client)
     server = HealthCheckServer(object(), port=0)
     server.start()
     deadline = time.monotonic() + 5
@@ -388,6 +402,7 @@ def test_health_slow_clients_do_not_block_probes_or_shutdown(partial):
         address = server.server.server_address
         client = socket.create_connection(address, timeout=2)
         client.sendall(partial)
+        assert accepted.wait(5), "slow health client was not accepted"
         probe = socket.create_connection(address, timeout=2)
         probe.sendall(b"GET /health HTTP/1.0\r\n\r\n")
         assert b"503" in probe.recv(4096)

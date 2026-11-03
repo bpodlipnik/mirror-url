@@ -69,6 +69,7 @@ from .enums import CleanupPolicy, ScanMode
 from .exceptions import (
     ConfigError,
     DestinationLockError,
+    DestinationPathError,
     MirrorError,
     PathTraversalError,
     URLScopeError,
@@ -1974,6 +1975,11 @@ Full reference: docs/USER_GUIDE.md (and docs/USER_GUIDE.html).
             failed.append(suf or "ROOT")
         except DestinationLockError as e:
             logging.critical(f"Destination ownership error for {suf or 'ROOT'}: {e}")
+            failed.append(suf or "ROOT")
+        except DestinationPathError as e:
+            logging.error(
+                f"Destination error for {suf or 'ROOT'}: {e}", exc_info=suffix_config.debug
+            )
             failed.append(suf or "ROOT")
         except Exception as e:
             logging.critical(f"Error with {suf or 'ROOT'}: {e}", exc_info=True)

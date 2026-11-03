@@ -20,6 +20,7 @@ from .core import MirrorURL
 from .exceptions import (
     ConfigError,
     DestinationLockError,
+    DestinationPathError,
     DownloadError,
     MirrorConnectionError,
     MirrorError,
@@ -43,6 +44,7 @@ __all__ = [
     "URLScopeError",
     "ConfigError",
     "DestinationLockError",
+    "DestinationPathError",
     "SecurityError",
     "DownloadError",
 ]

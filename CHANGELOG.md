@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Stop mirror initialization when the destination directory or required transfer
+  storage cannot be created. Preserve the original filesystem error, release
+  resources, and report the failed directory with exit code 1. The CLI emits a
+  concise error normally and includes the traceback with `--debug`; independent
+  selected directories can still run.
+
 ## [3.9.19] - 2026-11-02
 
 ### Fixed

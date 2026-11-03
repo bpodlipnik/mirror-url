@@ -36,7 +36,7 @@ from ..destination_lock import DestinationLock, MirrorFileHandler, create_run_lo
 from ..download import ParallelDownloadManager, PartialDownloadManager
 from ..download_integrity import content_length
 from ..enums import CleanupPolicy
-from ..exceptions import URLScopeError
+from ..exceptions import DestinationPathError, URLScopeError
 from ..filename_mapping import selected_directory_targets, validate_move_targets
 from ..health import HealthChecker, HealthCheckServer
 from ..metrics import MetricsCollector, log_run_start
@@ -550,34 +550,35 @@ class _MirrorBase(MirrorHost):
         if self.connection_ok and not config.dry_run and self._computed_target_path:
             # Normal mode: create directory
             self.target_dir = self._computed_target_path
-            self._target_dir_path = self.target_dir.resolve()
             try:
+                self._target_dir_path = self.target_dir.resolve()
                 self.target_dir.mkdir(parents=True, exist_ok=True)
-                logging.info(f"{prefix}Target directory: {self.target_dir}")
-                logging.debug(f"Created target directory: {self.target_dir}")
-            except Exception as e:
-                logging.warning(f"Failed to create target directory {self.target_dir}: {e}")
-                self.connection_ok = False
+            except OSError as error:
+                raise DestinationPathError(
+                    f"Cannot create destination directory {self.target_dir}: {error}"
+                ) from error
+            logging.info(f"{prefix}Target directory: {self.target_dir}")
+            logging.debug(f"Created target directory: {self.target_dir}")
 
-            # Initialize managers with actual target_dir
+            # Required storage must be usable before starting a sync. A failed
+            # mkdir must never fall through to resume-state initialization.
             try:
                 self.disk_manager = DiskSpaceManager(self.target_dir)
                 self.partial_manager = PartialDownloadManager(self.target_dir)
-            except Exception as e:
-                logging.warning(f"Failed to initialize disk/partial managers: {e}")
-                self.disk_manager = None
-                self.partial_manager = None
-
-            if self.partial_manager is not None and self._destination_lock is not None:
-                self.scratch_manager = OwnedScratch(
-                    self.target_dir,
-                    self.partial_manager._state_directory(),
-                    config.chunk_assembly_dir if self.parallel_manager is not None else None,
-                    self._destination_lock,
-                )
-                if self.parallel_manager is not None:
-                    self.parallel_manager.scratch = self.scratch_manager
-                    self.parallel_manager.assembly_dir = self.scratch_manager.chunk_root
+                if self.partial_manager is not None and self._destination_lock is not None:
+                    self.scratch_manager = OwnedScratch(
+                        self.target_dir,
+                        self.partial_manager._state_directory(),
+                        config.chunk_assembly_dir if self.parallel_manager is not None else None,
+                        self._destination_lock,
+                    )
+                    if self.parallel_manager is not None:
+                        self.parallel_manager.scratch = self.scratch_manager
+                        self.parallel_manager.assembly_dir = self.scratch_manager.chunk_root
+            except OSError as error:
+                raise DestinationPathError(
+                    f"Cannot initialize destination storage {self.target_dir}: {error}"
+                ) from error
 
         elif self.connection_ok and config.dry_run and self._computed_target_path:
             # Dry-run mode: store path but DON'T create directory
