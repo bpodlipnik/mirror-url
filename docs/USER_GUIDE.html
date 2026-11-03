@@ -2521,8 +2521,8 @@ class="sourceCode python"><code class="sourceCode python"><span id="cb47-1"><a h
 <code>main</code>, and the exception types (<code>MirrorError</code>,
 <code>ConfigError</code>, <code>MirrorConnectionError</code>,
 <code>SecurityError</code>, <code>DownloadError</code>,
-<code>DestinationLockError</code>, <code>PathTraversalError</code>,
-<code>URLScopeError</code>).</p>
+<code>DestinationLockError</code>, <code>DestinationPathError</code>,
+<code>PathTraversalError</code>, <code>URLScopeError</code>).</p>
 <p>For a configuration dictionary, use
 <code>MirrorConfig.model_validate(data)</code> to validate it and obtain
 a model. To obtain informational warnings about an existing
@@ -2567,6 +2567,17 @@ a process exit code.</p>
 class="sourceCode bash"><code class="sourceCode bash"><span id="cb48-1"><a href="#cb48-1" aria-hidden="true" tabindex="-1"></a><span class="ex">mirror-url</span> <span class="at">--config</span> mirror.yaml <span class="kw">&amp;&amp;</span> <span class="bu">echo</span> <span class="st">&quot;OK&quot;</span> <span class="kw">||</span> <span class="bu">echo</span> <span class="st">&quot;FAILED (</span><span class="va">$?</span><span class="st">)&quot;</span></span></code></pre></div>
 <hr />
 <h2 id="troubleshooting">Troubleshooting</h2>
+<p><strong>"Cannot create destination directory" / "Cannot initialize
+destination storage".</strong> Check the spelling of
+<code>--dest-path</code>, its parent-directory permissions, and
+available filesystem space or quota. The affected directory job stops,
+releases its resources, and makes the CLI exit with code <code>1</code>;
+other selected directory jobs can still run. A failed destination
+creation does not proceed to resume-state setup. The error includes the
+original filesystem reason and path; use <code>--debug</code> for a
+traceback. In the Python API, construction raises
+<code>DestinationPathError</code> with the original <code>OSError</code>
+available as <code>__cause__</code>.</p>
 <p><strong>"Hostname resolves to private IP" / connection refused to
 localhost.</strong> The secure transport blocks private/loopback targets
 even with <code>--no-security-validation</code>. Use a public hostname

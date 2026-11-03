@@ -82,6 +82,12 @@ class DestinationLockError(MirrorError):
     pass
 
 
+class DestinationPathError(MirrorError):
+    """Destination setup failed; the original filesystem error is ``__cause__``."""
+
+    pass
+
+
 class HealthCheckError(MirrorError):
     """Raised when health check fails"""
 
@@ -150,6 +156,7 @@ __all__ = [
     "SecurityError",
     "DownloadError",
     "DestinationLockError",
+    "DestinationPathError",
     "HealthCheckError",
     "SymlinkLoopError",
     "SymlinkBombError",

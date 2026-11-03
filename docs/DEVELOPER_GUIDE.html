@@ -1857,6 +1857,12 @@ branches for <code>scanner.py</code>, <code>_core/scan.py</code>,
 <code>utils._relative_url_path</code>. It uses exact missing counts and
 checks helper exclusions; unrelated uncovered utility functions do not
 get hidden or counted as covered.</p>
+<p>Basic destination-setup failures are covered by
+<code>test_destination_startup.py</code> in the fast Python-version
+matrix, without DNS or an HTTP server. The integration tests in
+<code>test_destination_initialization.py</code> also check both transfer
+backends, native directory permissions, resource cleanup,
+multi-directory continuation, and normal/debug error output.</p>
 <p>Hypothesis generates once-decoded path identities, origin boundaries
 and nested traversal encodings. Filesystem tests inject permission,
 resolution, listing and move failures, and assert preserved source and

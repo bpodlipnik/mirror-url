@@ -2232,6 +2232,7 @@ except (ConfigError, ValidationError) as e:
 Useful exported names: `MirrorURL`, `MirrorConfig`, `load_config_from_args`,
 `main`, and the exception types (`MirrorError`, `ConfigError`,
 `MirrorConnectionError`, `SecurityError`, `DownloadError`, `DestinationLockError`,
+`DestinationPathError`,
 `PathTraversalError`, `URLScopeError`).
 
 For a configuration dictionary, use `MirrorConfig.model_validate(data)` to
@@ -2281,6 +2282,15 @@ mirror-url --config mirror.yaml && echo "OK" || echo "FAILED ($?)"
 ---
 
 ## Troubleshooting
+
+**"Cannot create destination directory" / "Cannot initialize destination storage".**
+Check the spelling of `--dest-path`, its parent-directory permissions, and
+available filesystem space or quota. The affected directory job stops, releases
+its resources, and makes the CLI exit with code `1`; other selected directory
+jobs can still run. A failed destination creation does not proceed to resume-state
+setup. The error includes the original filesystem reason and path; use `--debug`
+for a traceback. In the Python API, construction raises `DestinationPathError`
+with the original `OSError` available as `__cause__`.
 
 **"Hostname resolves to private IP" / connection refused to localhost.**
 The secure transport blocks private/loopback targets even with
