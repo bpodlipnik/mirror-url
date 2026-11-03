@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="MirrorURL v3.9.19 documentation: mirror public HTTP(S) archives or download known files with HTTPX or aiohttp, verified parallel chunks, optional SHA-256 receipts, and a Python API.">
+    <meta name="description" content="MirrorURL v3.9.20 documentation: mirror public HTTP(S) archives or download known files with HTTPX or aiohttp, verified parallel chunks, optional SHA-256 receipts, and a Python API.">
     <link rel="canonical" href="https://star.mps.mpg.de/mirror_url/index.html">
-    <title>MirrorURL v3.9.19 Documentation - HTTP(S) Directory Mirroring</title>
+    <title>MirrorURL v3.9.20 Documentation - HTTP(S) Directory Mirroring</title>
     <style>
         * {
             margin: 0;
@@ -422,13 +422,13 @@
         <span class="version">HTTP/HTTPS</span>
         <span class="version">CLI &amp; Python API</span>
     </div>
-    <div class="subtitle">Documentation for v3.9.19 · Updated <time datetime="2026-11-02">2 November 2026</time></div>
+    <div class="subtitle">Documentation for v3.9.20 · Updated <time datetime="2026-11-03">3 November 2026</time></div>
     <div class="subtitle">B. Podlipnik · Max Planck Institute for Solar System Research</div>
     <div class="header-links">
         <a href="https://github.com/bpodlipnik/mirror-url">GitHub Repository</a>
         <a href="https://pypi.org/project/mirror-url/">PyPI Package</a>
-        <a href="https://github.com/bpodlipnik/mirror-url/blob/v3.9.19/docs/USER_GUIDE.md">User Guide</a>
-        <a href="https://github.com/bpodlipnik/mirror-url/blob/v3.9.19/CHANGELOG.md">Changelog</a>
+        <a href="https://github.com/bpodlipnik/mirror-url/blob/v3.9.20/docs/USER_GUIDE.md">User Guide</a>
+        <a href="https://github.com/bpodlipnik/mirror-url/blob/v3.9.20/CHANGELOG.md">Changelog</a>
     </div>
 </header>
 <nav class="nav" aria-label="Documentation sections"><a href="#overview">Overview</a><a href="#installation">Installation</a><a href="#quick-start">Quick Start</a><a href="#true-mirroring">Cleanup</a><a href="#known-url-downloads">Known Files</a><a href="#download-modes">Download Modes</a><a href="#configuration">Configuration</a><a href="#arguments">CLI Reference</a><a href="#examples">Examples</a><a href="#performance">Tuning</a><a href="#security">Security</a><a href="#monitoring">Monitoring</a><a href="#python-api">Python API</a><a href="#troubleshooting">Troubleshooting</a><a href="#comparison">Tool Comparison</a></nav>
@@ -448,7 +448,7 @@
 <div class="card"><h3>🐍 CLI and Python API</h3><p>Use <code>mirror-url</code>, <code>python -m mirror_url</code>, or the <code>MirrorURL</code> context manager in your own Python program.</p></div>
 </div>
 <div class="alert alert-info"><strong>Source requirements:</strong> Recursive mirroring needs a parseable HTML directory listing. Known-file downloads need only accessible public HTTP(S) file URLs. FTP/SFTP endpoints require a different tool. Transfers run from the remote source to local disk.</div>
-<p>This page documents <strong>v3.9.19</strong>. See the <a href="https://github.com/bpodlipnik/mirror-url/blob/v3.9.19/docs/USER_GUIDE.md">User Guide</a>, <a href="https://github.com/bpodlipnik/mirror-url/blob/v3.9.19/docs/DEVELOPER_GUIDE.md">Developer Guide</a>, and <a href="https://github.com/bpodlipnik/mirror-url/blob/v3.9.19/CHANGELOG.md">changelog</a> for the full project documentation.</p>
+<p>This page documents <strong>v3.9.20</strong>. See the <a href="https://github.com/bpodlipnik/mirror-url/blob/v3.9.20/docs/USER_GUIDE.md">User Guide</a>, <a href="https://github.com/bpodlipnik/mirror-url/blob/v3.9.20/docs/DEVELOPER_GUIDE.md">Developer Guide</a>, and <a href="https://github.com/bpodlipnik/mirror-url/blob/v3.9.20/CHANGELOG.md">changelog</a> for the full project documentation.</p>
 </section>
 <section id="installation" class="section">
 <h2>📦 Installation</h2>
@@ -473,15 +473,15 @@ python -m pip install --upgrade mirror-url</code></pre>
 <p>Extras: <code>fast</code> (stringzilla + lxml), <code>monitor</code> (psutil), and <code>all</code> (all optional runtime packages). The <code>progress</code> and <code>aiohttp</code> extras remain compatibility aliases; their features are included in the base package. Use <code>dev</code> for contributor tools.</p>
 <details><summary>Install the documented release from Git, build a wheel, or use pipx</summary>
 <pre><code># Install this documented release in an activated environment
-python -m pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.9.19"
+python -m pip install "git+https://github.com/bpodlipnik/mirror-url.git@v3.9.20"
 
 # Or build a wheel from a checkout
 git clone https://github.com/bpodlipnik/mirror-url.git
 cd mirror-url
-git checkout v3.9.19
+git checkout v3.9.20
 python -m pip install build
 python -m build
-python -m pip install "dist/mirror_url-3.9.19-py3-none-any.whl[all]"
+python -m pip install "dist/mirror_url-3.9.20-py3-none-any.whl[all]"
 
 # Or install an isolated command with pipx
 pipx install mirror-url</code></pre>
@@ -489,8 +489,8 @@ pipx install mirror-url</code></pre>
 <details><summary>Build a Docker image from the wheel</summary>
 <p>Place the built wheel in <code>dist/</code> next to your Dockerfile:</p>
 <pre><code>FROM python:3.12-slim
-COPY dist/mirror_url-3.9.19-py3-none-any.whl /tmp/
-RUN pip install --no-cache-dir "/tmp/mirror_url-3.9.19-py3-none-any.whl[all]"
+COPY dist/mirror_url-3.9.20-py3-none-any.whl /tmp/
+RUN pip install --no-cache-dir "/tmp/mirror_url-3.9.20-py3-none-any.whl[all]"
 ENTRYPOINT ["mirror-url"]</code></pre>
 </details>
 <p>Allow space for the mirrored data and staging files. See <a href="#download-modes">download modes</a> for temporary storage requirements.</p>
@@ -556,7 +556,7 @@ https://example.com/data/c.fits</code></pre>
   --backend httpx --concurrency 6 --parallel-downloads --verify-content</code></pre>
 <p>All files must stay within the selected root and map to unambiguous local paths. Existing files, including leaf symlinks, require a matching ownership receipt or explicit <code>--overwrite</code>. Replacing a leaf symlink removes the link and installs a regular file without modifying its target. Symlinked roots and intermediate directories are rejected. A matching receipt permits replacement and does not skip the download.</p>
 <p>Both backends support verified chunks. Explicit chunk modes add range-metadata HEAD probes; ineligible files fall back to whole-file GETs. Known-file downloads restart interrupted files and do not resume partials across runs. Chunk scratch stays inside the destination, so omit <code>--chunk-assembly-dir</code>.</p>
-<p>Download mode rejects discovery filters, <code>--missing-files</code>, <code>--check-files</code>, <code>--auto-concurrency</code>, and cleanup policies other than <code>safe</code>. Use mirror mode for incremental synchronization. See the <a href="https://github.com/bpodlipnik/mirror-url/blob/v3.9.19/docs/USER_GUIDE.md#known-url-downloads">known-URL guide</a>.</p>
+<p>Download mode rejects discovery filters, <code>--missing-files</code>, <code>--check-files</code>, <code>--auto-concurrency</code>, and cleanup policies other than <code>safe</code>. Use mirror mode for incremental synchronization. See the <a href="https://github.com/bpodlipnik/mirror-url/blob/v3.9.20/docs/USER_GUIDE.md#known-url-downloads">known-URL guide</a>.</p>
 </section>
 <section id="download-modes" class="section">
 <h2>🎯 Download Modes &amp; Resume</h2>
@@ -609,15 +609,15 @@ mirror-url --config mirror.yaml
 # Override a setting explicitly
 mirror-url --config mirror.yaml --max-concurrent-downloads 4</code></pre>
 <p>Config keys can differ from CLI flags: <code>base_url</code>, <code>file_filters</code>, <code>exclude_dirs</code>, <code>cleanup_policy</code>, and <code>max_chunks_per_file</code> are the model field names. <code>dir_suffix</code> is a single string in a config file; the CLI accepts several suffixes. Pass logging-handler controls such as <code>--print-logs</code> or <code>--quiet</code> on the CLI.</p>
-<p>String values support <code>${VAR}</code> environment placeholders. Unset variables leave placeholders unchanged. See the <a href="https://github.com/bpodlipnik/mirror-url/blob/v3.9.19/docs/USER_GUIDE.md#configuration-files-yamljson">full configuration reference</a>.</p>
+<p>String values support <code>${VAR}</code> environment placeholders. Unset variables leave placeholders unchanged. See the <a href="https://github.com/bpodlipnik/mirror-url/blob/v3.9.20/docs/USER_GUIDE.md#configuration-files-yamljson">full configuration reference</a>.</p>
 </section>
 <section id="arguments" class="section">
 <h2>📋 CLI Argument Reference</h2>
-<p>Expand a group or search for an option. Descriptions and default settings below come from the v3.9.19 parser. Boolean defaults describe the underlying setting before CLI overrides; configuration files can supply different values. The table includes option aliases and positional file inputs. Compatibility settings are accepted but may not affect the current pipeline. Run <code>mirror-url --help</code> for the installed version.</p>
+<p>Expand a group or search for an option. Descriptions and default settings below come from the v3.9.20 parser. Boolean defaults describe the underlying setting before CLI overrides; configuration files can supply different values. The table includes option aliases and positional file inputs. Compatibility settings are accepted but may not affect the current pipeline. Run <code>mirror-url --help</code> for the installed version.</p>
 <div class="argument-search"><label for="argument-filter">Find a CLI option</label><input id="argument-filter" type="search" placeholder="Search flags or descriptions, e.g. cleanup" autocomplete="off" aria-controls="argument-groups"><p id="argument-count" role="status" aria-live="polite"></p></div>
 <!-- BEGIN GENERATED CLI REFERENCE -->
 <div id="argument-groups">
-<!-- CLI reference generated from the v3.9.19 argument parser. -->
+<!-- CLI reference generated from the v3.9.20 argument parser. -->
 <details class="argument-group" data-default-open="false">
 <summary>Help</summary>
 <div class="table-wrapper" tabindex="0" role="region" aria-label="Argument reference"><table>
@@ -889,7 +889,7 @@ mirror-url --config mirror.yaml --missing-files --check-files @checks.txt</code>
 <h3>Optional duplicate-subtree detection</h3>
 <p><code>--handle-symlinks</code> compares non-empty directory entry names to report possible duplicate subtrees. This heuristic can flag unrelated directories and cannot identify individual file symlinks. Start with detection and review the reported paths:</p>
 <pre><code>mirror-url --config mirror.yaml --handle-symlinks --symlink-mode detect --print-logs</code></pre>
-<p><code>detect</code> implies <code>--dry-run</code>. <code>skip</code> omits detected duplicates; <code>follow</code> remains subject to scope and tracker limits; <code>treat-as-file</code> behaves like <code>skip</code>. See the <a href="https://github.com/bpodlipnik/mirror-url/blob/v3.9.19/docs/USER_GUIDE.md#symlink-handling">symlink-handling guide</a> before enabling automatic skipping.</p>
+<p><code>detect</code> implies <code>--dry-run</code>. <code>skip</code> omits detected duplicates; <code>follow</code> remains subject to scope and tracker limits; <code>treat-as-file</code> behaves like <code>skip</code>. See the <a href="https://github.com/bpodlipnik/mirror-url/blob/v3.9.20/docs/USER_GUIDE.md#symlink-handling">symlink-handling guide</a> before enabling automatic skipping.</p>
 </section>
 <section id="monitoring" class="section">
 <h2>📊 Monitoring &amp; Exit Codes</h2>
@@ -938,14 +938,15 @@ print("sync succeeded" if ok else "sync failed")</code></pre>
 <h2>🔧 Troubleshooting</h2>
 <div class="table-wrapper" tabindex="0" role="region" aria-label="Symptom reference"><table><thead><tr><th scope="col">Symptom</th><th scope="col">What to check</th></tr></thead><tbody><tr><td>Private-IP or localhost target rejected</td><td>Secure transport blocks these targets. <code>--no-security-validation</code> does not bypass transport IP restrictions.</td></tr><tr><td>403 / 429 / overloaded server</td><td>Check access policies; reduce worker/file counts, increase request delay, and disable async metadata when appropriate.</td></tr><tr><td>Nothing downloaded</td><td>Mirror mode requires a parseable HTML directory listing; check filters, exclusions, and depth. For known files, choose <code>--mode download</code>. Use <code>--debug --print-logs</code>.</td></tr><tr><td>Parallel mode falls back to whole-file transfers</td><td>Read the logged reason. Chunking needs enough bytes for at least two chunks, compatible configured limits, Range support, and a strong ETag.</td></tr><tr><td>No progress bar or backend dependency</td><td>Upgrade with <code>python -m pip install --upgrade mirror-url</code> and run <code>python -m pip check</code>. Both backends and tqdm are core dependencies. Pass <code>--progress-bar</code> and avoid <code>--quiet</code>; optional psutil monitoring uses the <code>monitor</code> extra.</td></tr><tr><td>No health server</td><td>Set <code>--metrics-json FILE</code> during a non-dry-run instance; the port option alone does not enable it.</td></tr><tr><td>Changed files skipped</td><td>Remove <code>--missing-files</code> for full freshness checks or use <code>--check-files</code> for selected paths. Opt-in <code>--verify-content</code> detects changes against saved local receipts; remote freshness still depends on HTTP metadata.</td></tr><tr><td>Reserved state or filename collision</td><td>Review the reported paths. <code>.mirror-url-state</code> is reserved. Unsafe, rewritten, or Unicode-aliased collisions fail preflight; case-only names require a confirmed case-sensitive destination.</td></tr>
 <tr><td>Destination already owned</td><td>Stop the overlapping MirrorURL run or choose independent destination and state paths. Locks release when their process ends; do not delete lock files while a run is active.</td></tr>
-<tr><td>Existing known-file destination rejected</td><td>Use the matching ownership receipt or explicit <code>--overwrite</code> for intended replacements. Links remain forbidden. Download mode fetches all selected files even when receipts match.</td></tr></tbody></table></div>
+<tr><td>Cannot create destination directory or initialize destination storage</td><td>Check <code>--dest-path</code> spelling, parent-directory permissions, and filesystem space or quota. The affected directory job stops with the original filesystem error and exit code 1; independent selected directories can still run. Use <code>--debug</code> for a traceback.</td></tr>
+<tr><td>Existing known-file destination rejected</td><td>Use the matching ownership receipt or explicit <code>--overwrite</code> for intended replacements. Symlinked roots and parent directories are rejected. Download mode fetches all selected files even when receipts match.</td></tr></tbody></table></div>
 <h3>Inspect a run</h3>
 <pre><code>mirror-url --config mirror.yaml --debug --print-logs --dry-run</code></pre>
 <h3>Uninstall</h3>
 <pre><code>python -m pip uninstall mirror-url
 # For a pipx installation:
 pipx uninstall mirror-url</code></pre>
-<p>Uninstalling leaves mirrored files, logs, and cache data in place. For more help, read the <a href="https://github.com/bpodlipnik/mirror-url/blob/v3.9.19/docs/USER_GUIDE.md">User Guide</a> or report a reproducible problem on <a href="https://github.com/bpodlipnik/mirror-url/issues">GitHub Issues</a>.</p>
+<p>Uninstalling leaves mirrored files, logs, and cache data in place. For more help, read the <a href="https://github.com/bpodlipnik/mirror-url/blob/v3.9.20/docs/USER_GUIDE.md">User Guide</a> or report a reproducible problem on <a href="https://github.com/bpodlipnik/mirror-url/issues">GitHub Issues</a>.</p>
 </section>
 <section id="comparison" class="section">
 <h2>🔎 Choosing a Mirroring Tool</h2>
@@ -955,10 +956,10 @@ pipx uninstall mirror-url</code></pre>
 </section>
 </main>
 <footer class="footer">
-    <p>MirrorURL v3.9.19 · Public HTTP(S) downloads and one-way directory synchronization</p>
+    <p>MirrorURL v3.9.20 · Public HTTP(S) downloads and one-way directory synchronization</p>
     <p>Cleanup defaults to preserving obsolete files. Move and delete policies are explicit choices.</p>
-    <p>© 2026 B. Podlipnik · <a href="https://github.com/bpodlipnik/mirror-url/blob/v3.9.19/LICENSE">MIT License</a> · <a href="https://github.com/bpodlipnik/mirror-url">GitHub</a></p>
-    <p>Documentation checked against <a href="https://github.com/bpodlipnik/mirror-url/tree/v3.9.19">release v3.9.19</a>.</p>
+    <p>© 2026 B. Podlipnik · <a href="https://github.com/bpodlipnik/mirror-url/blob/v3.9.20/LICENSE">MIT License</a> · <a href="https://github.com/bpodlipnik/mirror-url">GitHub</a></p>
+    <p>Documentation checked against <a href="https://github.com/bpodlipnik/mirror-url/tree/v3.9.20">release v3.9.20</a>.</p>
 </footer>
 </div>
 <script>
